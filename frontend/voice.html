@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="be">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Галасавы Агент - Юзік</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/src/styles.css">
+    <style>
+        :root {
+            --primary: #4e82ee;
+            --primary-glow: rgba(78, 130, 238, 0.4);
+            --bg-dark: #0f111a;
+            --glass-bg: rgba(255, 255, 255, 0.05);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --text-primary: #f0f0f0;
+            --text-secondary: #a0a0b0;
+        }
+
+        body {
+            background: var(--bg-dark);
+            background-image:
+                radial-gradient(circle at 20% 20%, rgba(78, 130, 238, 0.15) 0%, transparent 40%),
+                radial-gradient(circle at 80% 80%, rgba(130, 78, 238, 0.15) 0%, transparent 40%);
+            color: var(--text-primary);
+            overflow: hidden;
+            height: 100vh;
+        }
+
+        .voice-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            padding: 2rem;
+            gap: 2.5rem;
+        }
+
+        .voice-title {
+            font-size: 1.8rem;
+            font-weight: 600;
+            background: linear-gradient(135deg, #fff 0%, #a0a0b0 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.5rem;
+        }
+
+        .mic-wrapper {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .mic-halo {
+            position: absolute;
+            width: 180px;
+            height: 180px;
+            border-radius: 50%;
+            background: var(--primary-glow);
+            filter: blur(20px);
+            opacity: 0;
+            transition: opacity 0.5s ease;
+            z-index: 0;
+        }
+
+        .mic-container.listening~.mic-halo {
+            background: rgba(255, 68, 102, 0.4);
+            opacity: 1;
+            animation: halo-pulse 2s infinite;
+        }
+
+        .mic-container.processing~.mic-halo {
+            background: rgba(255, 170, 0, 0.4);
+            opacity: 1;
+            animation: halo-pulse 3s infinite linear;
+        }
+
+        .mic-container.speaking~.mic-halo {
+            background: rgba(68, 255, 170, 0.4);
+            opacity: 1;
+            animation: halo-pulse 1.5s infinite;
+        }
+
+        @keyframes halo-pulse {
+
+            0%,
+            100% {
+                transform: scale(1);
+                opacity: 0.3;
+            }
+
+            50% {
+                transform: scale(1.4);
+                opacity: 0.5;
+            }
+        }
+
+        .mic-container {
+            width: 140px;
+            height: 140px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid var(--glass-border);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 3.5rem;
+            cursor: pointer;
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            position: relative;
+            z-index: 1;
+            backdrop-filter: blur(20px);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        .mic-container:hover {
+            transform: scale(1.05);
+            background: rgba(255, 255, 255, 0.12);
+            border-color: var(--primary);
+        }
+
+        .mic-container.listening {
+            border-color: #ff4466;
+            background: rgba(255, 68, 102, 0.15);
+            transform: scale(1.1);
+            animation: mic-pulse 1.5s ease-in-out infinite;
+        }
+
+        @keyframes mic-pulse {
+
+            0%,
+            100% {
+                transform: scale(1.1);
+                box-shadow: 0 0 20px rgba(255, 68, 102, 0.2);
+            }
+
+            50% {
+                transform: scale(1.15);
+                box-shadow: 0 0 35px rgba(255, 68, 102, 0.4);
+            }
+        }
+
+        .mic-container.processing {
+            border-color: transparent;
+            background: rgba(255, 170, 0, 0.1);
+        }
+
+        .mic-container.processing::after {
+            content: '';
+            position: absolute;
+            inset: -2px;
+            border-radius: 50%;
+            padding: 2px;
+            background: linear-gradient(90deg, #ffaa00, transparent, #ffaa00);
+            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+            mask-composite: exclude;
+            animation: rotate-border 1.5s linear infinite;
+        }
+
+        @keyframes rotate-border {
+            from {
+                transform: rotate(0deg);
+            }
+
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .mic-container.speaking {
+            border-color: #44ffaa;
+            background: rgba(68, 255, 170, 0.1);
+            animation: mic-ripple 1s linear infinite;
+        }
+
+        @keyframes mic-ripple {
+            0% {
+                box-shadow: 0 0 0 0 rgba(68, 255, 170, 0.4);
+            }
+
+            100% {
+                box-shadow: 0 0 0 30px rgba(68, 255, 170, 0);
+            }
+        }
+
+        .status-text {
+            font-size: 1.1rem;
+            color: var(--text-secondary);
+            font-weight: 300;
+            letter-spacing: 0.5px;
+            height: 1.5rem;
+            transition: all 0.3s ease;
+        }
+
+        .status-text.active {
+            color: var(--text-primary);
+            text-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
+        }
+
+        .audio-visualizer {
+            width: 100%;
+            max-width: 320px;
+            height: 100px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            transition: all 0.5s ease;
+        }
+
+        .audio-visualizer.processing {
+            opacity: 0.5;
+            filter: grayscale(1);
+        }
+
+        .visualizer-bar {
+            width: 6px;
+            background: var(--primary);
+            border-radius: 10px;
+            height: 15%;
+            transition: height 0.15s ease-out, background 0.3s ease;
+            opacity: 0.7;
+        }
+
+        .listening .visualizer-bar {
+            background: #ff4466;
+            box-shadow: 0 0 10px rgba(255, 68, 102, 0.3);
+        }
+
+        .speaking .visualizer-bar {
+            background: #44ffaa;
+            box-shadow: 0 0 10px rgba(68, 255, 170, 0.3);
+        }
+
+        .processing .visualizer-bar {
+            background: #ffaa00;
+            animation: bar-loading 1s infinite ease-in-out;
+        }
+
+        @keyframes bar-loading {
+
+            0%,
+            100% {
+                height: 15%;
+            }
+
+            50% {
+                height: 40%;
+            }
+        }
+
+        .visualizer-bar:nth-child(even) {
+            animation-delay: 0.2s;
+        }
+
+        .visualizer-bar:nth-child(3n) {
+            animation-delay: 0.4s;
+        }
+
+        .transcript-box {
+            width: 100%;
+            max-width: 600px;
+            max-height: 35vh;
+            overflow-y: auto;
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: 24px;
+            padding: 1.5rem 2rem;
+            backdrop-filter: blur(15px);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+            scrollbar-width: thin;
+            scrollbar-color: var(--primary) transparent;
+        }
+
+        .transcript-box::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .transcript-box::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .transcript-box::-webkit-scrollbar-thumb {
+            background-color: var(--primary);
+            border-radius: 20px;
+        }
+
+        .transcript-label {
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: var(--text-secondary);
+            margin-bottom: 1rem;
+            display: block;
+            border-bottom: 1px solid var(--glass-border);
+            padding-bottom: 0.5rem;
+        }
+
+        .transcript-text {
+            color: var(--text-primary);
+            font-size: 1.1rem;
+            line-height: 1.6;
+            font-weight: 400;
+            word-wrap: break-word;
+        }
+
+        .voice-controls {
+            display: flex;
+            gap: 1.5rem;
+        }
+
+        .voice-btn {
+            padding: 0.8rem 2.5rem;
+            font-size: 1rem;
+            font-weight: 500;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            border: 1px solid transparent;
+        }
+
+        .voice-btn.primary {
+            background: var(--primary);
+            color: white;
+            box-shadow: 0 4px 15px var(--primary-glow);
+        }
+
+        .voice-btn.primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px var(--primary-glow);
+        }
+
+        .voice-btn.secondary {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-primary);
+            border-color: var(--glass-border);
+        }
+
+        .voice-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .connection-status {
+            position: absolute;
+            top: 2rem;
+            right: 2rem;
+            padding: 0.6rem 1.2rem;
+            border-radius: 50px;
+            font-size: 0.8rem;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            backdrop-filter: blur(10px);
+        }
+
+        .connection-status.connected .status-dot {
+            background: #44ffaa;
+            box-shadow: 0 0 10px #44ffaa;
+        }
+
+        .connection-status.disconnected .status-dot {
+            background: #ff4466;
+            box-shadow: 0 0 10px #ff4466;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="voice-container">
+        <div class="connection-status disconnected" id="connection-status">
+            <span class="status-dot"></span>
+            <span id="connection-text">Адключана</span>
+        </div>
+
+        <h1 class="voice-title">🎙️ Галасавы Агент - Юзік</h1>
+
+        <div class="mic-wrapper">
+            <div class="mic-container" id="mic-btn">
+                🎤
+            </div>
+            <div class="mic-halo"></div>
+        </div>
+
+        <p class="status-text" id="status-text">Націсніце на мікрафон для пачатку</p>
+
+        <div class="audio-visualizer" id="visualizer">
+            <!-- Visualizer bars will be generated by JS -->
+        </div>
+
+        <div class="transcript-box">
+            <p class="transcript-label">📝 Транскрыпцыя:</p>
+            <p class="transcript-text" id="transcript">Тут будзе паказаны тэкст размовы...</p>
+        </div>
+
+        <div class="voice-controls">
+            <button class="voice-btn primary" id="start-btn">🎤 Пачаць</button>
+            <button class="voice-btn secondary" id="stop-btn" disabled>⏹️ Спыніць</button>
+        </div>
+    </div>
+
+    <!-- ONNX Runtime for VAD -->
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.19.2/dist/ort.min.js"></script>
+    <!-- Silero VAD Library -->
+    <script src="https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.18/dist/bundle.min.js"></script>
+    <script type="module" src="/src/voice.js"></script>
+</body>
+
+</html>

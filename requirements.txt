@@ -1,0 +1,21 @@
+# Юзік — minimal requirements
+
+# Web Frameworks
+gradio>=5.25.2
+fastapi
+uvicorn
+
+# AI SDKs
+google-genai>=1.52.0
+google-adk>=1.21.0
+
+# Bot & Tools
+python-telegram-bot[webhooks]
+fal-client
+requests
+aiohttp>=3.12
+
+# Helpers & Data
+python-dotenv
+rapidfuzz
+datasets
