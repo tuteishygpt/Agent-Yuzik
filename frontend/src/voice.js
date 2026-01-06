@@ -23,6 +23,8 @@ const state = {
     currentAudio: null,
     interruptRequested: false,
     isStreaming: false, // Debug: Am I currently sending chunks?
+    recordingStream: null, // Mic stream for recording
+    recordingProcessor: null, // ScriptProcessor for chunks
     lastVadEndTimestamp: 0, // Debug: Timestamp when VAD detected speech end
     firstProcessingTimestamp: 0, // Debug: Timestamp when sever sent "processing"
     firstAudioTimestamp: 0, // Debug: Timestamp when first audio chunk arrived
@@ -277,17 +279,8 @@ async function initVAD() {
                     state.websocket.send(JSON.stringify({ type: 'end_audio' }));
                 }
             },
-            onFrameProcessed: (probs, frame) => {
+            onFrameProcessed: (probs) => {
                 updateVisualizerFromVAD(probs.isSpeech);
-
-                // Stream chunks while speech is active
-                if (state.isStreaming && state.isConnected && state.websocket.readyState === WebSocket.OPEN) {
-                    // Convert frame (Float32Array) to Int16 raw bytes
-                    const buffer = new ArrayBuffer(frame.length * 2);
-                    const view = new DataView(buffer);
-                    floatTo16BitPCM(view, 0, frame);
-                    state.websocket.send(buffer);
-                }
             },
             positiveSpeechThreshold: 0.8,
             negativeSpeechThreshold: 0.4,
@@ -377,6 +370,30 @@ function writeString(view, offset, string) {
 async function startSession() {
     try {
         await initVAD();
+
+        // Setup a separate 16kHz capture for streaming to Gemini
+        // We do this manually because VAD internal worklet doesn't expose frames easily
+        if (!state.recordingStream) {
+            state.recordingStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const context = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+            const source = context.createMediaStreamSource(state.recordingStream);
+            const processor = context.createScriptProcessor(4096, 1, 1);
+
+            processor.onaudioprocess = (e) => {
+                if (state.isStreaming && state.isConnected && state.websocket.readyState === WebSocket.OPEN) {
+                    const inputData = e.inputBuffer.getChannelData(0);
+                    const buffer = new ArrayBuffer(inputData.length * 2);
+                    const view = new DataView(buffer);
+                    floatTo16BitPCM(view, 0, inputData);
+                    state.websocket.send(buffer);
+                }
+            };
+
+            source.connect(processor);
+            processor.connect(context.destination);
+            state.recordingProcessor = { context, source, processor };
+        }
+
         await state.vad.start();
         state.isRecording = true;
         setListeningState(true);
@@ -390,6 +407,19 @@ async function stopSession() {
     if (state.vad) {
         await state.vad.pause();
     }
+
+    // Clean up recording pipeline
+    if (state.recordingProcessor) {
+        state.recordingProcessor.processor.disconnect();
+        state.recordingProcessor.source.disconnect();
+        state.recordingProcessor.context.close();
+        state.recordingProcessor = null;
+    }
+    if (state.recordingStream) {
+        state.recordingStream.getTracks().forEach(t => t.stop());
+        state.recordingStream = null;
+    }
+
     stopAllPlayback();
     state.isRecording = false;
     setListeningState(false);
