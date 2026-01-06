@@ -50,7 +50,14 @@ const elements = {
 // ===========================
 function connectWebSocket() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/api/voice?user_id=${state.userId}`;
+    let host = window.location.host;
+
+    // In development, connect directly to backend (port 7860) to avoid Vite proxy issues (ECONNRESET)
+    if (import.meta.env.DEV) {
+        host = `${window.location.hostname}:7860`;
+    }
+
+    const wsUrl = `${protocol}//${host}/api/voice?user_id=${state.userId}`;
 
     state.websocket = new WebSocket(wsUrl);
 
@@ -234,23 +241,23 @@ function stopAllPlayback() {
     setSpeakingState(false);
 }
 
-// ===========================
 // VAD & Recording
 // ===========================
 async function initVAD() {
     if (state.vad) return;
 
-    // Configure ONNX Runtime to load WASM from CDN
+    // Configure ONNX Runtime to load WASM from CDN (v1.14.0 compatible)
     if (window.ort) {
-        window.ort.env.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.19.2/dist/";
+        window.ort.env.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.14.0/dist/";
+        // Force single-threaded for stability on non-secure contexts
+        window.ort.env.wasm.numThreads = 1;
+        window.ort.env.wasm.simd = true;
     }
 
     try {
-        // Specify CDN URLs for worklet and model to avoid loading from local server root
-        const baseUrl = "https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.18/dist";
         state.vad = await window.vad.MicVAD.new({
-            workletURL: `${baseUrl}/vad.worklet.bundle.min.js`,
-            modelURL: `${baseUrl}/silero_vad.onnx`,
+            workletURL: "https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.18/dist/vad.worklet.bundle.min.js",
+            modelURL: "https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.18/dist/silero_vad.onnx",
             onSpeechStart: () => {
                 console.log("Speech started");
                 state.isStreaming = true;
@@ -288,7 +295,7 @@ async function initVAD() {
         });
     } catch (e) {
         console.error("Failed to init VAD", e);
-        updateStatus("Памылка ініцыялізацыі VAD");
+        updateStatus("Памылка ініцыялізацыі VAD: " + e.message);
     }
 }
 
@@ -369,6 +376,21 @@ function writeString(view, offset, string) {
 // ===========================
 async function startSession() {
     try {
+        // Check for secure context (required for getUserMedia)
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            const isSecure = window.isSecureContext;
+            const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
+            if (!isSecure && !isLocalhost) {
+                updateStatus("⚠️ Патрэбна HTTPS або localhost для доступу да мікрафона");
+                console.error("getUserMedia requires a secure context. Please access via https:// or http://localhost");
+                return;
+            }
+            updateStatus("⚠️ Браўзер не падтрымлівае доступ да мікрафона");
+            console.error("getUserMedia is not supported in this browser");
+            return;
+        }
+
         await initVAD();
 
         // Setup a separate 16kHz capture for streaming to Gemini
@@ -400,6 +422,7 @@ async function startSession() {
         updateStatus("Слухаю... Можаце гаварыць.");
     } catch (e) {
         console.error("Start session failed", e);
+        updateStatus("Памылка: " + e.message);
     }
 }
 

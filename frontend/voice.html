@@ -419,9 +419,17 @@
         </div>
     </div>
 
-    <!-- ONNX Runtime for VAD -->
-    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.19.2/dist/ort.min.js"></script>
-    <!-- Silero VAD Library -->
+    <!-- ONNX Runtime for VAD - use bundled version to avoid CORS issues -->
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.14.0/dist/ort.min.js"></script>
+    <script>
+        // Configure ONNX Runtime WASM paths - use v1.14.0 which is more compatible
+        if (window.ort) {
+            ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.14.0/dist/';
+            ort.env.wasm.numThreads = 1;
+            ort.env.wasm.simd = true;
+        }
+    </script>
+    <!-- Silero VAD Library - use v0.0.18 which works with onnxruntime-web 1.14 -->
     <script src="https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.18/dist/bundle.min.js"></script>
     <script type="module" src="/src/voice.js"></script>
 </body>

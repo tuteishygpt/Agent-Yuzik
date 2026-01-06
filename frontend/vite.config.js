@@ -1,6 +1,9 @@
 import { defineConfig } from 'vite';
 
 export default defineConfig({
+  // Ensure wasm and onnx files are treated as assets (not processed)
+  assetsInclude: ['**/*.wasm', '**/*.onnx'],
+
   server: {
     host: '0.0.0.0',
     port: 5173,
@@ -16,7 +19,17 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+    },
   },
+
+  // Configure optimizeDeps to exclude onnxruntime-web as it has special loading requirements
+  optimizeDeps: {
+    exclude: ['onnxruntime-web', '@ricky0123/vad-web'],
+  },
+
   build: {
     outDir: 'dist',
     rollupOptions: {
@@ -26,4 +39,19 @@ export default defineConfig({
       },
     },
   },
+
+  // Plugin to set correct MIME types for .wasm files
+  plugins: [
+    {
+      name: 'wasm-mime-type',
+      configureServer(server) {
+        server.middlewares.use((req, res, next) => {
+          if (req.url?.endsWith('.wasm')) {
+            res.setHeader('Content-Type', 'application/wasm');
+          }
+          next();
+        });
+      },
+    },
+  ],
 });

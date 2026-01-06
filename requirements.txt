@@ -1,7 +1,7 @@
 # Юзік — minimal requirements
 
 # Web Frameworks
-gradio>=5.25.2
+
 fastapi
 uvicorn
 
