@@ -37,6 +37,7 @@ from fastapi.responses import RedirectResponse
 
 # Імпарты з вашага праекта
 from services.adk_service import ADKService
+from tools.text_to_speech_tool import register_voice_user, unregister_voice_user, stream_speech
 
 # ---------------------------------------------------------------------
 # Ініцыялізацыя Сэрвісаў ---------------------------------------------
@@ -227,10 +228,31 @@ async def voice_websocket(websocket: WebSocket, user_id: str = "voice_user"):
     
     session_id = await adk_service.get_or_create_session(user_id)
     
+    # Create queue for streaming audio and register user
+    audio_queue = asyncio.Queue()
+    loop = asyncio.get_running_loop()
+    register_voice_user(user_id, audio_queue, loop)
+    
+    async def audio_sender():
+        """Consumes audio chunks from queue and sends to websocket"""
+        try:
+            while True:
+                chunk = await audio_queue.get()
+                if chunk is None: break # Sentinel
+                await websocket.send_bytes(chunk)
+                audio_queue.task_done()
+        except Exception as e:
+            log.error(f"Audio sender error: {e}")
+
+    # Start audio sender task
+    sender_task = asyncio.create_task(audio_sender())
+
     async def process_voice_message(audio_data: bytes):
         """Internal helper to process voice and send streamed response"""
         try:
             await websocket.send_json({"type": "processing"})
+            
+            collected_text = []
             
             # Start streaming the agent response
             async for ev in adk_service.run_agent_stream(
@@ -238,19 +260,22 @@ async def voice_websocket(websocket: WebSocket, user_id: str = "voice_user"):
                 user_id=user_id,
                 text=None,
                 file_data=audio_data,
-                mime_type="audio/wav", # We now send WAV from frontend
+                mime_type="audio/wav", 
             ):
                 # Handle text response
                 if ev.is_final_response() and ev.content:
                     text_parts = [p.text for p in ev.content.parts if p.text]
                     if text_parts:
                         full_text = "\n".join(text_parts)
-                        await websocket.send_json({
-                            "type": "response",
-                            "text": full_text
-                        })
+                        # Avoid sending "[Audio streamed directly]" if it leaks
+                        if "[Audio streamed directly]" not in full_text:
+                            collected_text.append(full_text)
+                            await websocket.send_json({
+                                "type": "response",
+                                "text": full_text
+                            })
                 
-                # Handle generated audio (TTS tool output)
+                # Handle generated audio (Legacy/Standard Artifacts)
                 if ev.actions and ev.actions.artifact_delta:
                     for filename, version in ev.actions.artifact_delta.items():
                         try:
@@ -268,17 +293,32 @@ async def voice_websocket(websocket: WebSocket, user_id: str = "voice_user"):
                                     await websocket.send_bytes(part.inline_data.data)
                         except Exception as e:
                             log.error(f"Error loading audio artifact: {e}")
+            
+            # After agent finishes, automatically stream TTS for collected text
+            if collected_text:
+                final_text = " ".join(collected_text)
+                log.info(f"Streaming TTS for voice response: {final_text[:100]}...")
+                try:
+                    async for chunk in stream_speech(final_text):
+                        await websocket.send_bytes(chunk)
+                except Exception as tts_err:
+                    log.error(f"TTS streaming error: {tts_err}")
                             
         except Exception as e:
             log.exception(f"Error in process_voice_message: {e}")
             try:
                 await websocket.send_json({"type": "error", "message": str(e)})
             except: pass
-
+            
     try:
         while True:
             # We use wait_for or similar to handle both binary and text data
             data = await websocket.receive()
+            
+            # Check for disconnect
+            if data.get("type") == "websocket.disconnect":
+                log.info(f"WebSocket disconnect received for user {user_id}")
+                break
             
             if "bytes" in data:
                 # In the new VAD mode, the frontend sends the whole utterance as one WAV
@@ -295,6 +335,11 @@ async def voice_websocket(websocket: WebSocket, user_id: str = "voice_user"):
                 
                 if msg_type == "interrupt":
                     log.info(f"Interruption received for user {user_id}")
+                    # Clear queue
+                    while not audio_queue.empty():
+                        try: audio_queue.get_nowait()
+                        except: pass
+                    
                     if user_id in active_voice_tasks:
                         active_voice_tasks[user_id].cancel()
                         del active_voice_tasks[user_id]
@@ -309,6 +354,9 @@ async def voice_websocket(websocket: WebSocket, user_id: str = "voice_user"):
     except Exception as e:
         log.exception(f"Voice WebSocket error: {e}")
     finally:
+        unregister_voice_user(user_id)
+        if sender_task:
+            sender_task.cancel()
         if user_id in active_voice_tasks:
             active_voice_tasks[user_id].cancel()
             del active_voice_tasks[user_id]

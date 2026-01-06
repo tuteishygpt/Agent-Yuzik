@@ -84,18 +84,32 @@ class ADKService:
 
         content = types.Content(role="user", parts=parts)
         
-        # Runner.run is synchronous, so we run it in a thread to keep FastAPI async
+        
+        # True streaming using a queue to bridge sync runner and async generator
         import asyncio
         from concurrent.futures import ThreadPoolExecutor
         
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
+        event_queue = asyncio.Queue()
+        
+        def sync_run_and_push():
+            try:
+                for ev in self.runner.run(user_id=user_id, session_id=session_id, new_message=content):
+                    loop.call_soon_threadsafe(event_queue.put_nowait, ev)
+            except Exception as e:
+                log.error(f"Error in sync runner: {e}")
+                # Optionally push error to queue or handle it
+            finally:
+                loop.call_soon_threadsafe(event_queue.put_nowait, None) # Sentinel
+
+        # Fire and forget the thread (or keep ref to verify completion)
         executor = ThreadPoolExecutor(max_workers=1)
+        loop.run_in_executor(executor, sync_run_and_push)
 
-        def sync_run():
-            return list(self.runner.run(user_id=user_id, session_id=session_id, new_message=content))
-
-        events = await loop.run_in_executor(executor, sync_run)
-        for ev in events:
+        while True:
+            ev = await event_queue.get()
+            if ev is None:
+                break
             yield ev
 
     async def send_media_from_parts(

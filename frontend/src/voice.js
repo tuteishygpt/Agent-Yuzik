@@ -112,52 +112,108 @@ function handleServerMessage(data) {
 // ===========================
 // Audio Playback (Streaming Queue)
 // ===========================
-async function handleIncomingAudioChunk(blob) {
-    const url = URL.createObjectURL(blob);
-    state.audioQueue.push(url);
-    if (!state.isSpeaking) {
-        playNextInQueue();
+// ===========================
+// Audio Playback (Seamless via Web Audio API)
+// ===========================
+
+// Initialize Audio Context (must be done after user interaction)
+function ensureAudioContext() {
+    if (!state.audioContext) {
+        state.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (state.audioContext.state === 'suspended') {
+        state.audioContext.resume();
     }
 }
 
-async function playNextInQueue() {
-    if (state.audioQueue.length === 0) {
-        setSpeakingState(false);
-        return;
-    }
-
-    setSpeakingState(true);
-    const url = state.audioQueue.shift();
-    const audio = new Audio(url);
-    state.currentAudio = audio;
-
-    audio.onended = () => {
-        URL.revokeObjectURL(url);
-        state.currentAudio = null;
-        playNextInQueue();
-    };
-
-    audio.onerror = () => {
-        console.error("Audio playback error");
-        URL.revokeObjectURL(url);
-        state.currentAudio = null;
-        playNextInQueue();
-    };
+async function handleIncomingAudioChunk(blob) {
+    ensureAudioContext();
 
     try {
-        await audio.play();
+        const arrayBuffer = await blob.arrayBuffer();
+        // Decode the audio data asynchronously
+        const audioBuffer = await state.audioContext.decodeAudioData(arrayBuffer);
+        scheduleAudioBuffer(audioBuffer);
     } catch (e) {
-        console.error("Playback failed", e);
-        playNextInQueue();
+        console.error("Error decoding audio chunk:", e);
+    }
+}
+
+function scheduleAudioBuffer(buffer) {
+    const source = state.audioContext.createBufferSource();
+    source.buffer = buffer;
+    source.connect(state.audioContext.destination);
+
+    const currentTime = state.audioContext.currentTime;
+
+    // Logic for gapless playback:
+    // If nextStartTime is in the past (or 0), we start "now" (+ small buffer).
+    // Otherwise, we schedule it right after the previous chunk.
+    if (!state.nextStartTime || state.nextStartTime < currentTime) {
+        state.nextStartTime = currentTime + 0.1; // 100ms buffer for immediate start
+    }
+
+    source.start(state.nextStartTime);
+
+    // Update next start time
+    state.nextStartTime += buffer.duration;
+
+    // Track source for interruption
+    if (!state.scheduledSources) state.scheduledSources = [];
+    state.scheduledSources.push(source);
+
+    // Cleanup source from list when done (optional, but good for memory)
+    source.onended = () => {
+        const index = state.scheduledSources.indexOf(source);
+        if (index > -1) {
+            state.scheduledSources.splice(index, 1);
+        }
+    };
+
+    // Handle UI "Speaking" state
+    setSpeakingState(true);
+    updateSpeakingTimeout();
+}
+
+function updateSpeakingTimeout() {
+    // Clear existing timeout
+    if (state.speakingTimeout) {
+        clearTimeout(state.speakingTimeout);
+    }
+
+    if (!state.audioContext) return;
+
+    // Calculate when the *last* scheduled audio will finish
+    const timeRemaining = state.nextStartTime - state.audioContext.currentTime;
+
+    if (timeRemaining > 0) {
+        state.speakingTimeout = setTimeout(() => {
+            setSpeakingState(false);
+            state.nextStartTime = 0; // Reset timeline
+        }, timeRemaining * 1000 + 200); // +200ms safety buffer
+    } else {
+        setSpeakingState(false);
     }
 }
 
 function stopAllPlayback() {
-    if (state.currentAudio) {
-        state.currentAudio.pause();
-        state.currentAudio = null;
+    // Stop all scheduled sources
+    if (state.scheduledSources) {
+        state.scheduledSources.forEach(source => {
+            try { source.stop(); } catch (e) { /* ignore if already stopped */ }
+        });
+        state.scheduledSources = [];
     }
-    state.audioQueue = [];
+
+    // Reset timeline
+    state.nextStartTime = 0;
+
+    // clear timeout
+    if (state.speakingTimeout) {
+        clearTimeout(state.speakingTimeout);
+        state.speakingTimeout = null;
+    }
+
     setSpeakingState(false);
 }
 
@@ -181,12 +237,16 @@ async function initVAD() {
             onSpeechStart: () => {
                 console.log("Speech started");
                 if (state.isSpeaking) {
-                    console.log("Interrupting...");
-                    handleInterruption();
+                    console.log("Interrupting... (Disabled for debugging)");
+                    // handleInterruption();
                 }
             },
             onSpeechEnd: (audio) => {
                 console.log("Speech ended");
+                if (state.isSpeaking) {
+                    console.log("Ignored speech during playback (Anti-Echo)");
+                    return;
+                }
                 if (state.isConnected && state.websocket.readyState === WebSocket.OPEN) {
                     // Send audio to server
                     // Silero VAD returns Float32Array pcm 16khz
