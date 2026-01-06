@@ -1070,7 +1070,7 @@ if __name__ == "__main__":
     log.info("Запуск сервера Uvicorn...")
     uvicorn.run(
         app,
-        host="127.0.0.1",
+        host="0.0.0.0",
         port=PORT,
         proxy_headers=True,
         forwarded_allow_ips='*',
