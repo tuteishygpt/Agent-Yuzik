@@ -1,5 +1,6 @@
 from __future__ import annotations
 import logging
+import time
 import os
 from dotenv import load_dotenv
 
@@ -16,6 +17,9 @@ from pathlib import Path
 from typing import Any, Dict, List
 from datetime import datetime
 import random
+import config
+from google import genai
+from google.genai import types
 
 # ---------------------------------------------------------------------
 # Канфігурацыя і Лагаванне -------------------------------------------
@@ -54,6 +58,15 @@ except Exception as e:
 # ---------------------------------------------------------------------
 # FastAPI App ---------------------------------------------------------
 app = FastAPI()
+
+# Global Gemini Client (Lazy init)
+genai_client = None
+
+def get_genai_client():
+    global genai_client
+    if not genai_client:
+        genai_client = genai.Client(api_key=config.GEMINI_API_KEY)
+    return genai_client
 
 # CORS for frontend
 from fastapi.middleware.cors import CORSMiddleware
@@ -233,6 +246,9 @@ async def voice_websocket(websocket: WebSocket, user_id: str = "voice_user"):
     loop = asyncio.get_running_loop()
     register_voice_user(user_id, audio_queue, loop)
     
+    # Accumulator for continuous audio upload
+    audio_accumulator = bytearray()
+    
     async def audio_sender():
         """Consumes audio chunks from queue and sends to websocket"""
         try:
@@ -250,57 +266,212 @@ async def voice_websocket(websocket: WebSocket, user_id: str = "voice_user"):
     async def process_voice_message(audio_data: bytes):
         """Internal helper to process voice and send streamed response"""
         try:
+            start_ts = time.time()
+            perf_logs = []
+            
+            def perf_log(msg: str):
+                log.info(msg)
+                perf_logs.append(msg)
+                
+            perf_log(f"[Perf] Server: Audio Received. Size: {len(audio_data)} bytes. TS: {start_ts}")
             await websocket.send_json({"type": "processing"})
             
             collected_text = []
             
-            # Start streaming the agent response
-            async for ev in adk_service.run_agent_stream(
-                session_id=session_id,
-                user_id=user_id,
-                text=None,
-                file_data=audio_data,
-                mime_type="audio/wav", 
-            ):
-                # Handle text response
-                if ev.is_final_response() and ev.content:
-                    text_parts = [p.text for p in ev.content.parts if p.text]
-                    if text_parts:
-                        full_text = "\n".join(text_parts)
-                        # Avoid sending "[Audio streamed directly]" if it leaks
-                        if "[Audio streamed directly]" not in full_text:
-                            collected_text.append(full_text)
-                            await websocket.send_json({
-                                "type": "response",
-                                "text": full_text
-                            })
+            # Check if Simple Voice Agent mode is enabled
+            if config.SIMPLE_VOICE_AGENT:
+                perf_log(f"[Perf] Using Simple Voice Agent (Model: {config.SIMPLE_VOICE_MODEL}). Overhead: {time.time() - start_ts:.3f}s")
+                gen_start = time.time()
                 
-                # Handle generated audio (Legacy/Standard Artifacts)
-                if ev.actions and ev.actions.artifact_delta:
-                    for filename, version in ev.actions.artifact_delta.items():
-                        try:
-                            # Load and send audio artifact immediately
-                            part = await adk_service.artifact_service.load_artifact(
-                                app_name=adk_service.app_name,
-                                user_id=user_id,
-                                session_id=session_id,
-                                filename=filename,
-                                version=version,
+                try:
+                    # Initialize Gemini Client
+                    client = get_genai_client()
+                    prompt = config.SIMPLE_VOICE_SYSTEM_PROMPT
+                    
+                    # Generate content STREAM
+                    # We stream text from LLM, and as soon as we have a full sentence, we trigger TTS
+                    response_stream = await client.aio.models.generate_content_stream(
+                        model=config.SIMPLE_VOICE_MODEL,
+                        contents=[
+                            types.Content(
+                                role="user",
+                                parts=[
+                                    types.Part(
+                                        inline_data=types.Blob(
+                                            mime_type="audio/wav",
+                                            data=audio_data
+                                        )
+                                    )
+                                ]
                             )
-                            if part and getattr(part, "inline_data", None):
-                                if getattr(part.inline_data, "mime_type", "").startswith("audio"):
-                                    # Send raw audio bytes
-                                    await websocket.send_bytes(part.inline_data.data)
+                        ],
+                        config=types.GenerateContentConfig(
+                            system_instruction=prompt,
+                            temperature=0.7
+                        )
+                    )
+                    
+                    perf_log(f"[Perf] Gemini Stream Started. TTFT: {time.time() - gen_start:.3f}s")
+                    
+                    text_buffer = ""
+                    sentence_buffer = ""
+                    first_token = True
+                    sent_first_audio_chunk = False
+                    
+                    # Internal queue for sentences to be processed by TTS
+                    tts_sentence_queue = asyncio.Queue()
+                    
+                    async def tts_worker():
+                        nonlocal sent_first_audio_chunk
+                        try:
+                            while True:
+                                sentence = await tts_sentence_queue.get()
+                                if sentence is None: break # Sentinel
+                                
+                                log.info(f"TTS Worker: Processing sentence: {sentence[:30]}...")
+                                async for audio_chunk in stream_speech(sentence):
+                                    if not sent_first_audio_chunk:
+                                        perf_log(f"[Perf] First TTS Chunk sent. Pipeline Latency: {time.time() - start_ts:.3f}s")
+                                        sent_first_audio_chunk = True
+                                    # Use the user's audio_queue which is consumed by the audio_sender task
+                                    await audio_queue.put(audio_chunk)
+                                tts_sentence_queue.task_done()
                         except Exception as e:
-                            log.error(f"Error loading audio artifact: {e}")
+                            log.error(f"TTS Worker Error: {e}")
+
+                    # Start worker
+                    worker_task = asyncio.create_task(tts_worker())
+                    
+                    try:
+                        async for chunk in response_stream:
+                            if chunk.text:
+                                if first_token:
+                                    perf_log(f"[Perf] First LLM Token. Latency: {time.time() - gen_start:.3f}s")
+                                    first_token = False
+                                    
+                                text_chunk = chunk.text
+                                text_buffer += text_chunk
+                                sentence_buffer += text_chunk
+                                
+                                # Send intermediate text to UI for live transcription
+                                await websocket.send_json({
+                                    "type": "response",
+                                    "text": text_buffer # Send full accumulated text for simple UI update
+                                })
+
+                                # Check for sentence delimiters
+                                # Simple heuristic: split by . ! ? \n
+                                # We want to enable TTS pipeline as early as possible
+                                import re
+                                # Match sentence ending not preceded by known abbreviations (simplified)
+                                if re.search(r'[.!?\n]', sentence_buffer):
+                                    # Find the last split point
+                                    parts = re.split(r'([.!?\n]+)', sentence_buffer)
+                                    # parts will look like ["Hello world", ".", " How are you", "?", ""]
+                                    
+                                    # Process all complete sentences
+                                    while len(parts) > 2: # Need at least Sentence + Delimiter + Remainder
+                                        sentence = parts.pop(0) + parts.pop(0)
+                                        sentence = sentence.strip()
+                                        if sentence:
+                                            # Push to worker
+                                            await tts_sentence_queue.put(sentence)
+                                    else:
+                                        # Put remainder back
+                                        sentence_buffer = "".join(parts)
+
+                        # Process remaining text in buffer
+                        if sentence_buffer.strip():
+                             await tts_sentence_queue.put(sentence_buffer)
+
+                        # Wait for all TTS to finish
+                        await tts_sentence_queue.put(None) # Sentinel
+                        await worker_task
+                    finally:
+                        if not worker_task.done():
+                            worker_task.cancel()
+
+                    perf_log(f"[Perf] LLM Stream Complete. Total Gen Time: {time.time() - gen_start:.3f}s")
+                    
+                    # Send Debug Info if enabled
+                    if config.SIMPLE_VOICE_DEBUG_TIMESTAMPS:
+                        debug_msg = "\n".join(perf_logs)
+                        await websocket.send_json({
+                            "type": "response",
+                            "text": f"\n\n--- Debug Timestamps (Streamed) ---\n{debug_msg}"
+                        })
+
+                except Exception as genai_err:
+                    log.error(f"Gemini API Error: {genai_err}")
+                    await websocket.send_json({"type": "error", "message": f"Gemini Error: {str(genai_err)}"})
+
+            else:
+                # Start streaming the agent response via ADK Service
+                async for ev in adk_service.run_agent_stream(
+                    session_id=session_id,
+                    user_id=user_id,
+                    text=None,
+                    file_data=audio_data,
+                    mime_type="audio/wav", 
+                ):
+                    # Handle text response
+                    if ev.is_final_response() and ev.content:
+                        text_parts = [p.text for p in ev.content.parts if p.text]
+                        if text_parts:
+                            full_text = "\n".join(text_parts)
+                            # Avoid sending "[Audio streamed directly]" if it leaks
+                            if "[Audio streamed directly]" not in full_text:
+                                collected_text.append(full_text)
+                                await websocket.send_json({
+                                    "type": "response",
+                                    "text": full_text
+                                })
+                    
+                    # Handle generated audio (Legacy/Standard Artifacts)
+                    if ev.actions and ev.actions.artifact_delta:
+                        for filename, version in ev.actions.artifact_delta.items():
+                            try:
+                                # Load and send audio artifact immediately
+                                part = await adk_service.artifact_service.load_artifact(
+                                    app_name=adk_service.app_name,
+                                    user_id=user_id,
+                                    session_id=session_id,
+                                    filename=filename,
+                                    version=version,
+                                )
+                                if part and getattr(part, "inline_data", None):
+                                    if getattr(part.inline_data, "mime_type", "").startswith("audio"):
+                                        # Send raw audio bytes
+                                        await websocket.send_bytes(part.inline_data.data)
+                            except Exception as e:
+                                log.error(f"Error loading audio artifact: {e}")
             
             # After agent finishes, automatically stream TTS for collected text
-            if collected_text:
+                            except Exception as e:
+                                log.error(f"Error loading audio artifact: {e}")
+            
+            # NOTE: For Simple Voice Agent, TTS is handled inside the 'if' block above (streamed).
+            # The code below is only for the ADK agent path (legacy/non-simple).
+            if not config.SIMPLE_VOICE_AGENT and collected_text:
                 final_text = " ".join(collected_text)
-                log.info(f"Streaming TTS for voice response: {final_text[:100]}...")
+                perf_log(f"[Perf] Streaming TTS for voice response. Text Len: {len(final_text)}. Time from start: {time.time() - start_ts:.3f}s")
+                tts_start = time.time()
+                first_chunk = True
                 try:
                     async for chunk in stream_speech(final_text):
+                        if first_chunk:
+                            perf_log(f"[Perf] First TTS Audio Chunk Yielded. TTS Latency: {time.time() - tts_start:.3f}s")
+                            first_chunk = False
                         await websocket.send_bytes(chunk)
+                        
+                    # Send Debug Info if enabled
+                    if config.SIMPLE_VOICE_DEBUG_TIMESTAMPS:
+                        debug_msg = "\n".join(perf_logs)
+                        await websocket.send_json({
+                            "type": "response",
+                            "text": f"\n\n--- Debug Timestamps ---\n{debug_msg}"
+                        })
+
                 except Exception as tts_err:
                     log.error(f"TTS streaming error: {tts_err}")
                             
@@ -321,19 +492,40 @@ async def voice_websocket(websocket: WebSocket, user_id: str = "voice_user"):
                 break
             
             if "bytes" in data:
-                # In the new VAD mode, the frontend sends the whole utterance as one WAV
-                # So we can process it immediately
-                if user_id in active_voice_tasks and not active_voice_tasks[user_id].done():
-                    active_voice_tasks[user_id].cancel()
-                
-                task = asyncio.create_task(process_voice_message(data["bytes"]))
-                active_voice_tasks[user_id] = task
+                # Continuous streaming: append raw chunks to accumulator
+                audio_accumulator.extend(data["bytes"])
                 
             elif "text" in data:
                 msg = json.loads(data["text"])
                 msg_type = msg.get("type")
+
+                if msg_type == "end_audio":
+                    if not audio_accumulator:
+                        continue
+                        
+                    log.info(f"Received end_audio. Accumulated {len(audio_accumulator)} bytes. Starting processing...")
+                    
+                    # Wrap accumulated raw PCM into a WAV file for Gemini
+                    # (Assuming frontend sends 16kHz 16-bit Mono PCM)
+                    import struct
+                    def create_wav_header(data_len):
+                        header = struct.pack('<4sI4s4sIHHIIHH4sI', 
+                            b'RIFF', data_len + 36, b'WAVE', b'fmt ', 16, 1, 1, 16000, 32000, 2, 16, b'data', data_len)
+                        return header
+
+                    full_wav = create_wav_header(len(audio_accumulator)) + audio_accumulator
+                    
+                    # Cancel previous task if still running
+                    if user_id in active_voice_tasks and not active_voice_tasks[user_id].done():
+                        active_voice_tasks[user_id].cancel()
+                    
+                    task = asyncio.create_task(process_voice_message(full_wav))
+                    active_voice_tasks[user_id] = task
+                    
+                    # Clear accumulator for next utterance
+                    audio_accumulator = bytearray()
                 
-                if msg_type == "interrupt":
+                elif msg_type == "interrupt":
                     log.info(f"Interruption received for user {user_id}")
                     # Clear queue
                     while not audio_queue.empty():

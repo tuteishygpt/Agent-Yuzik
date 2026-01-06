@@ -11,6 +11,7 @@ const VAD_SCRIPT_URL = "https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.18/d
 // ===========================
 const state = {
     isConnected: false,
+    isConnected: false,
     isRecording: false,
     isProcessing: false,
     isSpeaking: false,
@@ -21,6 +22,10 @@ const state = {
     audioQueue: [],
     currentAudio: null,
     interruptRequested: false,
+    isStreaming: false, // Debug: Am I currently sending chunks?
+    lastVadEndTimestamp: 0, // Debug: Timestamp when VAD detected speech end
+    firstProcessingTimestamp: 0, // Debug: Timestamp when sever sent "processing"
+    firstAudioTimestamp: 0, // Debug: Timestamp when first audio chunk arrived
 };
 
 // ===========================
@@ -69,6 +74,11 @@ function connectWebSocket() {
         try {
             if (event.data instanceof Blob) {
                 // Audio chunk received from server (streaming TTS)
+                if (state.firstAudioTimestamp === 0 && state.lastVadEndTimestamp > 0) {
+                    state.firstAudioTimestamp = Date.now();
+                    const latency = state.firstAudioTimestamp - state.lastVadEndTimestamp;
+                    console.log(`[Perf] Client: First Audio Chunk Received. Latency (VAD End -> Audio): ${latency}ms`);
+                }
                 handleIncomingAudioChunk(event.data);
             } else {
                 const data = JSON.parse(event.data);
@@ -93,6 +103,11 @@ function handleServerMessage(data) {
             updateTranscript(data.text);
             break;
         case 'processing':
+            if (state.firstProcessingTimestamp === 0 && state.lastVadEndTimestamp > 0) {
+                state.firstProcessingTimestamp = Date.now();
+                const latency = state.firstProcessingTimestamp - state.lastVadEndTimestamp;
+                console.log(`[Perf] Client: Server Processing Start. Latency (VAD End -> Processing): ${latency}ms`);
+            }
             setProcessingState(true);
             break;
         case 'response':
@@ -150,7 +165,7 @@ function scheduleAudioBuffer(buffer) {
     // If nextStartTime is in the past (or 0), we start "now" (+ small buffer).
     // Otherwise, we schedule it right after the previous chunk.
     if (!state.nextStartTime || state.nextStartTime < currentTime) {
-        state.nextStartTime = currentTime + 0.1; // 100ms buffer for immediate start
+        state.nextStartTime = currentTime + 0.05; // 50ms buffer for immediate start
     }
 
     source.start(state.nextStartTime);
@@ -236,6 +251,7 @@ async function initVAD() {
             modelURL: `${baseUrl}/silero_vad.onnx`,
             onSpeechStart: () => {
                 console.log("Speech started");
+                state.isStreaming = true;
                 if (state.isSpeaking) {
                     console.log("Interrupting... (Disabled for debugging)");
                     // handleInterruption();
@@ -243,20 +259,35 @@ async function initVAD() {
             },
             onSpeechEnd: (audio) => {
                 console.log("Speech ended");
+                state.isStreaming = false;
+
                 if (state.isSpeaking) {
                     console.log("Ignored speech during playback (Anti-Echo)");
                     return;
                 }
+
                 if (state.isConnected && state.websocket.readyState === WebSocket.OPEN) {
-                    // Send audio to server
-                    // Silero VAD returns Float32Array pcm 16khz
-                    const wavBuffer = encodeWAV(audio);
-                    state.websocket.send(wavBuffer);
+                    state.lastVadEndTimestamp = Date.now();
+                    state.firstProcessingTimestamp = 0;
+                    state.firstAudioTimestamp = 0;
+                    console.log(`[Perf] Client: VAD Speech End. Sending signal...`);
+
+                    // We already sent the chunks in onFrameProcessed.
+                    // Now we just signal the end.
                     state.websocket.send(JSON.stringify({ type: 'end_audio' }));
                 }
             },
-            onFrameProcessed: (probs) => {
+            onFrameProcessed: (probs, frame) => {
                 updateVisualizerFromVAD(probs.isSpeech);
+
+                // Stream chunks while speech is active
+                if (state.isStreaming && state.isConnected && state.websocket.readyState === WebSocket.OPEN) {
+                    // Convert frame (Float32Array) to Int16 raw bytes
+                    const buffer = new ArrayBuffer(frame.length * 2);
+                    const view = new DataView(buffer);
+                    floatTo16BitPCM(view, 0, frame);
+                    state.websocket.send(buffer);
+                }
             },
             positiveSpeechThreshold: 0.8,
             negativeSpeechThreshold: 0.4,
