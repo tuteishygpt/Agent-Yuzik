@@ -359,26 +359,8 @@ async def voice_websocket(websocket: WebSocket, user_id: str = "voice_user"):
                                     "text": text_buffer # Send full accumulated text for simple UI update
                                 })
 
-                                # Check for sentence delimiters
-                                # Simple heuristic: split by . ! ? \n
-                                # We want to enable TTS pipeline as early as possible
-                                import re
-                                # Match sentence ending not preceded by known abbreviations (simplified)
-                                if re.search(r'[.!?\n]', sentence_buffer):
-                                    # Find the last split point
-                                    parts = re.split(r'([.!?\n]+)', sentence_buffer)
-                                    # parts will look like ["Hello world", ".", " How are you", "?", ""]
-                                    
-                                    # Process all complete sentences
-                                    while len(parts) > 2: # Need at least Sentence + Delimiter + Remainder
-                                        sentence = parts.pop(0) + parts.pop(0)
-                                        sentence = sentence.strip()
-                                        if sentence:
-                                            # Push to worker
-                                            await tts_sentence_queue.put(sentence)
-                                    else:
-                                        # Put remainder back
-                                        sentence_buffer = "".join(parts)
+                                # Check for sentence delimiters logic removed. 
+                                # We wait for the full text to accumulate in sentence_buffer and send it all at once after the loop.
 
                         # Process remaining text in buffer
                         if sentence_buffer.strip():

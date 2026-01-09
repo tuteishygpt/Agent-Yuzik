@@ -383,6 +383,86 @@
             height: 8px;
             border-radius: 50%;
         }
+
+        /* ===========================
+           Responsive Styles
+           =========================== */
+        @media (max-width: 600px) {
+            .voice-container {
+                padding: 1.5rem 1rem;
+                gap: 1.5rem;
+            }
+
+            .voice-title {
+                font-size: 1.4rem;
+                text-align: center;
+            }
+
+            .mic-container {
+                width: 110px;
+                height: 110px;
+                font-size: 2.8rem;
+            }
+
+            .mic-halo {
+                width: 140px;
+                height: 140px;
+            }
+
+            .audio-visualizer {
+                height: 80px;
+                gap: 4px;
+            }
+
+            .visualizer-bar {
+                width: 4px;
+            }
+
+            .transcript-box {
+                padding: 1rem 1.25rem;
+                max-height: 40vh;
+            }
+
+            .transcript-text {
+                font-size: 1rem;
+            }
+
+            .voice-controls {
+                gap: 1rem;
+                width: 100%;
+                justify-content: center;
+            }
+
+            .voice-btn {
+                padding: 0.7rem 1.5rem;
+                font-size: 0.95rem;
+                flex: 1;
+                max-width: 160px;
+                justify-content: center;
+            }
+
+            .connection-status {
+                top: 1rem;
+                right: 1rem;
+                padding: 0.4rem 0.8rem;
+                font-size: 0.7rem;
+            }
+        }
+
+        @media (max-height: 700px) {
+            .voice-container {
+                gap: 1rem;
+            }
+
+            .mic-container {
+                width: 100px;
+                height: 100px;
+            }
+
+            .transcript-box {
+                max-height: 30vh;
+            }
+        }
     </style>
 </head>
 

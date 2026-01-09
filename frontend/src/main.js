@@ -359,8 +359,16 @@ function formatTime(seconds) {
 // Voice Agent
 // ===========================
 function openVoiceAgent() {
+    const isMobile = window.innerWidth <= 600 || /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
+    if (isMobile) {
+        // On mobile, just navigate or open in a new tab without fixed dimensions
+        window.open('/voice.html', '_blank');
+        return;
+    }
+
     const width = 500;
-    const height = 700;
+    const height = 750;
     const left = (screen.width - width) / 2;
     const top = (screen.height - height) / 2;
 

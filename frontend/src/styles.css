@@ -37,7 +37,8 @@
   box-sizing: border-box;
 }
 
-html, body {
+html,
+body {
   height: 100%;
   overflow: hidden;
 }
@@ -56,10 +57,20 @@ body {
   display: flex;
   flex-direction: column;
   height: 100vh;
+  height: 100dvh;
+  /* Dynamic viewport height for mobile browsers */
   max-width: 900px;
   margin: 0 auto;
   padding: 0 1rem;
+  transition: padding 0.3s ease;
 }
+
+@media (max-width: 480px) {
+  .app-container {
+    padding: 0 0.75rem;
+  }
+}
+
 
 /* ===========================
    Header
@@ -83,13 +94,14 @@ body {
 }
 
 .header-title h1 {
-  font-size: 1.5rem;
+  font-size: clamp(1.2rem, 5vw, 1.5rem);
   font-weight: 600;
   background: linear-gradient(135deg, var(--primary), #a78bfa);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
+
 
 .header-actions {
   display: flex;
@@ -147,8 +159,15 @@ body {
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(20px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .empty-logo {
@@ -158,12 +177,19 @@ body {
 }
 
 @keyframes float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-10px); }
+
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-10px);
+  }
 }
 
 .empty-title {
-  font-size: 2rem;
+  font-size: clamp(1.5rem, 8vw, 2.5rem);
   font-weight: 600;
   margin-bottom: 0.5rem;
   background: linear-gradient(135deg, var(--primary), #a78bfa);
@@ -174,9 +200,10 @@ body {
 
 .empty-subtitle {
   color: var(--text-secondary);
-  font-size: 1.1rem;
+  font-size: clamp(0.95rem, 4vw, 1.1rem);
   margin-bottom: 2rem;
 }
+
 
 .prompt-grid {
   display: grid;
@@ -269,9 +296,24 @@ body {
   animation: slideIn 0.3s ease;
 }
 
+@media (max-width: 600px) {
+  .message {
+    max-width: 92%;
+    gap: 0.5rem;
+  }
+}
+
+
 @keyframes slideIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .message.user {
@@ -322,6 +364,14 @@ body {
   backdrop-filter: blur(10px);
 }
 
+@media (max-width: 480px) {
+  .message-content {
+    padding: 0.75rem 1rem;
+    font-size: 0.95rem;
+  }
+}
+
+
 /* ===========================
    Audio Player
    =========================== */
@@ -333,9 +383,10 @@ body {
   background: var(--glass-bg);
   border: 1px solid var(--glass-border);
   border-radius: 20px;
-  min-width: 280px;
+  min-width: min(280px, 100%);
   backdrop-filter: blur(10px);
 }
+
 
 .audio-play-btn {
   width: 40px;
@@ -432,6 +483,13 @@ body {
   border-top: 1px solid var(--glass-border);
 }
 
+@media (max-width: 480px) {
+  .input-area {
+    padding: 0.75rem 0 1rem;
+  }
+}
+
+
 .input-container {
   display: flex;
   align-items: center;
@@ -442,6 +500,14 @@ body {
   border-radius: 30px;
   backdrop-filter: blur(10px);
 }
+
+@media (max-width: 480px) {
+  .input-container {
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+  }
+}
+
 
 .file-upload-btn {
   width: 40px;
@@ -642,6 +708,33 @@ body {
   background: rgba(255, 255, 255, 0.2);
 }
 
+@media (max-width: 600px) {
+  .modal-content {
+    max-width: 95vw;
+    gap: 0.5rem;
+  }
+
+  .modal-image {
+    max-height: 70vh;
+  }
+
+  .modal-actions {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .modal-btn {
+    padding: 0.4rem 0.8rem;
+    font-size: 0.85rem;
+  }
+
+  .modal-close {
+    top: -45px;
+    right: 5px;
+  }
+}
+
+
 /* ===========================
    Utilities
    =========================== */
@@ -655,24 +748,41 @@ body {
 @media (max-width: 600px) {
   .prompt-grid {
     grid-template-columns: 1fr;
-  }
-
-  .empty-title {
-    font-size: 1.5rem;
+    gap: 0.75rem;
   }
 
   .empty-logo {
-    font-size: 4rem;
-  }
-
-  .message {
-    max-width: 90%;
+    font-size: 3.5rem;
   }
 
   .audio-message {
-    min-width: 240px;
+    min-width: unset;
+    width: 100%;
+  }
+
+  .header-actions {
+    gap: 0.25rem;
+  }
+
+  .icon-btn {
+    width: 40px;
+    height: 40px;
+    font-size: 1.1rem;
   }
 }
+
+@media (max-width: 400px) {
+  .header-actions {
+    gap: 0;
+  }
+
+  .message-avatar {
+    width: 32px;
+    height: 32px;
+    font-size: 1rem;
+  }
+}
+
 
 /* ===========================
    Typing Indicator
@@ -700,6 +810,14 @@ body {
 }
 
 @keyframes typing {
-  0%, 60%, 100% { transform: translateY(0); }
-  30% { transform: translateY(-6px); }
+
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+  }
+
+  30% {
+    transform: translateY(-6px);
+  }
 }
