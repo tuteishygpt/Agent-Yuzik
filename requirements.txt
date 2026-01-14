@@ -19,3 +19,4 @@ aiohttp>=3.12
 python-dotenv
 rapidfuzz
 datasets
+gradio_client
