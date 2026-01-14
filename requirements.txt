@@ -1,9 +1,10 @@
 # Юзік — minimal requirements
 
 # Web Frameworks
-
+gradio>=5.25.2
 fastapi
 uvicorn
+python-multipart
 
 # AI SDKs
 google-genai>=1.52.0
@@ -11,6 +12,7 @@ google-adk>=1.21.0
 
 # Bot & Tools
 python-telegram-bot[webhooks]
+gradio_client
 fal-client
 requests
 aiohttp>=3.12
@@ -19,4 +21,3 @@ aiohttp>=3.12
 python-dotenv
 rapidfuzz
 datasets
-gradio_client
