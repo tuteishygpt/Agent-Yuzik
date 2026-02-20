@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="be">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Юзік - AI Асістэнт</title>
+  <meta name="description" content="Юзік - AI асістэнт для беларускамоўных карыстальнікаў">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script type="module" crossorigin src="/assets/main-DQV2q0nf.js"></script>
+  <link rel="modulepreload" crossorigin href="/assets/styles-C9UiR0sO.js">
+  <link rel="stylesheet" crossorigin href="/assets/styles-BRW-3hpf.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-title">
+        <span class="logo">🤖</span>
+        <h1>Юзік</h1>
+      </div>
+      <div class="header-actions">
+        <button class="icon-btn" id="btn-voice" title="Галасавы агент">🎤</button>
+        <button class="icon-btn" id="btn-clear" title="Ачысціць чат">🗑️</button>
+        <button class="icon-btn" id="btn-theme" title="Змяніць тэму">🌗</button>
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <!-- Empty State -->
+      <div class="empty-state" id="empty-state">
+        <div class="empty-logo">🤖</div>
+        <h2 class="empty-title">Прывітанне, я Юзік</h2>
+        <p class="empty-subtitle">Чым магу дапамагчы?</p>
+        
+        <div class="prompt-grid">
+          <button class="prompt-card" data-prompt="Напісаць эсэ пра гісторыю Беларусі">
+            <span class="prompt-icon">📝</span>
+            <span class="prompt-text">Напісаць эсэ<br><small>Пра гісторыю Беларусі</small></span>
+          </button>
+          <button class="prompt-card" data-prompt="Растлумачыць як працуе AI">
+            <span class="prompt-icon">💡</span>
+            <span class="prompt-text">Растлумачыць<br><small>Як працуе AI?</small></span>
+          </button>
+          <button class="prompt-card" data-prompt="Стварыць апісанне футурыстычнага Менска">
+            <span class="prompt-icon">🎨</span>
+            <span class="prompt-text">Стварыць выяву<br><small>Футурыстычны Менск</small></span>
+          </button>
+          <button class="prompt-card" data-prompt="Перакласці тэкст на ангельскую мову">
+            <span class="prompt-icon">🗣️</span>
+            <span class="prompt-text">Перакласці<br><small>Тэкст на ангельскую</small></span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Chat View -->
+      <div class="chat-view hidden" id="chat-view">
+        <div class="messages-container" id="messages-container">
+          <!-- Messages will be inserted here -->
+        </div>
+      </div>
+    </main>
+
+    <!-- Input Area -->
+    <footer class="input-area">
+      <div class="input-container">
+        <label class="file-upload-btn" title="Прыкрапіць файл">
+          <input type="file" id="file-input" accept="image/*,audio/*,.pdf,.txt" multiple hidden>
+          📎
+        </label>
+        <input type="text" class="message-input" id="message-input" placeholder="Напішыце паведамленне..." autocomplete="off">
+        <button class="send-btn" id="send-btn" title="Адправіць">➤</button>
+      </div>
+      <div class="file-preview hidden" id="file-preview">
+        <!-- File previews will be inserted here -->
+      </div>
+      <p class="footer-text">Юзік можа рабіць памылкі. Правярайце важную інфармацыю.</p>
+    </footer>
+  </div>
+
+  <!-- Image Modal -->
+  <div class="modal hidden" id="image-modal">
+    <div class="modal-overlay"></div>
+    <div class="modal-content">
+      <button class="modal-close" id="modal-close">✕</button>
+      <img class="modal-image" id="modal-image" src="" alt="Preview">
+      <div class="modal-actions">
+        <button class="modal-btn" id="zoom-in">🔍+</button>
+        <button class="modal-btn" id="zoom-out">🔍-</button>
+        <button class="modal-btn" id="download-image">⬇️ Спампаваць</button>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

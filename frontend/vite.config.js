@@ -10,12 +10,12 @@ export default defineConfig({
     allowedHosts: true,
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:7860',
+        target: 'http://127.0.0.1:7861',
         changeOrigin: true,
         ws: true,
       },
       '/files': {
-        target: 'http://127.0.0.1:7860',
+        target: 'http://127.0.0.1:7861',
         changeOrigin: true,
       },
     },

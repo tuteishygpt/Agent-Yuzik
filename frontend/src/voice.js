@@ -54,7 +54,7 @@ function connectWebSocket() {
 
     // In development, connect directly to backend (port 7860) to avoid Vite proxy issues (ECONNRESET)
     if (import.meta.env.DEV) {
-        host = `${window.location.hostname}:7860`;
+        host = `${window.location.hostname}:7861`;
     }
 
     const wsUrl = `${protocol}//${host}/api/voice?user_id=${state.userId}`;

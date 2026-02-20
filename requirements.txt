@@ -19,3 +19,7 @@ aiohttp>=3.12
 python-dotenv
 rapidfuzz
 datasets
+
+# Text to Speech
+TTS
+huggingface_hub
