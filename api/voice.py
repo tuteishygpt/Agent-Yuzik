@@ -9,6 +9,7 @@ import asyncio
 from datetime import datetime, timezone
 import json
 import logging
+import re
 import struct
 import time
 from typing import Dict
@@ -17,6 +18,9 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from google.genai import types
 
 import config
+
+# Regex for detecting sentence boundaries (used for sentence-level TTS streaming)
+_SENTENCE_END_RE = re.compile(r'[.!?…]+[\s»")\]]*$')
 from api.deps import adk_service, get_genai_client
 from tools.text_to_speech_tool import register_voice_user, unregister_voice_user, stream_speech
 
@@ -103,11 +107,21 @@ async def _handle_simple_voice(
 
     async def tts_worker():
         nonlocal sent_first_audio_chunk
+        tts_gen_start = None
         try:
             while True:
                 sentence = await tts_sentence_queue.get()
                 if sentence is None:
                     break  # Sentinel
+
+                if tts_gen_start is None:
+                    tts_gen_start = time.time()
+                    await send_perf(
+                        "tts_start",
+                        "🔊 Пачатак TTS генерацыі",
+                        detail=f"Даўжыня тэксту: {len(sentence)} сімвалаў | Рэжым: {config.TTS_MODE}",
+                        duration_ms=round((time.time() - start_ts) * 1000),
+                    )
 
                 log.info(f"TTS Worker: Processing sentence: {sentence[:30]}...")
                 async for audio_chunk in stream_speech(sentence):
@@ -115,7 +129,8 @@ async def _handle_simple_voice(
                         await send_perf(
                             "tts_first_chunk",
                             "🔊 Першы аўдыя чанк TTS адпраўлены",
-                            detail=f"Поўная затрымка пайплайна: {(time.time() - start_ts)*1000:.0f} мс",
+                            detail=f"Поўная затрымка пайплайна: {(time.time() - start_ts)*1000:.0f} мс | "
+                                   f"Затрымка TTS: {(time.time() - tts_gen_start)*1000:.0f} мс",
                             duration_ms=round((time.time() - start_ts) * 1000),
                         )
                         sent_first_audio_chunk = True
@@ -123,6 +138,14 @@ async def _handle_simple_voice(
                 tts_sentence_queue.task_done()
         except Exception as e:
             log.error(f"TTS Worker Error: {e}")
+        finally:
+            if tts_gen_start:
+                await send_perf(
+                    "tts_complete",
+                    "✅ TTS генерацыя завершана",
+                    detail=f"Час TTS: {(time.time() - tts_gen_start)*1000:.0f} мс",
+                    duration_ms=round((time.time() - tts_gen_start) * 1000),
+                )
 
     worker_task = asyncio.create_task(tts_worker())
 
@@ -146,9 +169,16 @@ async def _handle_simple_voice(
                     "text": text_buffer,
                 })
 
-        # Process remaining text in buffer
+                # ── Sentence-level TTS: send completed sentences immediately ──
+                if _SENTENCE_END_RE.search(sentence_buffer) and len(sentence_buffer.strip()) >= 40:
+                    ready = sentence_buffer.strip()
+                    log.info(f"Sentence ready for TTS ({len(ready)} chars): {ready[:60]}...")
+                    await tts_sentence_queue.put(ready)
+                    sentence_buffer = ""
+
+        # Process remaining text in buffer (last partial sentence)
         if sentence_buffer.strip():
-            await tts_sentence_queue.put(sentence_buffer)
+            await tts_sentence_queue.put(sentence_buffer.strip())
 
         # Wait for all TTS to finish
         await tts_sentence_queue.put(None)  # Sentinel

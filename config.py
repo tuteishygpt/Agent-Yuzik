@@ -35,7 +35,7 @@ AGENT_TIMEOUT = int(os.getenv("AGENT_TIMEOUT", 60))
 
 # TTS Configuration
 TTS_MODE = os.getenv("TTS_MODE", "local").lower()  # "local" or "api"
-HF_TOKEN = os.getenv("HF_TOKEN", "")
+HF_TOKEN = os.getenv("HF_TOKEN", "") or os.getenv("HUGGINGFACE_API_TOKEN", "")
 
 # Voice Agent Configuration
 SIMPLE_VOICE_AGENT = os.getenv("SIMPLE_VOICE_AGENT", "True").lower() == "true"

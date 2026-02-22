@@ -29,11 +29,11 @@ except ImportError:
         return [text]
 
 # ---- Канфіг стрыму ----
-INITIAL_MIN_BUFFER_S = 0.20
+INITIAL_MIN_BUFFER_S = 0.10   # ← was 0.20, reduced for lower latency
 MIN_BUFFER_S        = 0.05
 FADE_S              = 0.005
 ENABLE_TEXT_SPLITTING = True
-FIRST_SEGMENT_LIMIT = 160
+FIRST_SEGMENT_LIMIT = 80      # ← was 160, first TTS segment shorter = faster first audio
 
 device = globals().get("device", "cuda:0" if torch.cuda.is_available() else "cpu")
 sampling_rate = int(globals().get("sampling_rate", 24000))
@@ -185,7 +185,7 @@ def _seconds_to_samples(sec: float, sr: int) -> int:
 def _chunker(chunks: Iterable[np.ndarray], sr: int, initial_target_s: float, target_s: float) -> Iterator[np.ndarray]:
     is_first = True
     target_samples = _seconds_to_samples(initial_target_s, sr)
-    min_first = _seconds_to_samples(0.12, sr)   # мін. 120 мс на першы чанк
+    min_first = _seconds_to_samples(0.06, sr)   # мін. 60 мс на першы чанк (was 120)
     min_next  = _seconds_to_samples(0.05, sr)   # мін. 50 мс на наступныя
     buffer = np.array([], dtype=np.float32)
     for c_np in map(_to_np_audio, chunks):
@@ -340,11 +340,12 @@ async def stream_audio(
                     language="be",
                     gpt_cond_latent=gpt_cond_latent,
                     speaker_embedding=speaker_embedding,
-                    temperature=0.25,
+                    temperature=0.15,       # ← was 0.25, lower = faster convergence
                     length_penalty=0.9,
                     repetition_penalty=7.0,
-                    top_k=10,
-                    top_p=0.80,
+                    top_k=5,                # ← was 10, fewer candidates = faster
+                    top_p=0.75,             # ← was 0.80, slightly tighter
+                    enable_text_splitting=False,  # we split externally already
                 )
             )
 
