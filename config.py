@@ -33,6 +33,10 @@ WEBHOOK_SECRET_TOKEN = os.getenv("WEBHOOK_SECRET_TOKEN")
 # GEMINI_API_KEY is already set above
 AGENT_TIMEOUT = int(os.getenv("AGENT_TIMEOUT", 60))
 
+# TTS Configuration
+TTS_MODE = os.getenv("TTS_MODE", "local").lower()  # "local" or "api"
+HF_TOKEN = os.getenv("HF_TOKEN", "")
+
 # Voice Agent Configuration
 SIMPLE_VOICE_AGENT = os.getenv("SIMPLE_VOICE_AGENT", "True").lower() == "true"
 SIMPLE_VOICE_SYSTEM_PROMPT = os.getenv("SIMPLE_VOICE_SYSTEM_PROMPT", "Ты карысны выключна беларускамоўны галасавы памочнік Юзік. Адкажы сцісла і па сутнасці.")

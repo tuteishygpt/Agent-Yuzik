@@ -22,6 +22,8 @@ python-dotenv
 rapidfuzz
 datasets
 
-# Text to Speech
-git+https://github.com/tuteishygpt/coqui-ai-TTS.git
-huggingface_hub
+# ── Text-to-Speech ──────────────────────────────────────────────────
+# TTS_MODE=api  — only gradio_client (already above) is needed.
+# TTS_MODE=local — uncomment the lines below (requires GPU + CUDA):
+# git+https://github.com/tuteishygpt/coqui-ai-TTS.git
+# huggingface_hub
