@@ -1,16 +1,164 @@
 /**
  * Yuzik Voice Agent - Real-time Voice Conversation with Streaming and Interruption
+ * Uses ScriptProcessor-based PCM player for minimal latency (inspired by Colab streaming).
  */
 
 // Import VAD from CDN
-// Note: In a production environment, you might want to install this via npm
 const VAD_SCRIPT_URL = "https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.18/dist/bundle.min.js";
+
+// ===========================
+// PCM Audio Player (ScriptProcessor-based, minimal latency)
+// Directly writes Float32 samples to output — no decodeAudioData overhead.
+// ===========================
+const pcmPlayer = {
+    ctx: null,
+    node: null,
+    queue: [],
+    playing: false,
+    _firstSampleFired: false,
+    _emptyTimeout: null,
+    _chunkCount: 0,
+    _totalSamples: 0,
+    _pushTimestamp: 0,    // when first chunk was pushed
+    sampleRate: 24000,
+
+    init(sampleRate = 24000) {
+        if (this.ctx) {
+            // If already init with different rate, close and reinit
+            if (this.ctx.sampleRate !== sampleRate) {
+                this.destroy();
+            } else {
+                return;
+            }
+        }
+        this.sampleRate = sampleRate;
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) { console.error("[PCM Player] AudioContext not supported"); return; }
+        this.ctx = new AC({ sampleRate });
+        // ScriptProcessor with small buffer = ~85ms at 24kHz
+        this.node = this.ctx.createScriptProcessor(2048, 1, 1);
+        const self = this;
+
+        this.node.onaudioprocess = (e) => {
+            const out = e.outputBuffer.getChannelData(0);
+            let i = 0;
+            let wroteAudio = false;
+
+            while (i < out.length) {
+                if (self.queue.length === 0 || !self.playing) {
+                    out[i++] = 0.0;
+                    continue;
+                }
+
+                // Track first actual audio sample output
+                if (!self._firstSampleFired) {
+                    self._firstSampleFired = true;
+                    const now = performance.now();
+                    const latencyFromPush = now - self._pushTimestamp;
+                    console.log(`[PCM Player] ▶️ First audio sample output: ${latencyFromPush.toFixed(1)} ms after first push`);
+
+                    if (state.lastVadEndTimestamp > 0) {
+                        const totalLatency = Date.now() - state.lastVadEndTimestamp;
+                        addPerfEntry({
+                            event: 'pcm_playback_start',
+                            label: '▶️ Рэальны пачатак гуку',
+                            detail: `VAD→гук: ${totalLatency} мс | push→гук: ${latencyFromPush.toFixed(0)} мс`,
+                            elapsed_ms: totalLatency,
+                            duration_ms: totalLatency,
+                        });
+                    }
+                }
+
+                wroteAudio = true;
+                let cur = self.queue[0];
+                const take = Math.min(cur.length, out.length - i);
+                out.set(cur.subarray(0, take), i);
+                i += take;
+                if (take === cur.length) self.queue.shift();
+                else self.queue[0] = cur.subarray(take);
+            }
+
+            // Queue just emptied — start countdown to stop speaking
+            if (self.playing && self.queue.length === 0) {
+                if (!self._emptyTimeout) {
+                    self._emptyTimeout = setTimeout(() => {
+                        if (self.queue.length === 0 && self.playing) {
+                            self.playing = false;
+                            self._emptyTimeout = null;
+                            const stats = self.getStats();
+                            console.log(`[PCM Player] ⏹ Playback ended: ${stats.chunks} chunks, ${stats.totalMs} ms audio`);
+                            setSpeakingState(false);
+                        }
+                    }, 500); // 500ms grace period for slow chunks
+                }
+            }
+        };
+
+        this.node.connect(this.ctx.destination);
+        console.log(`[PCM Player] Initialized: ${sampleRate} Hz, buffer=2048 (${(2048 / sampleRate * 1000).toFixed(0)} ms)`);
+    },
+
+    push(f32array) {
+        if (!this.ctx) this.init(this.sampleRate);
+
+        this.queue.push(f32array);
+        this._chunkCount++;
+        this._totalSamples += f32array.length;
+
+        // Cancel empty timeout if new data arrives
+        if (this._emptyTimeout) {
+            clearTimeout(this._emptyTimeout);
+            this._emptyTimeout = null;
+        }
+
+        if (!this.playing) {
+            this.playing = true;
+            this._pushTimestamp = performance.now();
+            setSpeakingState(true);
+            if (this.ctx.state === 'suspended') this.ctx.resume();
+        }
+    },
+
+    reset() {
+        this.playing = false;
+        this.queue.length = 0;
+        this._firstSampleFired = false;
+        this._chunkCount = 0;
+        this._totalSamples = 0;
+        this._pushTimestamp = 0;
+        if (this._emptyTimeout) {
+            clearTimeout(this._emptyTimeout);
+            this._emptyTimeout = null;
+        }
+    },
+
+    destroy() {
+        this.reset();
+        if (this.node) {
+            this.node.disconnect();
+            this.node = null;
+        }
+        if (this.ctx) {
+            this.ctx.close().catch(() => { });
+            this.ctx = null;
+        }
+    },
+
+    getStats() {
+        const queueSamples = this.queue.reduce((sum, arr) => sum + arr.length, 0);
+        return {
+            chunks: this._chunkCount,
+            totalMs: (this._totalSamples / this.sampleRate * 1000).toFixed(0),
+            queueMs: (queueSamples / this.sampleRate * 1000).toFixed(0),
+            queueChunks: this.queue.length,
+        };
+    }
+};
 
 // ===========================
 // State
 // ===========================
 const state = {
-    isConnected: false,
     isConnected: false,
     isRecording: false,
     isProcessing: false,
@@ -22,12 +170,20 @@ const state = {
     audioQueue: [],
     currentAudio: null,
     interruptRequested: false,
-    isStreaming: false, // Debug: Am I currently sending chunks?
-    recordingStream: null, // Mic stream for recording
-    recordingProcessor: null, // ScriptProcessor for chunks
-    lastVadEndTimestamp: 0, // Debug: Timestamp when VAD detected speech end
-    firstProcessingTimestamp: 0, // Debug: Timestamp when sever sent "processing"
-    firstAudioTimestamp: 0, // Debug: Timestamp when first audio chunk arrived
+    isStreaming: false,
+    recordingStream: null,
+    recordingProcessor: null,
+    lastVadEndTimestamp: 0,
+    firstProcessingTimestamp: 0,
+    firstAudioTimestamp: 0,
+    // PCM tracking
+    firstPcmReceived: false,
+    pcmChunkCount: 0,
+    // Legacy BufferSource tracking
+    nextStartTime: 0,
+    scheduledSources: [],
+    speakingTimeout: null,
+    playbackLogSent: false,
 };
 
 // ===========================
@@ -58,13 +214,11 @@ function connectWebSocket() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     let host = window.location.host;
 
-    // In development, connect directly to backend (port 7860) to avoid Vite proxy issues (ECONNRESET)
     if (import.meta.env.DEV) {
         host = `${window.location.hostname}:7861`;
     }
 
     const wsUrl = `${protocol}//${host}/api/voice?user_id=${state.userId}`;
-
     state.websocket = new WebSocket(wsUrl);
 
     state.websocket.onopen = () => {
@@ -88,13 +242,13 @@ function connectWebSocket() {
     state.websocket.onmessage = async (event) => {
         try {
             if (event.data instanceof Blob) {
-                // Audio chunk received from server (streaming TTS)
+                // Binary WAV chunk (legacy API mode / ADK artifacts)
                 if (state.firstAudioTimestamp === 0 && state.lastVadEndTimestamp > 0) {
                     state.firstAudioTimestamp = Date.now();
                     const latency = state.firstAudioTimestamp - state.lastVadEndTimestamp;
                     addPerfEntry({
                         event: 'first_audio_received',
-                        label: '📨 Першы аўдыя чанк атрыманы',
+                        label: '📨 Першы аўдыя чанк (WAV)',
                         detail: `Затрымка (VAD → аўдыё): ${latency} мс`,
                         elapsed_ms: latency,
                         duration_ms: latency,
@@ -149,20 +303,66 @@ function handleServerMessage(data) {
             console.log('Server acknowledged interruption');
             break;
         case 'perf_log':
-            // Structured performance log from server
             addPerfEntry(data);
+            break;
+
+        // ── NEW: Raw PCM audio chunks (local TTS, minimal latency) ──
+        case 'audio_pcm':
+            handlePcmChunk(data);
             break;
     }
 }
 
 // ===========================
-// Audio Playback (Streaming Queue)
+// PCM Chunk Handler (base64 Float32 → pcmPlayer)
 // ===========================
+function handlePcmChunk(data) {
+    const sr = data.sr || 24000;
+    if (!pcmPlayer.ctx) pcmPlayer.init(sr);
+
+    // Decode base64 → Float32Array
+    const t0 = performance.now();
+    const bin = atob(data.data);
+    const buf = new ArrayBuffer(bin.length);
+    const u8 = new Uint8Array(buf);
+    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    const f32 = new Float32Array(buf);
+    const decodeMs = performance.now() - t0;
+
+    state.pcmChunkCount++;
+    const chunkAudioMs = (f32.length / sr * 1000).toFixed(0);
+
+    // Track first PCM chunk timing
+    if (!state.firstPcmReceived) {
+        state.firstPcmReceived = true;
+        if (state.lastVadEndTimestamp > 0) {
+            const latency = Date.now() - state.lastVadEndTimestamp;
+            addPerfEntry({
+                event: 'first_pcm_received',
+                label: '📨 Першы PCM чанк атрыманы',
+                detail: `VAD→PCM: ${latency} мс | ${f32.length} samples (${chunkAudioMs} мс аўдыё) | decode: ${decodeMs.toFixed(1)} мс`,
+                elapsed_ms: latency,
+                duration_ms: latency,
+            });
+        }
+        state.firstAudioTimestamp = Date.now();
+    }
+
+    // Push to player (starts playback immediately if not already playing)
+    pcmPlayer.push(f32);
+
+    // Log first few chunks
+    if (state.pcmChunkCount <= 5) {
+        const stats = pcmPlayer.getStats();
+        console.log(`[PCM] Chunk #${state.pcmChunkCount}: ${f32.length} samples (${chunkAudioMs} ms) | ` +
+            `decode=${decodeMs.toFixed(1)} ms | queue=${stats.queueMs} ms (${stats.queueChunks} bufs)`);
+    }
+}
+
 // ===========================
-// Audio Playback (Seamless via Web Audio API)
+// Legacy Audio Playback (WAV blobs via BufferSource — for API mode / ADK artifacts)
 // ===========================
 
-// Initialize Audio Context (must be done after user interaction)
 function ensureAudioContext() {
     if (!state.audioContext) {
         state.audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -174,10 +374,8 @@ function ensureAudioContext() {
 
 async function handleIncomingAudioChunk(blob) {
     ensureAudioContext();
-
     try {
         const arrayBuffer = await blob.arrayBuffer();
-        // Decode the audio data asynchronously
         const audioBuffer = await state.audioContext.decodeAudioData(arrayBuffer);
         scheduleAudioBuffer(audioBuffer);
     } catch (e) {
@@ -191,20 +389,16 @@ function scheduleAudioBuffer(buffer) {
     source.connect(state.audioContext.destination);
 
     const currentTime = state.audioContext.currentTime;
-
-    // Logic for gapless playback:
     if (!state.nextStartTime || state.nextStartTime < currentTime) {
-        state.nextStartTime = currentTime + 0.05; // 50ms buffer for immediate start
+        state.nextStartTime = currentTime + 0.02; // Reduced from 0.05
     }
-
     source.start(state.nextStartTime);
 
-    // Track when playback actually starts (first buffer only)
     if (!state.playbackLogSent && state.lastVadEndTimestamp > 0) {
         const playbackLatency = Date.now() - state.lastVadEndTimestamp;
         addPerfEntry({
             event: 'audio_playback_start',
-            label: '▶️ Пачалося прайграванне',
+            label: '▶️ Пачалося прайграванне (WAV)',
             detail: `Затрымка (VAD → гук): ${playbackLatency} мс`,
             elapsed_ms: playbackLatency,
             duration_ms: playbackLatency,
@@ -212,77 +406,62 @@ function scheduleAudioBuffer(buffer) {
         state.playbackLogSent = true;
     }
 
-    // Update next start time
     state.nextStartTime += buffer.duration;
 
-    // Track source for interruption
     if (!state.scheduledSources) state.scheduledSources = [];
     state.scheduledSources.push(source);
 
-    // Cleanup source from list when done
     source.onended = () => {
         const index = state.scheduledSources.indexOf(source);
-        if (index > -1) {
-            state.scheduledSources.splice(index, 1);
-        }
+        if (index > -1) state.scheduledSources.splice(index, 1);
     };
 
-    // Handle UI "Speaking" state
     setSpeakingState(true);
     updateSpeakingTimeout();
 }
 
 function updateSpeakingTimeout() {
-    // Clear existing timeout
-    if (state.speakingTimeout) {
-        clearTimeout(state.speakingTimeout);
-    }
-
+    if (state.speakingTimeout) clearTimeout(state.speakingTimeout);
     if (!state.audioContext) return;
-
-    // Calculate when the *last* scheduled audio will finish
     const timeRemaining = state.nextStartTime - state.audioContext.currentTime;
-
     if (timeRemaining > 0) {
         state.speakingTimeout = setTimeout(() => {
             setSpeakingState(false);
-            state.nextStartTime = 0; // Reset timeline
-        }, timeRemaining * 1000 + 200); // +200ms safety buffer
+            state.nextStartTime = 0;
+        }, timeRemaining * 1000 + 200);
     } else {
         setSpeakingState(false);
     }
 }
 
 function stopAllPlayback() {
-    // Stop all scheduled sources
+    // Stop legacy BufferSource playback
     if (state.scheduledSources) {
         state.scheduledSources.forEach(source => {
-            try { source.stop(); } catch (e) { /* ignore if already stopped */ }
+            try { source.stop(); } catch (e) { /* ignore */ }
         });
         state.scheduledSources = [];
     }
-
-    // Reset timeline
     state.nextStartTime = 0;
-
-    // clear timeout
     if (state.speakingTimeout) {
         clearTimeout(state.speakingTimeout);
         state.speakingTimeout = null;
     }
 
+    // Stop PCM ScriptProcessor playback
+    pcmPlayer.reset();
+
     setSpeakingState(false);
 }
 
+// ===========================
 // VAD & Recording
 // ===========================
 async function initVAD() {
     if (state.vad) return;
 
-    // Configure ONNX Runtime to load WASM from CDN (v1.14.0 compatible)
     if (window.ort) {
         window.ort.env.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.14.0/dist/";
-        // Force single-threaded for stability on non-secure contexts
         window.ort.env.wasm.numThreads = 1;
         window.ort.env.wasm.simd = true;
     }
@@ -313,8 +492,13 @@ async function initVAD() {
                     state.firstProcessingTimestamp = 0;
                     state.firstAudioTimestamp = 0;
                     state.playbackLogSent = false;
+                    // Reset PCM tracking for new interaction
+                    state.firstPcmReceived = false;
+                    state.pcmChunkCount = 0;
+                    pcmPlayer._firstSampleFired = false;
+                    pcmPlayer._chunkCount = 0;
+                    pcmPlayer._totalSamples = 0;
 
-                    // Add client-side perf log for VAD end / message sent
                     addPerfEntry({
                         event: 'user_message',
                         label: '🎙️ Паведамленне адпраўлена',
@@ -324,8 +508,6 @@ async function initVAD() {
                         _isSessionStart: true,
                     });
 
-                    // We already sent the chunks in onFrameProcessed.
-                    // Now we just signal the end.
                     state.websocket.send(JSON.stringify({ type: 'end_audio' }));
                 }
             },
@@ -344,7 +526,6 @@ async function initVAD() {
 
 function handleInterruption() {
     stopAllPlayback();
-    // Send interruption signal to backend
     if (state.websocket && state.websocket.readyState === WebSocket.OPEN) {
         state.websocket.send(JSON.stringify({ type: 'interrupt' }));
     }
@@ -353,7 +534,6 @@ function handleInterruption() {
 function updateVisualizerFromVAD(isSpeech) {
     const bars = elements.visualizer.querySelectorAll('.visualizer-bar');
     if (!bars.length) return;
-
     bars.forEach(bar => {
         if (isSpeech || state.isSpeaking) {
             const height = 30 + Math.random() * 70;
@@ -368,36 +548,20 @@ function updateVisualizerFromVAD(isSpeech) {
 function encodeWAV(samples) {
     const buffer = new ArrayBuffer(44 + samples.length * 2);
     const view = new DataView(buffer);
-
-    /* RIFF identifier */
     writeString(view, 0, 'RIFF');
-    /* RIFF chunk length */
     view.setUint32(4, 36 + samples.length * 2, true);
-    /* RIFF type */
     writeString(view, 8, 'WAVE');
-    /* format chunk identifier */
     writeString(view, 12, 'fmt ');
-    /* format chunk length */
     view.setUint32(16, 16, true);
-    /* sample format (raw) */
     view.setUint16(20, 1, true);
-    /* channel count */
     view.setUint16(22, 1, true);
-    /* sample rate */
     view.setUint32(24, 16000, true);
-    /* byte rate (sample rate * block align) */
     view.setUint32(28, 16000 * 2, true);
-    /* block align (channel count * bytes per sample) */
     view.setUint16(32, 2, true);
-    /* bits per sample */
     view.setUint16(34, 16, true);
-    /* data chunk identifier */
     writeString(view, 36, 'data');
-    /* data chunk length */
     view.setUint32(40, samples.length * 2, true);
-
     floatTo16BitPCM(view, 44, samples);
-
     return buffer;
 }
 
@@ -419,25 +583,19 @@ function writeString(view, offset, string) {
 // ===========================
 async function startSession() {
     try {
-        // Check for secure context (required for getUserMedia)
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
             const isSecure = window.isSecureContext;
             const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-
             if (!isSecure && !isLocalhost) {
                 updateStatus("⚠️ Патрэбна HTTPS або localhost для доступу да мікрафона");
-                console.error("getUserMedia requires a secure context. Please access via https:// or http://localhost");
                 return;
             }
             updateStatus("⚠️ Браўзер не падтрымлівае доступ да мікрафона");
-            console.error("getUserMedia is not supported in this browser");
             return;
         }
 
         await initVAD();
 
-        // Setup a separate 16kHz capture for streaming to Gemini
-        // We do this manually because VAD internal worklet doesn't expose frames easily
         if (!state.recordingStream) {
             state.recordingStream = await navigator.mediaDevices.getUserMedia({ audio: true });
             const context = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
@@ -459,6 +617,9 @@ async function startSession() {
             state.recordingProcessor = { context, source, processor };
         }
 
+        // Pre-initialize pcmPlayer so it's ready when first chunk arrives
+        pcmPlayer.init(24000);
+
         await state.vad.start();
         state.isRecording = true;
         setListeningState(true);
@@ -473,8 +634,6 @@ async function stopSession() {
     if (state.vad) {
         await state.vad.pause();
     }
-
-    // Clean up recording pipeline
     if (state.recordingProcessor) {
         state.recordingProcessor.processor.disconnect();
         state.recordingProcessor.source.disconnect();
@@ -485,7 +644,6 @@ async function stopSession() {
         state.recordingStream.getTracks().forEach(t => t.stop());
         state.recordingStream = null;
     }
-
     stopAllPlayback();
     state.isRecording = false;
     setListeningState(false);
@@ -515,7 +673,6 @@ function setProcessingState(processing) {
         elements.visualizer.className = 'audio-visualizer processing';
         updateStatus('Апрацоўка...');
     } else {
-        // If we stop processing but not speaking, return to listening if recording
         if (!state.isSpeaking && state.isRecording) {
             elements.micBtn.className = 'mic-container listening';
             elements.visualizer.className = 'audio-visualizer listening';
@@ -552,8 +709,6 @@ function updateStatus(text) {
 function updateTranscript(text, isResponse = false) {
     const prefix = isResponse ? '🤖 ' : '👤 ';
     elements.transcript.textContent = prefix + text;
-
-    // Auto-scroll to bottom
     if (elements.transcriptBox) {
         elements.transcriptBox.scrollTop = elements.transcriptBox.scrollHeight;
     }
@@ -592,11 +747,9 @@ function addPerfEntry(data) {
     const body = elements.perfLogBody;
     if (!body) return;
 
-    // Remove empty state on first entry
     const empty = body.querySelector('.perf-empty');
     if (empty) empty.remove();
 
-    // Add session divider if this is a new user message (start of interaction)
     if (data._isSessionStart || data.event === 'user_message') {
         const divider = document.createElement('div');
         divider.className = 'perf-session-divider';
@@ -624,7 +777,6 @@ function addPerfEntry(data) {
     body.scrollTop = body.scrollHeight;
     perfLogCount++;
 
-    // Pulse the toggle button if panel is closed
     if (!elements.perfPanel.classList.contains('open')) {
         elements.perfToggle.classList.add('has-new');
     }

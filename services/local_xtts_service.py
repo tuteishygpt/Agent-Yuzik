@@ -16,7 +16,7 @@ import torch
 
 log = logging.getLogger(__name__)
 
-# Спроба імпартаваць TTS. Калі не ўсталяваны, будзе кінута памылка падчас загрузкі мадэлі.
+# Спроба імпартаваць TTS
 try:
     from TTS.tts.configs.xtts_config import XttsConfig
     from TTS.tts.models.xtts import Xtts
@@ -29,11 +29,11 @@ except ImportError:
         return [text]
 
 # ---- Канфіг стрыму ----
-INITIAL_MIN_BUFFER_S = 0.10   # ← was 0.20, reduced for lower latency
+INITIAL_MIN_BUFFER_S = 0.10
 MIN_BUFFER_S        = 0.05
 FADE_S              = 0.005
 ENABLE_TEXT_SPLITTING = True
-FIRST_SEGMENT_LIMIT = 80      # ← was 160, first TTS segment shorter = faster first audio
+FIRST_SEGMENT_LIMIT = 80
 
 device = globals().get("device", "cuda:0" if torch.cuda.is_available() else "cpu")
 sampling_rate = int(globals().get("sampling_rate", 24000))
@@ -58,19 +58,16 @@ GPU_LATENT_CACHE: dict[Tuple[str, str], Tuple[torch.Tensor, torch.Tensor]] = {}
 
 
 def load_model(hf_repo_id: str = repo_id, target_model_dir: str = "./model"):
-    """
-    Запампоўвае або загружае мадэль з лакальнай дырэкторыі.
-    """
+    """Запампоўвае або загружае мадэль з лакальнай дырэкторыі."""
     global XTTS_MODEL, default_voice_file, sampling_rate
     if XTTS_MODEL is not None:
         return XTTS_MODEL
-        
     if not HAS_TTS:
         raise ImportError("Please install TTS package: pip install TTS")
 
     log.info(f"Загрузка лакальнай мадэлі XTTS (прылада: {device})...")
     from huggingface_hub import hf_hub_download
-    
+
     os.makedirs(target_model_dir, exist_ok=True)
     checkpoint_file = os.path.join(target_model_dir, "model.pth")
     config_file = os.path.join(target_model_dir, "config.json")
@@ -92,7 +89,7 @@ def load_model(hf_repo_id: str = repo_id, target_model_dir: str = "./model"):
         vocab_path=vocab_file,
         use_deepspeed=False,
     )
-    
+
     torch.set_num_threads(1)
     if device.startswith("cuda"):
         torch.backends.cuda.matmul.allow_tf32 = True
@@ -102,16 +99,16 @@ def load_model(hf_repo_id: str = repo_id, target_model_dir: str = "./model"):
             torch.set_float32_matmul_precision("high")
         except Exception:
             pass
-            
+
     XTTS_MODEL.to(device).eval()
     sampling_rate = int(XTTS_MODEL.config.audio["sample_rate"])
-    
+
     tokenizer = VoiceBpeTokenizer(vocab_file=vocab_file)
     XTTS_MODEL.tokenizer = tokenizer
-    
+
     if not default_voice_file:
         default_voice_file = local_voice_file
-        
+
     log.info("Лакальная мадэль XTTS паспяхова загружана!")
     return XTTS_MODEL
 
@@ -126,8 +123,7 @@ def _latents_key(path: str | None, meta: LatentsMeta) -> str:
 
 def _latents_for(path: str | None, *, to_device: Optional[str] = None) -> Tuple[torch.Tensor, torch.Tensor]:
     if XTTS_MODEL is None:
-        raise RuntimeError("Мадэль не загружана. Выклічце load_model() перш чым генераваць голас.")
-        
+        raise RuntimeError("Мадэль не загружана. Выклічце load_model().")
     cfg = XTTS_MODEL.config
     meta = LatentsMeta(
         model_id=repo_id,
@@ -137,7 +133,6 @@ def _latents_for(path: str | None, *, to_device: Optional[str] = None) -> Tuple[
     )
     key = _latents_key(path, meta)
     g, s = LATENT_CACHE.get(key) or (None, None)
-    
     if g is None:
         disk_path = PERSIST_LATENTS_DIR / f"{key}.pt"
         if disk_path.exists():
@@ -151,14 +146,12 @@ def _latents_for(path: str | None, *, to_device: Optional[str] = None) -> Tuple[
             torch.save({"gpt_cond_latent": g, "speaker_embedding": s}, disk_path)
             log.info("Латэнты захаваны ў кэш.")
         LATENT_CACHE[key] = (g, s)
-        
     if to_device:
         dev_key = (key, to_device)
         if dev_key in GPU_LATENT_CACHE:
             return GPU_LATENT_CACHE[dev_key]
         g, s = g.to(to_device, non_blocking=True), s.to(to_device, non_blocking=True)
         GPU_LATENT_CACHE[dev_key] = (g, s)
-        
     return g, s
 
 
@@ -185,8 +178,8 @@ def _seconds_to_samples(sec: float, sr: int) -> int:
 def _chunker(chunks: Iterable[np.ndarray], sr: int, initial_target_s: float, target_s: float) -> Iterator[np.ndarray]:
     is_first = True
     target_samples = _seconds_to_samples(initial_target_s, sr)
-    min_first = _seconds_to_samples(0.06, sr)   # мін. 60 мс на першы чанк (was 120)
-    min_next  = _seconds_to_samples(0.05, sr)   # мін. 50 мс на наступныя
+    min_first = _seconds_to_samples(0.06, sr)
+    min_next  = _seconds_to_samples(0.05, sr)
     buffer = np.array([], dtype=np.float32)
     for c_np in map(_to_np_audio, chunks):
         if c_np.size == 0:
@@ -204,7 +197,7 @@ def _chunker(chunks: Iterable[np.ndarray], sr: int, initial_target_s: float, tar
 
 
 # ---- Падзел тэксту ----
-_SENT_END = re.compile(r"([\.!\?…]+[»\")\]]*\s+)")
+_SENT_END = re.compile(r"([\.!\?…]+[»\")\\]]*\s+)")
 _WS = re.compile(r"\s+")
 
 def _fast_split(text: str, limit: int) -> List[str]:
@@ -259,7 +252,6 @@ def _split_text_smart(text_in: str, lang_short: str, chunk_limit: int) -> List[s
         text_for_rest = text_in
     if not text_for_rest:
         return parts or [text_in]
-
     rest = _fast_split(text_for_rest, chunk_limit)
     if not rest or sum(len(x) for x in rest) < int(0.6 * len(text_for_rest)):
         try:
@@ -275,20 +267,11 @@ def _split_text_smart(text_in: str, lang_short: str, chunk_limit: int) -> List[s
 def _add_wav_header(pcm_data: bytes, sample_rate: int = 24000, channels: int = 1) -> bytes:
     """Add WAV header to raw PCM data (Float32)."""
     byte_count = len(pcm_data)
-    header = struct.pack('<4sI4s4sIHHIIHH4sI', 
-        b'RIFF',
-        byte_count + 36,
-        b'WAVE',
-        b'fmt ',
-        16,              
-        3,               
-        channels,        
-        sample_rate,     
-        sample_rate * channels * 4, 
-        channels * 4,    
-        32,              
-        b'data',
-        byte_count
+    header = struct.pack('<4sI4s4sIHHIIHH4sI',
+        b'RIFF', byte_count + 36, b'WAVE',
+        b'fmt ', 16, 3, channels, sample_rate,
+        sample_rate * channels * 4, channels * 4, 32,
+        b'data', byte_count
     )
     return header + pcm_data
 
@@ -302,37 +285,56 @@ async def stream_audio(
 ) -> AsyncGenerator[bytes, None]:
     """
     Асінхронны генератар для лакальнага стрымінгу аўдыя з мадэлі XTTS.
-    
-    yield_raw_pcm: Калі True, вяртае сырыя Float32 байты.
-                   Калі False (па змаўчанні), дадае да кожнага чанка WAV-загаловак.
-                   Гэта трэба ўлічваць у залежнасці ад таго, як фронтэнд прайграе аўдыя.
+    Уключае дэталёвыя таймінгі на кожным этапе.
     """
+    import queue
+    import threading
+
+    t_pipeline = time.perf_counter()
+
+    # ── Load model if needed ──
     if XTTS_MODEL is None:
+        t0 = time.perf_counter()
         load_model()
-        
+        log.info(f"[TTS·TIMING] Model load: {(time.perf_counter()-t0)*1000:.1f} ms")
+
     if not text_input or not text_input.strip():
         return
-        
+
+    log.info(f"[TTS·TIMING] ── Pipeline start ── text={len(text_input)} chars")
+
+    # ── Latents ──
+    t0 = time.perf_counter()
     gpt_cond_latent, speaker_embedding = _latents_for(
         speaker_audio or default_voice_file,
         to_device=device,
     )
-    
+    log.info(f"[TTS·TIMING] Latents: {(time.perf_counter()-t0)*1000:.1f} ms (cached)")
+
+    # ── Text split ──
+    t0 = time.perf_counter()
     char_limit_cfg = getattr(XTTS_MODEL, "tokenizer", None)
     be_limit = 250
     if char_limit_cfg and hasattr(char_limit_cfg, "char_limits"):
         be_limit = char_limit_cfg.char_limits.get("be", 250)
     char_limit = min(180, be_limit)
-    
     texts = _split_text_smart(text_input.strip(), "be", char_limit) if ENABLE_TEXT_SPLITTING else [text_input.strip()]
+    log.info(f"[TTS·TIMING] Text split: {(time.perf_counter()-t0)*1000:.1f} ms | "
+             f"segments={len(texts)} | lengths={[len(t) for t in texts]}")
 
+    # ── Sync generator with timing ──
     def sync_generator():
+        t_inf = time.perf_counter()
+        first = True
+        count = 0
+        total_samples = 0
+
         with torch.inference_mode(), torch.autocast(
             device_type="cuda",
             dtype=torch.float16,
             enabled=str(device).startswith("cuda"),
         ):
-            all_chunks_iterator = (
+            raw_chunks = (
                 _to_np_audio(chunk)
                 for part in texts
                 for chunk in XTTS_MODEL.inference_stream(
@@ -340,30 +342,43 @@ async def stream_audio(
                     language="be",
                     gpt_cond_latent=gpt_cond_latent,
                     speaker_embedding=speaker_embedding,
-                    temperature=0.15,       # ← was 0.25, lower = faster convergence
+                    temperature=0.15,
                     length_penalty=0.9,
                     repetition_penalty=7.0,
-                    top_k=5,                # ← was 10, fewer candidates = faster
-                    top_p=0.75,             # ← was 0.80, slightly tighter
-                    enable_text_splitting=False,  # we split externally already
+                    top_k=5,
+                    top_p=0.75,
+                    enable_text_splitting=False,
                 )
             )
 
-            for audio_chunk in _chunker(
-                all_chunks_iterator,
-                sampling_rate,
-                initial_buffer_s,
-                subsequent_buffer_s,
-            ):
+            for audio_chunk in _chunker(raw_chunks, sampling_rate, initial_buffer_s, subsequent_buffer_s):
+                count += 1
+                n = len(audio_chunk)
+                total_samples += n
+                ms = n / sampling_rate * 1000
+                elapsed = (time.perf_counter() - t_inf) * 1000
+
+                if first:
+                    log.info(f"[TTS·TIMING] 🎵 1st chunk: inference={elapsed:.1f} ms | "
+                             f"total_from_start={(time.perf_counter()-t_pipeline)*1000:.1f} ms | "
+                             f"audio={ms:.0f} ms ({n} samples)")
+                    first = False
+                else:
+                    log.debug(f"[TTS·TIMING] Chunk #{count}: {ms:.0f} ms | elapsed={elapsed:.0f} ms")
                 yield audio_chunk
-                
+
+        total_audio = total_samples / sampling_rate * 1000
+        log.info(f"[TTS·TIMING] ✅ Done: inference={(time.perf_counter()-t_inf)*1000:.0f} ms | "
+                 f"chunks={count} | audio={total_audio:.0f} ms | "
+                 f"pipeline={(time.perf_counter()-t_pipeline)*1000:.0f} ms")
+
+    # ── Producer thread + async queue ──
     loop = asyncio.get_running_loop()
-    
-    import queue
-    import threading
     q = queue.Queue()
     SENTINEL = object()
-    
+
+    t_thread = time.perf_counter()
+
     def producer():
         try:
             for chunk in sync_generator():
@@ -372,39 +387,45 @@ async def stream_audio(
             log.error(f"Error in local XTTS inference: {e}")
         finally:
             q.put(SENTINEL)
-            
+
     threading.Thread(target=producer, daemon=True).start()
-    
+
+    idx = 0
     while True:
+        t_wait = time.perf_counter()
         chunk = await loop.run_in_executor(None, q.get)
         if chunk is SENTINEL:
             break
-            
+
+        idx += 1
+        wait_ms = (time.perf_counter() - t_wait) * 1000
+        if idx == 1:
+            log.info(f"[TTS·TIMING] Queue→async 1st chunk: wait={wait_ms:.1f} ms | "
+                     f"thread_overhead={(time.perf_counter()-t_thread)*1000:.1f} ms")
+        elif idx <= 3:
+            log.debug(f"[TTS·TIMING] Queue→async #{idx}: wait={wait_ms:.1f} ms")
+
         bytes_data = chunk.tobytes()
         if yield_raw_pcm:
             yield bytes_data
         else:
             yield _add_wav_header(bytes_data, sample_rate=sampling_rate, channels=1)
 
+
 def synthesize_to_file(
     text_input: str,
     output_path: str,
     speaker_audio: Optional[str] = None
 ) -> str:
-    """
-    Нестрымінгавая генерацыя ўсяго тэксту і захаванне яго ў адзіны WAV-файл.
-    """
+    """Нестрымінгавая генерацыя ўсяго тэксту і захаванне яго ў адзіны WAV-файл."""
     if XTTS_MODEL is None:
         load_model()
-        
     if not text_input or not text_input.strip():
         raise ValueError("Тэкст пусты")
-        
     gpt_cond_latent, speaker_embedding = _latents_for(
         speaker_audio or default_voice_file,
         to_device=device,
     )
-    
     log.info(f"Сінтэз у файл для тэксту даўжынёй {len(text_input)} сімвалаў...")
     with torch.inference_mode(), torch.autocast(
         device_type="cuda",
@@ -424,13 +445,10 @@ def synthesize_to_file(
             top_k=10,
             top_p=0.80,
         )
-        
     audio_np = _to_np_audio(out["wav"])
     bytes_data = audio_np.tobytes()
     wav_bytes = _add_wav_header(bytes_data, sample_rate=sampling_rate, channels=1)
-    
     with open(output_path, "wb") as f:
         f.write(wav_bytes)
-        
     log.info(f"Файл паспяхова захаваны ў: {output_path}")
     return output_path

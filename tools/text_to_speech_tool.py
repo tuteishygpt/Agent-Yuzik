@@ -242,7 +242,7 @@ async def _stream_speech_local(
     """Стрымінг аўдыя праз лакальны XTTS."""
     try:
         async for chunk in stream_audio(
-            text, speaker_audio_path, yield_raw_pcm=False
+            text, speaker_audio_path, yield_raw_pcm=True
         ):
             yield chunk
     except Exception as e:
