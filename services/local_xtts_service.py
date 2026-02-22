@@ -35,10 +35,10 @@ FADE_S              = 0.005
 ENABLE_TEXT_SPLITTING = True
 FIRST_SEGMENT_LIMIT = 160
 
-device = "cuda:0" if torch.cuda.is_available() else "cpu"
-sampling_rate = 24000
-default_voice_file = None
-repo_id = "archivartaunik/BE_XTTS_V2_10ep250k"
+device = globals().get("device", "cuda:0" if torch.cuda.is_available() else "cpu")
+sampling_rate = int(globals().get("sampling_rate", 24000))
+default_voice_file = globals().get("default_voice_file", None)
+repo_id = globals().get("repo_id", "archivartaunik/BE_XTTS_V2_10ep250k")
 
 # ---- Глабальныя зменныя мадэлі ----
 XTTS_MODEL = None
@@ -53,8 +53,8 @@ class LatentsMeta:
     max_ref_len: int
     sound_norm_refs: bool
 
-LATENT_CACHE = {}
-GPU_LATENT_CACHE = {}
+LATENT_CACHE: dict[str, Tuple[torch.Tensor, torch.Tensor]] = {}
+GPU_LATENT_CACHE: dict[Tuple[str, str], Tuple[torch.Tensor, torch.Tensor]] = {}
 
 
 def load_model(hf_repo_id: str = repo_id, model_dir: Optional[str] = None):
@@ -128,6 +128,13 @@ def _latents_for(path: str | None, *, to_device: Optional[str] = None) -> Tuple[
         
     return g, s
 
+
+try:
+    if default_voice_file:
+        _latents_for(default_voice_file, to_device=device)
+        log.info("Стандартны голас паспяхова пракэшаваны.")
+except Exception as e:
+    log.warning(f"Папярэджанне: не атрымалася папярэдне кэшаваць стандартны голас: {e}")
 
 def _to_np_audio(x) -> np.ndarray:
     if isinstance(x, dict) and "wav" in x:
