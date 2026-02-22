@@ -20,7 +20,7 @@ log = logging.getLogger(__name__)
 try:
     from TTS.tts.configs.xtts_config import XttsConfig
     from TTS.tts.models.xtts import Xtts
-    from TTS.tts.layers.xtts.tokenizer import split_sentence
+    from TTS.tts.layers.xtts.tokenizer import split_sentence, VoiceBpeTokenizer
     HAS_TTS = True
 except ImportError:
     HAS_TTS = False
@@ -57,11 +57,11 @@ LATENT_CACHE: dict[str, Tuple[torch.Tensor, torch.Tensor]] = {}
 GPU_LATENT_CACHE: dict[Tuple[str, str], Tuple[torch.Tensor, torch.Tensor]] = {}
 
 
-def load_model(hf_repo_id: str = repo_id, model_dir: Optional[str] = None):
+def load_model(hf_repo_id: str = repo_id, target_model_dir: str = "./model"):
     """
     Запампоўвае або загружае мадэль з лакальнай дырэкторыі.
     """
-    global XTTS_MODEL
+    global XTTS_MODEL, default_voice_file, sampling_rate
     if XTTS_MODEL is not None:
         return XTTS_MODEL
         
@@ -69,16 +69,49 @@ def load_model(hf_repo_id: str = repo_id, model_dir: Optional[str] = None):
         raise ImportError("Please install TTS package: pip install TTS")
 
     log.info(f"Загрузка лакальнай мадэлі XTTS (прылада: {device})...")
-    from huggingface_hub import snapshot_download
+    from huggingface_hub import hf_hub_download
     
-    if not model_dir:
-        model_dir = snapshot_download(repo_id=hf_repo_id)
-        
+    os.makedirs(target_model_dir, exist_ok=True)
+    checkpoint_file = os.path.join(target_model_dir, "model.pth")
+    config_file = os.path.join(target_model_dir, "config.json")
+    vocab_file = os.path.join(target_model_dir, "vocab.json")
+    local_voice_file = os.path.join(target_model_dir, "voice.wav")
+
+    for fname in ("model.pth", "config.json", "vocab.json", "voice.wav"):
+        fpath = os.path.join(target_model_dir, fname)
+        if not os.path.exists(fpath):
+            log.info(f"Сцягваем файл {fname}...")
+            hf_hub_download(hf_repo_id, filename=fname, local_dir=target_model_dir)
+
     config = XttsConfig()
-    config.load_json(os.path.join(model_dir, "config.json"))
+    config.load_json(config_file)
     XTTS_MODEL = Xtts.init_from_config(config)
-    XTTS_MODEL.load_checkpoint(config, checkpoint_dir=model_dir, eval=True)
-    XTTS_MODEL.to(device)
+    XTTS_MODEL.load_checkpoint(
+        config,
+        checkpoint_path=checkpoint_file,
+        vocab_path=vocab_file,
+        use_deepspeed=False,
+    )
+    
+    torch.set_num_threads(1)
+    if device.startswith("cuda"):
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+        torch.backends.cudnn.benchmark = True
+        try:
+            torch.set_float32_matmul_precision("high")
+        except Exception:
+            pass
+            
+    XTTS_MODEL.to(device).eval()
+    sampling_rate = int(XTTS_MODEL.config.audio["sample_rate"])
+    
+    tokenizer = VoiceBpeTokenizer(vocab_file=vocab_file)
+    XTTS_MODEL.tokenizer = tokenizer
+    
+    if not default_voice_file:
+        default_voice_file = local_voice_file
+        
     log.info("Лакальная мадэль XTTS паспяхова загружана!")
     return XTTS_MODEL
 
