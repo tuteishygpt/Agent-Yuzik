@@ -551,6 +551,16 @@ def _guess_mime(p: Path) -> str:
         return "text/plain"
     return "application/octet-stream"
 
+# --- ПАДРУБАННЕ ІНТЭРФЕЙСУ ---
+from fastapi.staticfiles import StaticFiles
+
+if os.path.exists("frontend/dist"):
+    log.info("✅ Інтэрфейс знойдзены! Падключаем...")
+    app.mount("/", StaticFiles(directory="frontend/dist", html=True), name="static")
+else:
+    log.warning("❌ Увага: frontend/dist не знойдзены!")
+# ----------------------------
+
 
 
 if __name__ == "__main__":
