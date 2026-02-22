@@ -43,6 +43,12 @@ const elements = {
     startBtn: document.getElementById('start-btn'),
     stopBtn: document.getElementById('stop-btn'),
     transcriptBox: document.querySelector('.transcript-box'),
+    // Perf log panel
+    perfToggle: document.getElementById('perf-toggle'),
+    perfPanel: document.getElementById('perf-panel'),
+    perfLogBody: document.getElementById('perf-log-body'),
+    perfClear: document.getElementById('perf-clear'),
+    perfClose: document.getElementById('perf-close'),
 };
 
 // ===========================
@@ -86,7 +92,13 @@ function connectWebSocket() {
                 if (state.firstAudioTimestamp === 0 && state.lastVadEndTimestamp > 0) {
                     state.firstAudioTimestamp = Date.now();
                     const latency = state.firstAudioTimestamp - state.lastVadEndTimestamp;
-                    console.log(`[Perf] Client: First Audio Chunk Received. Latency (VAD End -> Audio): ${latency}ms`);
+                    addPerfEntry({
+                        event: 'first_audio_received',
+                        label: '📨 Першы аўдыя чанк атрыманы',
+                        detail: `Затрымка (VAD → аўдыё): ${latency} мс`,
+                        elapsed_ms: latency,
+                        duration_ms: latency,
+                    });
                 }
                 handleIncomingAudioChunk(event.data);
             } else {
@@ -115,7 +127,13 @@ function handleServerMessage(data) {
             if (state.firstProcessingTimestamp === 0 && state.lastVadEndTimestamp > 0) {
                 state.firstProcessingTimestamp = Date.now();
                 const latency = state.firstProcessingTimestamp - state.lastVadEndTimestamp;
-                console.log(`[Perf] Client: Server Processing Start. Latency (VAD End -> Processing): ${latency}ms`);
+                addPerfEntry({
+                    event: 'processing_start',
+                    label: '⚙️ Сервер пачаў апрацоўку',
+                    detail: `Затрымка (VAD → апрацоўка): ${latency} мс`,
+                    elapsed_ms: latency,
+                    duration_ms: latency,
+                });
             }
             setProcessingState(true);
             break;
@@ -129,6 +147,10 @@ function handleServerMessage(data) {
             break;
         case 'interruption_handshake':
             console.log('Server acknowledged interruption');
+            break;
+        case 'perf_log':
+            // Structured performance log from server
+            addPerfEntry(data);
             break;
     }
 }
@@ -171,13 +193,24 @@ function scheduleAudioBuffer(buffer) {
     const currentTime = state.audioContext.currentTime;
 
     // Logic for gapless playback:
-    // If nextStartTime is in the past (or 0), we start "now" (+ small buffer).
-    // Otherwise, we schedule it right after the previous chunk.
     if (!state.nextStartTime || state.nextStartTime < currentTime) {
         state.nextStartTime = currentTime + 0.05; // 50ms buffer for immediate start
     }
 
     source.start(state.nextStartTime);
+
+    // Track when playback actually starts (first buffer only)
+    if (!state.playbackLogSent && state.lastVadEndTimestamp > 0) {
+        const playbackLatency = Date.now() - state.lastVadEndTimestamp;
+        addPerfEntry({
+            event: 'audio_playback_start',
+            label: '▶️ Пачалося прайграванне',
+            detail: `Затрымка (VAD → гук): ${playbackLatency} мс`,
+            elapsed_ms: playbackLatency,
+            duration_ms: playbackLatency,
+        });
+        state.playbackLogSent = true;
+    }
 
     // Update next start time
     state.nextStartTime += buffer.duration;
@@ -186,7 +219,7 @@ function scheduleAudioBuffer(buffer) {
     if (!state.scheduledSources) state.scheduledSources = [];
     state.scheduledSources.push(source);
 
-    // Cleanup source from list when done (optional, but good for memory)
+    // Cleanup source from list when done
     source.onended = () => {
         const index = state.scheduledSources.indexOf(source);
         if (index > -1) {
@@ -279,7 +312,17 @@ async function initVAD() {
                     state.lastVadEndTimestamp = Date.now();
                     state.firstProcessingTimestamp = 0;
                     state.firstAudioTimestamp = 0;
-                    console.log(`[Perf] Client: VAD Speech End. Sending signal...`);
+                    state.playbackLogSent = false;
+
+                    // Add client-side perf log for VAD end / message sent
+                    addPerfEntry({
+                        event: 'user_message',
+                        label: '🎙️ Паведамленне адпраўлена',
+                        detail: 'VAD зафіксаваў канец мовы, аўдыё перадана на сервер',
+                        elapsed_ms: 0,
+                        duration_ms: 0,
+                        _isSessionStart: true,
+                    });
 
                     // We already sent the chunks in onFrameProcessed.
                     // Now we just signal the end.
@@ -527,6 +570,87 @@ function createVisualizerBars() {
 }
 
 // ===========================
+// Perf Log Panel
+// ===========================
+let perfLogCount = 0;
+
+function formatTime(isoOrNull) {
+    try {
+        const d = isoOrNull ? new Date(isoOrNull) : new Date();
+        return d.toLocaleTimeString('be-BY', { hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 });
+    } catch {
+        return '--:--:--';
+    }
+}
+
+function formatMs(ms) {
+    if (ms >= 1000) return `${(ms / 1000).toFixed(2)}s`;
+    return `${ms}ms`;
+}
+
+function addPerfEntry(data) {
+    const body = elements.perfLogBody;
+    if (!body) return;
+
+    // Remove empty state on first entry
+    const empty = body.querySelector('.perf-empty');
+    if (empty) empty.remove();
+
+    // Add session divider if this is a new user message (start of interaction)
+    if (data._isSessionStart || data.event === 'user_message') {
+        const divider = document.createElement('div');
+        divider.className = 'perf-session-divider';
+        divider.innerHTML = `<span class="perf-session-label">Сесія • ${formatTime(null)}</span>`;
+        body.appendChild(divider);
+    }
+
+    const entry = document.createElement('div');
+    entry.className = 'perf-entry';
+    entry.setAttribute('data-event', data.event || '');
+
+    const timeStr = formatTime(data.timestamp);
+    const elapsedStr = data.elapsed_ms !== undefined && data.elapsed_ms > 0 ? formatMs(data.elapsed_ms) : '';
+
+    entry.innerHTML = `
+        <div class="perf-entry-header">
+            <span class="perf-entry-label">${data.label || data.event || 'Падзея'}</span>
+            <span class="perf-entry-time">${timeStr}</span>
+        </div>
+        ${data.detail ? `<div class="perf-entry-detail">${data.detail}</div>` : ''}
+        ${elapsedStr ? `<span class="perf-entry-elapsed">+${elapsedStr}</span>` : ''}
+    `;
+
+    body.appendChild(entry);
+    body.scrollTop = body.scrollHeight;
+    perfLogCount++;
+
+    // Pulse the toggle button if panel is closed
+    if (!elements.perfPanel.classList.contains('open')) {
+        elements.perfToggle.classList.add('has-new');
+    }
+}
+
+function clearPerfLog() {
+    if (elements.perfLogBody) {
+        elements.perfLogBody.innerHTML = `
+            <div class="perf-empty">
+                <div class="perf-empty-icon">📊</div>
+                <div class="perf-empty-text">Пачніце размову, каб бачыць логі</div>
+            </div>
+        `;
+    }
+    perfLogCount = 0;
+}
+
+function togglePerfPanel() {
+    const panel = elements.perfPanel;
+    panel.classList.toggle('open');
+    if (panel.classList.contains('open')) {
+        elements.perfToggle.classList.remove('has-new');
+    }
+}
+
+// ===========================
 // Initialize
 // ===========================
 function init() {
@@ -545,6 +669,19 @@ function init() {
     elements.stopBtn.addEventListener('click', () => {
         stopSession();
     });
+
+    // Perf panel controls
+    if (elements.perfToggle) {
+        elements.perfToggle.addEventListener('click', togglePerfPanel);
+    }
+    if (elements.perfClose) {
+        elements.perfClose.addEventListener('click', () => {
+            elements.perfPanel.classList.remove('open');
+        });
+    }
+    if (elements.perfClear) {
+        elements.perfClear.addEventListener('click', clearPerfLog);
+    }
 }
 
 init();

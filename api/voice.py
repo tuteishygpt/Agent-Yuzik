@@ -6,6 +6,7 @@ WebSocket endpoint для рэальнага галасавога ўзаемад
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 import json
 import logging
 import struct
@@ -49,14 +50,16 @@ async def _handle_simple_voice(
     audio_data: bytes,
     websocket: WebSocket,
     audio_queue: asyncio.Queue,
-    perf_log,
+    send_perf: callable,
     start_ts: float,
 ):
     """Апрацоўка голасу праз Simple Voice Agent (прамы Gemini)."""
     gen_start = time.time()
-    perf_log(
-        f"[Perf] Using Simple Voice Agent (Model: {config.SIMPLE_VOICE_MODEL}). "
-        f"Overhead: {time.time() - start_ts:.3f}s"
+    await send_perf(
+        "llm_start",
+        "🤖 Запуск LLM мадэлі",
+        detail=f"Мадэль: {config.SIMPLE_VOICE_MODEL}",
+        duration_ms=round((time.time() - start_ts) * 1000),
     )
 
     client = get_genai_client()
@@ -83,7 +86,12 @@ async def _handle_simple_voice(
         ),
     )
 
-    perf_log(f"[Perf] Gemini Stream Started. TTFT: {time.time() - gen_start:.3f}s")
+    await send_perf(
+        "llm_stream_started",
+        "📡 Стрым LLM пачаўся",
+        detail=f"Час да старту стрыму: {(time.time() - gen_start)*1000:.0f} мс",
+        duration_ms=round((time.time() - gen_start) * 1000),
+    )
 
     text_buffer = ""
     sentence_buffer = ""
@@ -104,9 +112,11 @@ async def _handle_simple_voice(
                 log.info(f"TTS Worker: Processing sentence: {sentence[:30]}...")
                 async for audio_chunk in stream_speech(sentence):
                     if not sent_first_audio_chunk:
-                        perf_log(
-                            f"[Perf] First TTS Chunk sent. Pipeline Latency: "
-                            f"{time.time() - start_ts:.3f}s"
+                        await send_perf(
+                            "tts_first_chunk",
+                            "🔊 Першы аўдыя чанк TTS адпраўлены",
+                            detail=f"Поўная затрымка пайплайна: {(time.time() - start_ts)*1000:.0f} мс",
+                            duration_ms=round((time.time() - start_ts) * 1000),
                         )
                         sent_first_audio_chunk = True
                     await audio_queue.put(audio_chunk)
@@ -120,9 +130,11 @@ async def _handle_simple_voice(
         async for chunk in response_stream:
             if chunk.text:
                 if first_token:
-                    perf_log(
-                        f"[Perf] First LLM Token. Latency: "
-                        f"{time.time() - gen_start:.3f}s"
+                    await send_perf(
+                        "llm_first_token",
+                        "✍️ Першы токен LLM",
+                        detail=f"Затрымка да першага токена: {(time.time() - gen_start)*1000:.0f} мс",
+                        duration_ms=round((time.time() - gen_start) * 1000),
                     )
                     first_token = False
 
@@ -145,9 +157,11 @@ async def _handle_simple_voice(
         if not worker_task.done():
             worker_task.cancel()
 
-    perf_log(
-        f"[Perf] LLM Stream Complete. Total Gen Time: "
-        f"{time.time() - gen_start:.3f}s"
+    await send_perf(
+        "llm_complete",
+        "✅ LLM стрым завершаны",
+        detail=f"Агульны час генерацыі: {(time.time() - gen_start)*1000:.0f} мс",
+        duration_ms=round((time.time() - gen_start) * 1000),
     )
 
 
@@ -160,7 +174,7 @@ async def _handle_adk_voice(
     websocket: WebSocket,
     session_id: str,
     user_id: str,
-    perf_log,
+    send_perf: callable,
     start_ts: float,
 ):
     """Апрацоўка голасу праз ADK agent (legacy/non-simple)."""
@@ -205,18 +219,22 @@ async def _handle_adk_voice(
     # Stream TTS for collected text (ADK path only)
     if collected_text:
         final_text = " ".join(collected_text)
-        perf_log(
-            f"[Perf] Streaming TTS for voice response. Text Len: {len(final_text)}. "
-            f"Time from start: {time.time() - start_ts:.3f}s"
+        await send_perf(
+            "tts_start",
+            "🔊 Пачатак TTS генерацыі",
+            detail=f"Даўжыня тэксту: {len(final_text)} сімвалаў",
+            duration_ms=round((time.time() - start_ts) * 1000),
         )
         tts_start = time.time()
         first_chunk = True
         try:
             async for chunk in stream_speech(final_text):
                 if first_chunk:
-                    perf_log(
-                        f"[Perf] First TTS Audio Chunk Yielded. TTS Latency: "
-                        f"{time.time() - tts_start:.3f}s"
+                    await send_perf(
+                        "tts_first_chunk",
+                        "🔊 Першы аўдыя чанк TTS",
+                        detail=f"Затрымка TTS: {(time.time() - tts_start)*1000:.0f} мс",
+                        duration_ms=round((time.time() - tts_start) * 1000),
                     )
                     first_chunk = False
                 await websocket.send_bytes(chunk)
@@ -264,35 +282,48 @@ async def voice_websocket(websocket: WebSocket, user_id: str = "voice_user"):
         """Апрацоўка аўдыя паведамлення і адпраўка стрымінгавага адказу."""
         try:
             start_ts = time.time()
-            perf_logs = []
 
-            def perf_log(msg: str):
-                log.info(msg)
-                perf_logs.append(msg)
+            async def send_perf(event: str, label: str, detail: str = "", duration_ms: int = 0):
+                """Send a structured perf log event to client."""
+                now = datetime.now(timezone.utc)
+                msg = {
+                    "type": "perf_log",
+                    "event": event,
+                    "label": label,
+                    "detail": detail,
+                    "timestamp": now.isoformat(),
+                    "elapsed_ms": round((time.time() - start_ts) * 1000),
+                    "duration_ms": duration_ms,
+                }
+                log.info(f"[Perf] {label} | {detail} | elapsed={msg['elapsed_ms']}ms")
+                if config.SIMPLE_VOICE_DEBUG_TIMESTAMPS:
+                    try:
+                        await websocket.send_json(msg)
+                    except Exception:
+                        pass
 
-            perf_log(
-                f"[Perf] Server: Audio Received. Size: {len(audio_data)} bytes. "
-                f"TS: {start_ts}"
+            await send_perf(
+                "audio_received",
+                "📥 Аўдыё атрымана серверам",
+                detail=f"Памер: {len(audio_data)} байт",
             )
             await websocket.send_json({"type": "processing"})
 
             if config.SIMPLE_VOICE_AGENT:
                 await _handle_simple_voice(
-                    audio_data, websocket, audio_queue, perf_log, start_ts
+                    audio_data, websocket, audio_queue, send_perf, start_ts
                 )
             else:
                 await _handle_adk_voice(
-                    audio_data, websocket, session_id, user_id, perf_log, start_ts
+                    audio_data, websocket, session_id, user_id, send_perf, start_ts
                 )
 
-            # Send Debug Info if enabled
-            if config.SIMPLE_VOICE_DEBUG_TIMESTAMPS:
-                debug_msg = "\n".join(perf_logs)
-                label = "Streamed" if config.SIMPLE_VOICE_AGENT else ""
-                await websocket.send_json({
-                    "type": "response",
-                    "text": f"\n\n--- Debug Timestamps {label} ---\n{debug_msg}",
-                })
+            await send_perf(
+                "pipeline_complete",
+                "🏁 Пайплайн завершаны",
+                detail=f"Агульны час: {(time.time() - start_ts)*1000:.0f} мс",
+                duration_ms=round((time.time() - start_ts) * 1000),
+            )
 
         except Exception as e:
             log.exception(f"Error in process_voice_message: {e}")

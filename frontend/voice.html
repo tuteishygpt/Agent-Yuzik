@@ -385,6 +385,258 @@
         }
 
         /* ===========================
+           Performance Log Panel
+           =========================== */
+        .perf-toggle-btn {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            background: rgba(78, 130, 238, 0.2);
+            border: 1px solid rgba(78, 130, 238, 0.4);
+            color: #4e82ee;
+            font-size: 1.3rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            backdrop-filter: blur(10px);
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(78, 130, 238, 0.2);
+        }
+
+        .perf-toggle-btn:hover {
+            background: rgba(78, 130, 238, 0.35);
+            transform: scale(1.1);
+        }
+
+        .perf-toggle-btn.has-new {
+            animation: pulse-badge 1.5s infinite;
+        }
+
+        @keyframes pulse-badge {
+            0%, 100% { box-shadow: 0 4px 15px rgba(78, 130, 238, 0.2); }
+            50% { box-shadow: 0 4px 25px rgba(78, 130, 238, 0.6); }
+        }
+
+        .perf-panel {
+            position: fixed;
+            top: 0;
+            right: -420px;
+            width: 400px;
+            height: 100vh;
+            background: rgba(12, 14, 24, 0.97);
+            border-left: 1px solid rgba(78, 130, 238, 0.2);
+            backdrop-filter: blur(20px);
+            z-index: 999;
+            display: flex;
+            flex-direction: column;
+            transition: right 0.35s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+            box-shadow: -5px 0 30px rgba(0, 0, 0, 0.5);
+        }
+
+        .perf-panel.open {
+            right: 0;
+        }
+
+        .perf-panel-header {
+            padding: 1.2rem 1.5rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-shrink: 0;
+        }
+
+        .perf-panel-title {
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .perf-panel-actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .perf-action-btn {
+            padding: 0.3rem 0.7rem;
+            font-size: 0.7rem;
+            border-radius: 6px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .perf-action-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--text-primary);
+        }
+
+        .perf-panel-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0.5rem 0;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(78, 130, 238, 0.3) transparent;
+        }
+
+        .perf-panel-body::-webkit-scrollbar {
+            width: 5px;
+        }
+
+        .perf-panel-body::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .perf-panel-body::-webkit-scrollbar-thumb {
+            background: rgba(78, 130, 238, 0.3);
+            border-radius: 10px;
+        }
+
+        /* ── Session divider ── */
+        .perf-session-divider {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            padding: 0.8rem 1.2rem 0.4rem;
+            margin-top: 0.4rem;
+        }
+
+        .perf-session-divider::before,
+        .perf-session-divider::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: rgba(78, 130, 238, 0.15);
+        }
+
+        .perf-session-label {
+            font-size: 0.65rem;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: rgba(78, 130, 238, 0.6);
+            white-space: nowrap;
+        }
+
+        /* ── Log entry ── */
+        .perf-entry {
+            padding: 0.6rem 1.2rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+            transition: background 0.2s ease;
+            animation: fadeInEntry 0.3s ease;
+        }
+
+        @keyframes fadeInEntry {
+            from { opacity: 0; transform: translateX(10px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        .perf-entry:hover {
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .perf-entry-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 0.25rem;
+        }
+
+        .perf-entry-label {
+            font-size: 0.82rem;
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+
+        .perf-entry-time {
+            font-size: 0.68rem;
+            color: var(--text-secondary);
+            font-family: 'Courier New', monospace;
+        }
+
+        .perf-entry-detail {
+            font-size: 0.72rem;
+            color: var(--text-secondary);
+            margin-top: 0.15rem;
+        }
+
+        .perf-entry-elapsed {
+            display: inline-block;
+            font-size: 0.65rem;
+            padding: 0.1rem 0.45rem;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-weight: 600;
+            margin-top: 0.3rem;
+        }
+
+        /* Color coding for event types */
+        .perf-entry[data-event="audio_received"] .perf-entry-elapsed,
+        .perf-entry[data-event="user_message"] .perf-entry-elapsed {
+            background: rgba(78, 130, 238, 0.15);
+            color: #7aa8ff;
+        }
+
+        .perf-entry[data-event="llm_start"] .perf-entry-elapsed,
+        .perf-entry[data-event="llm_stream_started"] .perf-entry-elapsed,
+        .perf-entry[data-event="llm_first_token"] .perf-entry-elapsed {
+            background: rgba(255, 170, 0, 0.15);
+            color: #ffcc55;
+        }
+
+        .perf-entry[data-event="llm_complete"] .perf-entry-elapsed {
+            background: rgba(68, 255, 170, 0.15);
+            color: #44ffaa;
+        }
+
+        .perf-entry[data-event="tts_start"] .perf-entry-elapsed,
+        .perf-entry[data-event="tts_first_chunk"] .perf-entry-elapsed {
+            background: rgba(200, 100, 255, 0.15);
+            color: #d090ff;
+        }
+
+        .perf-entry[data-event="pipeline_complete"] .perf-entry-elapsed {
+            background: rgba(68, 255, 170, 0.2);
+            color: #44ffaa;
+            font-size: 0.72rem;
+        }
+
+        .perf-entry[data-event="audio_playback_start"] .perf-entry-elapsed {
+            background: rgba(255, 68, 102, 0.15);
+            color: #ff6688;
+        }
+
+        /* ── Empty state ── */
+        .perf-empty {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: var(--text-secondary);
+            gap: 0.8rem;
+        }
+
+        .perf-empty-icon {
+            font-size: 2.5rem;
+            opacity: 0.4;
+        }
+
+        .perf-empty-text {
+            font-size: 0.85rem;
+            opacity: 0.6;
+        }
+
+        /* ===========================
            Responsive Styles
            =========================== */
         @media (max-width: 600px) {
@@ -447,6 +699,18 @@
                 padding: 0.4rem 0.8rem;
                 font-size: 0.7rem;
             }
+
+            .perf-panel {
+                width: 100%;
+                right: -100%;
+            }
+
+            .perf-toggle-btn {
+                bottom: 1rem;
+                right: 1rem;
+                width: 42px;
+                height: 42px;
+            }
         }
 
         @media (max-height: 700px) {
@@ -496,6 +760,27 @@
         <div class="voice-controls">
             <button class="voice-btn primary" id="start-btn">🎤 Пачаць</button>
             <button class="voice-btn secondary" id="stop-btn" disabled>⏹️ Спыніць</button>
+        </div>
+    </div>
+
+    <!-- Performance Log Panel -->
+    <button class="perf-toggle-btn" id="perf-toggle" title="Логі прадукцыйнасці">
+        📊
+    </button>
+
+    <div class="perf-panel" id="perf-panel">
+        <div class="perf-panel-header">
+            <div class="perf-panel-title">📊 Логі прадукцыйнасці</div>
+            <div class="perf-panel-actions">
+                <button class="perf-action-btn" id="perf-clear">🗑️ Ачысціць</button>
+                <button class="perf-action-btn" id="perf-close">✕</button>
+            </div>
+        </div>
+        <div class="perf-panel-body" id="perf-log-body">
+            <div class="perf-empty">
+                <div class="perf-empty-icon">📊</div>
+                <div class="perf-empty-text">Пачніце размову, каб бачыць логі</div>
+            </div>
         </div>
     </div>
 
