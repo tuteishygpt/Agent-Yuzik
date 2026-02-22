@@ -1,1 +1,35 @@
+# ── Сакрэты ──
 .env
+
+# ── Python ──
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+*.egg
+
+# ── Node / Frontend ──
+node_modules/
+frontend/dist/
+
+# ── Лагі ──
+*.log
+
+# ── Кэшы і мадэлі ──
+.cache/
+model/
+latents_cache/
+
+# ── Файлы, згенераваныя сэрвісам ──
+files/
+
+# ── IDE ──
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

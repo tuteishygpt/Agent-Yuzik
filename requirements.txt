@@ -23,5 +23,5 @@ rapidfuzz
 datasets
 
 # Text to Speech
-TTS
+git+https://github.com/tuteishygpt/coqui-ai-TTS.git
 huggingface_hub

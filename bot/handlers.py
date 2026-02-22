@@ -10,7 +10,12 @@ from google.genai import errors as genai_errors
 
 from bot import helpers
 from services.adk_service import ADKService
-from chat_dataset_logger import save_message
+try:
+    from chat_dataset_logger import save_message
+except ImportError:
+    # Модуль chat_dataset_logger не ўсталяваны — выкарыстоўваем заглушку
+    def save_message(**kwargs):  # noqa: E302
+        pass
 import config
 
 log = logging.getLogger(__name__)
