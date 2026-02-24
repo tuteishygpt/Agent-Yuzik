@@ -533,9 +533,18 @@ async def voice_websocket(websocket: WebSocket, user_id: str = "voice_user"):
             log.info(f"[VOICE·TIMING] ══════════════════════════════════════")
             log.info(f"[VOICE·TIMING] ▶ Voice pipeline START | audio={len(audio_data)} bytes")
 
+            # Events that are always shown in client perf panel (summaries)
+            _ALWAYS_SHOW_EVENTS = {
+                "tts_complete", "llm_complete", "llm_stream_end", "pipeline_complete",
+            }
+            _perf_first_audio_sent = False
+
             async def send_perf(event: str, label: str, detail: str = "", duration_ms: int = 0):
-                """Send a structured perf log event to client."""
-                nonlocal step_ts
+                """Send a structured perf log event to client.
+                After first audio chunk, only summary events go to client UI.
+                All events always go to server log.
+                """
+                nonlocal step_ts, _perf_first_audio_sent
                 now = datetime.now(timezone.utc)
                 elapsed = round((time.time() - start_ts) * 1000)
                 delta = round((time.time() - step_ts) * 1000)
@@ -551,7 +560,17 @@ async def voice_websocket(websocket: WebSocket, user_id: str = "voice_user"):
                     "duration_ms": duration_ms,
                 }
                 log.info(f"[Perf] {label} | {detail} | elapsed={elapsed}ms | Δ={delta}ms")
-                if config.SIMPLE_VOICE_DEBUG_TIMESTAMPS:
+
+                # Track when first audio reaches the queue
+                if event == "tts_first_chunk":
+                    _perf_first_audio_sent = True
+
+                # Send to client: always before first audio, after — only summaries
+                show_to_client = (not _perf_first_audio_sent
+                                  or event in _ALWAYS_SHOW_EVENTS
+                                  or event == "tts_first_chunk")
+
+                if config.SIMPLE_VOICE_DEBUG_TIMESTAMPS and show_to_client:
                     try:
                         await websocket.send_json(msg)
                     except Exception:
@@ -592,6 +611,34 @@ async def voice_websocket(websocket: WebSocket, user_id: str = "voice_user"):
             except Exception:
                 pass
 
+    # ── Helper: check for END\0 trailer (8 bytes at end of binary) ──
+    _END_MARKER = b'END\x00'
+
+    def _extract_end_marker(raw: bytes):
+        """Check if binary data ends with 8-byte END\\0 trailer.
+        Returns (audio_bytes, client_ts_low32) or (None, None) if no marker.
+        """
+        if len(raw) >= 52 and raw[-8:-4] == _END_MARKER:  # 44 WAV header + at least some data + 8 trailer
+            client_ts = struct.unpack_from('<I', raw, len(raw) - 4)[0]
+            return bytes(raw[:-8]), client_ts
+        return None, None
+
+    def _start_processing(audio_bytes: bytes):
+        """Start voice processing task from audio bytes."""
+        nonlocal audio_accumulator
+        if audio_bytes[:4] == b'RIFF':
+            full_wav = audio_bytes
+        else:
+            full_wav = _create_wav_header(len(audio_bytes)) + audio_bytes
+
+        # Cancel previous task if still running
+        if user_id in active_voice_tasks and not active_voice_tasks[user_id].done():
+            active_voice_tasks[user_id].cancel()
+
+        task = asyncio.create_task(process_voice_message(full_wav))
+        active_voice_tasks[user_id] = task
+        audio_accumulator = bytearray()
+
     # ── Main receive loop ──
     try:
         while True:
@@ -602,7 +649,18 @@ async def voice_websocket(websocket: WebSocket, user_id: str = "voice_user"):
                 break
 
             if "bytes" in data:
-                audio_accumulator.extend(data["bytes"])
+                raw = data["bytes"]
+                # New protocol: WAV + END\0 trailer in single binary message
+                audio_data, client_ts = _extract_end_marker(raw)
+                if audio_data is not None:
+                    log.info(
+                        f"Received combined WAV+END ({len(audio_data)} bytes audio). "
+                        f"Starting processing immediately..."
+                    )
+                    _start_processing(audio_data)
+                else:
+                    # Old protocol: accumulate chunks, wait for end_audio JSON
+                    audio_accumulator.extend(raw)
 
             elif "text" in data:
                 msg = json.loads(data["text"])
@@ -613,27 +671,10 @@ async def voice_websocket(websocket: WebSocket, user_id: str = "voice_user"):
                         continue
 
                     log.info(
-                        f"Received end_audio. Accumulated {len(audio_accumulator)} "
+                        f"Received end_audio (legacy). Accumulated {len(audio_accumulator)} "
                         f"bytes. Starting processing..."
                     )
-
-                    # Client may send complete WAV (with RIFF header) or raw PCM
-                    if audio_accumulator[:4] == b'RIFF':
-                        full_wav = bytes(audio_accumulator)
-                    else:
-                        full_wav = (
-                            _create_wav_header(len(audio_accumulator))
-                            + audio_accumulator
-                        )
-
-                    # Cancel previous task if still running
-                    if user_id in active_voice_tasks and not active_voice_tasks[user_id].done():
-                        active_voice_tasks[user_id].cancel()
-
-                    task = asyncio.create_task(process_voice_message(full_wav))
-                    active_voice_tasks[user_id] = task
-
-                    audio_accumulator = bytearray()
+                    _start_processing(bytes(audio_accumulator))
 
                 elif msg_type == "interrupt":
                     log.info(f"Interruption received for user {user_id}")

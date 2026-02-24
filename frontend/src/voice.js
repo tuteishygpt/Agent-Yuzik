@@ -521,6 +521,9 @@ async function initVAD() {
                 }
 
                 if (state.isConnected && state.websocket.readyState === WebSocket.OPEN) {
+                    // Encode WAV first (before starting latency timer)
+                    const wavBuffer = encodeWAV(audio);
+
                     state.lastVadEndTimestamp = Date.now();
                     state.firstProcessingTimestamp = 0;
                     state.firstAudioTimestamp = 0;
@@ -541,10 +544,19 @@ async function initVAD() {
                         _isSessionStart: true,
                     });
 
-                    // Send complete VAD audio as WAV binary (single message, no accumulation needed)
-                    const wavBuffer = encodeWAV(audio);
-                    state.websocket.send(wavBuffer);
-                    state.websocket.send(JSON.stringify({ type: 'end_audio' }));
+                    // Send WAV + 8-byte end marker in ONE binary message (saves 1 RTT)
+                    // Trailer: "END\0" (4 bytes) + uint32 LE client timestamp low bits (4 bytes)
+                    const trailer = new ArrayBuffer(8);
+                    const tv = new DataView(trailer);
+                    tv.setUint8(0, 0x45); // 'E'
+                    tv.setUint8(1, 0x4E); // 'N'
+                    tv.setUint8(2, 0x44); // 'D'
+                    tv.setUint8(3, 0x00); // '\0'
+                    tv.setUint32(4, state.lastVadEndTimestamp & 0xFFFFFFFF, true);
+                    const combined = new Uint8Array(wavBuffer.byteLength + 8);
+                    combined.set(new Uint8Array(wavBuffer), 0);
+                    combined.set(new Uint8Array(trailer), wavBuffer.byteLength);
+                    state.websocket.send(combined.buffer);
                 }
             },
             onFrameProcessed: (probs) => {
@@ -552,6 +564,7 @@ async function initVAD() {
             },
             positiveSpeechThreshold: 0.8,
             negativeSpeechThreshold: 0.4,
+            redemptionFrames: 3,
             minSpeechFrames: 3,
         });
     } catch (e) {
