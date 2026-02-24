@@ -21,7 +21,8 @@ from google.genai import types
 import config
 
 # Regex for detecting sentence boundaries
-_SENTENCE_END_RE = re.compile(r'[.!?…]+[\s»")\]]*$')
+# Removed `$` anchor so it finds boundaries anywhere in the string, followed by whitespace or newline
+_SENTENCE_END_RE = re.compile(r'[.!?…\n]+[\s»")\]]+')
 from api.deps import adk_service, get_genai_client
 from tools.text_to_speech_tool import register_voice_user, unregister_voice_user, stream_speech
 
@@ -208,11 +209,15 @@ async def _handle_simple_voice(
                 })
 
                 # ── Sentence-level TTS ──
-                if _SENTENCE_END_RE.search(sentence_buffer) and len(sentence_buffer.strip()) >= 40:
-                    ready = sentence_buffer.strip()
-                    log.info(f"[VOICE·TIMING] Sentence ready for TTS ({len(ready)} chars): {ready[:60]}...")
-                    await tts_sentence_queue.put(ready)
-                    sentence_buffer = ""
+                matches = list(_SENTENCE_END_RE.finditer(sentence_buffer))
+                if matches:
+                    last_match = matches[-1]
+                    split_idx = last_match.end()
+                    ready = sentence_buffer[:split_idx].strip()
+                    if len(ready) >= 15:
+                        log.info(f"[VOICE·TIMING] Sentence ready for TTS ({len(ready)} chars): {ready[:60]}...")
+                        await tts_sentence_queue.put(ready)
+                        sentence_buffer = sentence_buffer[split_idx:]
 
         # Process remaining text
         if sentence_buffer.strip():
