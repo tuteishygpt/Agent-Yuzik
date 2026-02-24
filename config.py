@@ -37,6 +37,19 @@ AGENT_TIMEOUT = int(os.getenv("AGENT_TIMEOUT", 60))
 TTS_MODE = os.getenv("TTS_MODE", "local").lower()  # "local" or "api"
 HF_TOKEN = os.getenv("HF_TOKEN", "") or os.getenv("HUGGINGFACE_API_TOKEN", "")
 
+# TTS Streaming — Server-side buffers
+TTS_INITIAL_BUFFER_S = 0.15         # сек, мінімальны памер першага чанка (павялічана для стабільнасці)
+TTS_MIN_BUFFER_S = 0.08             # сек, фіксаваны памер наступных чанкаў
+TTS_FIRST_SEGMENT_LIMIT = 60        # сімвалаў у першым тэкставым сегменце (чым менш, тым хутчэй пачнецца гук)
+TTS_TEMPERATURE = 0.15
+TTS_TOP_K = 5
+TTS_TOP_P = 0.75
+
+# TTS Streaming — Client-side playback
+TTS_SCRIPT_BUFFER_SIZE = 4096       # ScriptProcessor buffer (samples, 4096 = ~170ms)
+TTS_PLAYBACK_MIN_BUFFER_MS = 400    # мін. мс буфера перад пачаткам прайгравання (павялічана ад перарыванняў)
+TTS_PLAYBACK_EMPTY_GRACE_MS = 800   # grace period калі чарга пустая (мс)
+
 # Voice Agent Configuration
 SIMPLE_VOICE_AGENT = os.getenv("SIMPLE_VOICE_AGENT", "True").lower() == "true"
 SIMPLE_VOICE_SYSTEM_PROMPT = os.getenv("SIMPLE_VOICE_SYSTEM_PROMPT", "Ты карысны выключна беларускамоўны галасавы памочнік Юзік. Адкажы сцісла і па сутнасці.")

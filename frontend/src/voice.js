@@ -17,59 +17,53 @@ const pcmPlayer = {
     playing: false,
     _firstSampleFired: false,
     _emptyTimeout: null,
+    _bufferTimeout: null,
     _chunkCount: 0,
     _totalSamples: 0,
-    _pushTimestamp: 0,    // when first chunk was pushed
+    _pushTimestamp: 0,
     sampleRate: 24000,
+    scriptBufferSize: 4096,     // ScriptProcessor buffer (configurable from server)
+    minBufferMs: 300,           // Minimum ms to buffer before starting playback
+    emptyGraceMs: 800,          // Grace period before declaring playback ended
 
-    init(sampleRate = 24000) {
+    init(sampleRate) {
+        sampleRate = sampleRate || this.sampleRate;
         if (this.ctx) {
-            // If already init with different rate, close and reinit
-            if (this.ctx.sampleRate !== sampleRate) {
-                this.destroy();
-            } else {
-                return;
-            }
+            if (this.ctx.sampleRate !== sampleRate) this.destroy();
+            else return;
         }
         this.sampleRate = sampleRate;
         const AC = window.AudioContext || window.webkitAudioContext;
-        if (!AC) { console.error("[PCM Player] AudioContext not supported"); return; }
+        if (!AC) { console.error('[PCM Player] AudioContext not supported'); return; }
         this.ctx = new AC({ sampleRate });
-        // ScriptProcessor with small buffer = ~85ms at 24kHz
-        this.node = this.ctx.createScriptProcessor(2048, 1, 1);
+        this.node = this.ctx.createScriptProcessor(this.scriptBufferSize, 1, 1);
         const self = this;
 
         this.node.onaudioprocess = (e) => {
             const out = e.outputBuffer.getChannelData(0);
             let i = 0;
-            let wroteAudio = false;
 
             while (i < out.length) {
                 if (self.queue.length === 0 || !self.playing) {
                     out[i++] = 0.0;
                     continue;
                 }
-
-                // Track first actual audio sample output
                 if (!self._firstSampleFired) {
                     self._firstSampleFired = true;
                     const now = performance.now();
                     const latencyFromPush = now - self._pushTimestamp;
-                    console.log(`[PCM Player] ▶️ First audio sample output: ${latencyFromPush.toFixed(1)} ms after first push`);
-
+                    console.log(`[PCM Player] ▶️ First sample output: ${latencyFromPush.toFixed(1)} ms after first push`);
                     if (state.lastVadEndTimestamp > 0) {
                         const totalLatency = Date.now() - state.lastVadEndTimestamp;
                         addPerfEntry({
                             event: 'pcm_playback_start',
                             label: '▶️ Рэальны пачатак гуку',
-                            detail: `VAD→гук: ${totalLatency} мс | push→гук: ${latencyFromPush.toFixed(0)} мс`,
+                            detail: `VAD→гук: ${totalLatency} мс | буфер→гук: ${latencyFromPush.toFixed(0)} мс`,
                             elapsed_ms: totalLatency,
                             duration_ms: totalLatency,
                         });
                     }
                 }
-
-                wroteAudio = true;
                 let cur = self.queue[0];
                 const take = Math.min(cur.length, out.length - i);
                 out.set(cur.subarray(0, take), i);
@@ -78,7 +72,7 @@ const pcmPlayer = {
                 else self.queue[0] = cur.subarray(take);
             }
 
-            // Queue just emptied — start countdown to stop speaking
+            // Queue emptied — start grace countdown
             if (self.playing && self.queue.length === 0) {
                 if (!self._emptyTimeout) {
                     self._emptyTimeout = setTimeout(() => {
@@ -86,36 +80,64 @@ const pcmPlayer = {
                             self.playing = false;
                             self._emptyTimeout = null;
                             const stats = self.getStats();
-                            console.log(`[PCM Player] ⏹ Playback ended: ${stats.chunks} chunks, ${stats.totalMs} ms audio`);
+                            console.log(`[PCM Player] ⏹ Done: ${stats.chunks} chunks, ${stats.totalMs} ms audio`);
                             setSpeakingState(false);
                         }
-                    }, 500); // 500ms grace period for slow chunks
+                    }, self.emptyGraceMs);
                 }
             }
         };
 
         this.node.connect(this.ctx.destination);
-        console.log(`[PCM Player] Initialized: ${sampleRate} Hz, buffer=2048 (${(2048 / sampleRate * 1000).toFixed(0)} ms)`);
+        const bufMs = (this.scriptBufferSize / sampleRate * 1000).toFixed(0);
+        console.log(`[PCM Player] Init: ${sampleRate} Hz, buffer=${this.scriptBufferSize} (${bufMs} ms), minBuf=${this.minBufferMs} ms`);
+    },
+
+    /** Get total buffered ms */
+    _bufferedMs() {
+        const samples = this.queue.reduce((s, a) => s + a.length, 0);
+        return samples / this.sampleRate * 1000;
+    },
+
+    _startPlayback() {
+        this.playing = true;
+        this._pushTimestamp = performance.now();
+        setSpeakingState(true);
+        if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
+        if (this._bufferTimeout) {
+            clearTimeout(this._bufferTimeout);
+            this._bufferTimeout = null;
+        }
+        const bMs = this._bufferedMs();
+        console.log(`[PCM Player] ▶ Start playback: buffered=${bMs.toFixed(0)} ms, chunks=${this._chunkCount}`);
     },
 
     push(f32array) {
         if (!this.ctx) this.init(this.sampleRate);
-
         this.queue.push(f32array);
         this._chunkCount++;
         this._totalSamples += f32array.length;
 
-        // Cancel empty timeout if new data arrives
         if (this._emptyTimeout) {
             clearTimeout(this._emptyTimeout);
             this._emptyTimeout = null;
         }
 
         if (!this.playing) {
-            this.playing = true;
-            this._pushTimestamp = performance.now();
-            setSpeakingState(true);
-            if (this.ctx.state === 'suspended') this.ctx.resume();
+            // Pre-buffer: wait until we have enough audio
+            const bufferedMs = this._bufferedMs();
+            if (bufferedMs >= this.minBufferMs) {
+                this._startPlayback();
+            } else if (!this._bufferTimeout) {
+                // Safety: if buffer doesn't fill in 600ms, start anyway
+                this._bufferTimeout = setTimeout(() => {
+                    if (!this.playing && this.queue.length > 0) {
+                        console.log(`[PCM Player] Buffer timeout, starting with ${this._bufferedMs().toFixed(0)} ms`);
+                        this._startPlayback();
+                    }
+                    this._bufferTimeout = null;
+                }, 600);
+            }
         }
     },
 
@@ -126,30 +148,21 @@ const pcmPlayer = {
         this._chunkCount = 0;
         this._totalSamples = 0;
         this._pushTimestamp = 0;
-        if (this._emptyTimeout) {
-            clearTimeout(this._emptyTimeout);
-            this._emptyTimeout = null;
-        }
+        if (this._emptyTimeout) { clearTimeout(this._emptyTimeout); this._emptyTimeout = null; }
+        if (this._bufferTimeout) { clearTimeout(this._bufferTimeout); this._bufferTimeout = null; }
     },
 
     destroy() {
         this.reset();
-        if (this.node) {
-            this.node.disconnect();
-            this.node = null;
-        }
-        if (this.ctx) {
-            this.ctx.close().catch(() => { });
-            this.ctx = null;
-        }
+        if (this.node) { this.node.disconnect(); this.node = null; }
+        if (this.ctx) { this.ctx.close().catch(() => { }); this.ctx = null; }
     },
 
     getStats() {
-        const queueSamples = this.queue.reduce((sum, arr) => sum + arr.length, 0);
         return {
             chunks: this._chunkCount,
             totalMs: (this._totalSamples / this.sampleRate * 1000).toFixed(0),
-            queueMs: (queueSamples / this.sampleRate * 1000).toFixed(0),
+            queueMs: this._bufferedMs().toFixed(0),
             queueChunks: this.queue.length,
         };
     }
@@ -306,7 +319,16 @@ function handleServerMessage(data) {
             addPerfEntry(data);
             break;
 
-        // ── NEW: Raw PCM audio chunks (local TTS, minimal latency) ──
+        // ── Server config (sent on WebSocket connect) ──
+        case 'voice_config':
+            console.log('[Voice] Server config received:', data);
+            if (data.sample_rate) pcmPlayer.sampleRate = data.sample_rate;
+            if (data.script_buffer_size) pcmPlayer.scriptBufferSize = data.script_buffer_size;
+            if (data.playback_min_buffer_ms !== undefined) pcmPlayer.minBufferMs = data.playback_min_buffer_ms;
+            if (data.playback_empty_grace_ms !== undefined) pcmPlayer.emptyGraceMs = data.playback_empty_grace_ms;
+            break;
+
+        // ── Raw PCM audio chunks (local TTS, minimal latency) ──
         case 'audio_pcm':
             handlePcmChunk(data);
             break;
@@ -316,17 +338,25 @@ function handleServerMessage(data) {
 // ===========================
 // PCM Chunk Handler (base64 Float32 → pcmPlayer)
 // ===========================
-function handlePcmChunk(data) {
+async function handlePcmChunk(data) {
     const sr = data.sr || 24000;
     if (!pcmPlayer.ctx) pcmPlayer.init(sr);
 
-    // Decode base64 → Float32Array
+    // Fast base64 decode via fetch API (native implementation, ~3-5x faster)
     const t0 = performance.now();
-    const bin = atob(data.data);
-    const buf = new ArrayBuffer(bin.length);
-    const u8 = new Uint8Array(buf);
-    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
-    const f32 = new Float32Array(buf);
+    let f32;
+    try {
+        const resp = await fetch(`data:application/octet-stream;base64,${data.data}`);
+        const ab = await resp.arrayBuffer();
+        f32 = new Float32Array(ab);
+    } catch (_) {
+        // Fallback to manual decode
+        const bin = atob(data.data);
+        const buf = new ArrayBuffer(bin.length);
+        const u8 = new Uint8Array(buf);
+        for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+        f32 = new Float32Array(buf);
+    }
     const decodeMs = performance.now() - t0;
 
     state.pcmChunkCount++;
@@ -348,14 +378,14 @@ function handlePcmChunk(data) {
         state.firstAudioTimestamp = Date.now();
     }
 
-    // Push to player (starts playback immediately if not already playing)
     pcmPlayer.push(f32);
 
-    // Log first few chunks
+    // Log first few chunks with queue stats
     if (state.pcmChunkCount <= 5) {
         const stats = pcmPlayer.getStats();
-        console.log(`[PCM] Chunk #${state.pcmChunkCount}: ${f32.length} samples (${chunkAudioMs} ms) | ` +
-            `decode=${decodeMs.toFixed(1)} ms | queue=${stats.queueMs} ms (${stats.queueChunks} bufs)`);
+        console.log(`[PCM] #${state.pcmChunkCount}: ${f32.length} samples (${chunkAudioMs} ms) | ` +
+            `decode=${decodeMs.toFixed(1)} ms | queue=${stats.queueMs} ms (${stats.queueChunks} bufs) | ` +
+            `playing=${pcmPlayer.playing}`);
     }
 }
 

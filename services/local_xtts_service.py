@@ -15,6 +15,7 @@ import numpy as np
 import torch
 
 log = logging.getLogger(__name__)
+import config as app_config
 
 # Спроба імпартаваць TTS
 try:
@@ -28,12 +29,12 @@ except ImportError:
     def split_sentence(text, lang, text_split_length):
         return [text]
 
-# ---- Канфіг стрыму ----
-INITIAL_MIN_BUFFER_S = 0.10
-MIN_BUFFER_S        = 0.05
+# ---- Канфіг стрыму (з config.py / .env) ----
+INITIAL_MIN_BUFFER_S = getattr(app_config, 'TTS_INITIAL_BUFFER_S', 0.20)
+MIN_BUFFER_S        = getattr(app_config, 'TTS_MIN_BUFFER_S', 0.15)
 FADE_S              = 0.005
 ENABLE_TEXT_SPLITTING = True
-FIRST_SEGMENT_LIMIT = 80
+FIRST_SEGMENT_LIMIT = getattr(app_config, 'TTS_FIRST_SEGMENT_LIMIT', 80)
 
 device = globals().get("device", "cuda:0" if torch.cuda.is_available() else "cpu")
 sampling_rate = int(globals().get("sampling_rate", 24000))
@@ -342,11 +343,11 @@ async def stream_audio(
                     language="be",
                     gpt_cond_latent=gpt_cond_latent,
                     speaker_embedding=speaker_embedding,
-                    temperature=0.15,
+                    temperature=getattr(app_config, 'TTS_TEMPERATURE', 0.15),
                     length_penalty=0.9,
                     repetition_penalty=7.0,
-                    top_k=5,
-                    top_p=0.75,
+                    top_k=getattr(app_config, 'TTS_TOP_K', 5),
+                    top_p=getattr(app_config, 'TTS_TOP_P', 0.75),
                     enable_text_splitting=False,
                 )
             )

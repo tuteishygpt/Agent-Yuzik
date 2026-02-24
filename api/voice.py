@@ -322,6 +322,16 @@ async def voice_websocket(websocket: WebSocket, user_id: str = "voice_user"):
     await websocket.accept()
     log.info(f"Voice WebSocket connected for user {user_id}")
 
+    # Send streaming config to client
+    await websocket.send_json({
+        "type": "voice_config",
+        "tts_mode": config.TTS_MODE,
+        "sample_rate": LOCAL_SAMPLE_RATE,
+        "script_buffer_size": config.TTS_SCRIPT_BUFFER_SIZE,
+        "playback_min_buffer_ms": config.TTS_PLAYBACK_MIN_BUFFER_MS,
+        "playback_empty_grace_ms": config.TTS_PLAYBACK_EMPTY_GRACE_MS,
+    })
+
     session_id = await adk_service.get_or_create_session(user_id)
 
     # Create queue for streaming audio and register user
