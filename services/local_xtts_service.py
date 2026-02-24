@@ -186,10 +186,10 @@ def _chunker(chunks: Iterable[np.ndarray], sr: int, initial_target_s: float, tar
         if c_np.size == 0:
             continue
         buffer = np.concatenate([buffer, c_np])
-        need = target_samples if buffer.size < target_samples else 0
-        if buffer.size >= max(min_first if is_first else min_next, need):
-            yield buffer
-            buffer = np.array([], dtype=np.float32)
+        # Строга наразаем буфер на невялікія чанкі, каб не адпраўляць агромністыя дадзеныя па WebSocket
+        while buffer.size >= target_samples:
+            yield buffer[:target_samples]
+            buffer = buffer[target_samples:]
             if is_first:
                 is_first = False
                 target_samples = _seconds_to_samples(target_s, sr)
