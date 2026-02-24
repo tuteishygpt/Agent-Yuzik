@@ -95,7 +95,7 @@ def load_model(hf_repo_id: str = repo_id, target_model_dir: str = "./model"):
     if device.startswith("cuda"):
         torch.backends.cuda.matmul.allow_tf32 = True
         torch.backends.cudnn.allow_tf32 = True
-        torch.backends.cudnn.benchmark = True
+        torch.backends.cudnn.benchmark = False
         try:
             torch.set_float32_matmul_precision("high")
         except Exception:

@@ -214,14 +214,25 @@ async def _handle_simple_voice(
                     last_match = matches[-1]
                     split_idx = last_match.end()
                     ready = sentence_buffer[:split_idx].strip()
-                    if len(ready) >= 15:
+                    if len(ready) >= 30:
                         log.info(f"[VOICE·TIMING] Sentence ready for TTS ({len(ready)} chars): {ready[:60]}...")
+                        await send_perf(
+                            "tts_text_split",
+                            "✂️ Тэкст для агучвання",
+                            detail=f"Крушыня ({len(ready)} сімв.): {ready}",
+                        )
                         await tts_sentence_queue.put(ready)
                         sentence_buffer = sentence_buffer[split_idx:]
 
         # Process remaining text
         if sentence_buffer.strip():
-            await tts_sentence_queue.put(sentence_buffer.strip())
+            final_text = sentence_buffer.strip()
+            await send_perf(
+                "tts_text_split",
+                "✂️ Тэкст для агучвання",
+                detail=f"Крушыня ({len(final_text)} сімв.): {final_text}",
+            )
+            await tts_sentence_queue.put(final_text)
 
         # Wait for all TTS to finish
         await tts_sentence_queue.put(None)  # Sentinel

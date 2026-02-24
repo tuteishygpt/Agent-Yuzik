@@ -38,16 +38,16 @@ TTS_MODE = os.getenv("TTS_MODE", "local").lower()  # "local" or "api"
 HF_TOKEN = os.getenv("HF_TOKEN", "") or os.getenv("HUGGINGFACE_API_TOKEN", "")
 
 # TTS Streaming — Server-side buffers
-TTS_INITIAL_BUFFER_S = 0.15         # сек, мінімальны памер першага чанка (павялічана для стабільнасці)
-TTS_MIN_BUFFER_S = 0.08             # сек, фіксаваны памер наступных чанкаў
-TTS_FIRST_SEGMENT_LIMIT = 60        # сімвалаў у першым тэкставым сегменце (чым менш, тым хутчэй пачнецца гук)
+TTS_INITIAL_BUFFER_S = 0.05         # сек, мінімальны памер першага чанка (паменшана для хуткасці)
+TTS_MIN_BUFFER_S = 0.05             # сек, фіксаваны памер наступных чанкаў
+TTS_FIRST_SEGMENT_LIMIT = 40        # сімвалаў у першым тэкставым сегменце (чым менш, тым хутчэй пачнецца гук)
 TTS_TEMPERATURE = 0.15
 TTS_TOP_K = 5
 TTS_TOP_P = 0.75
 
 # TTS Streaming — Client-side playback
 TTS_SCRIPT_BUFFER_SIZE = 4096       # ScriptProcessor buffer (samples, 4096 = ~170ms)
-TTS_PLAYBACK_MIN_BUFFER_MS = 400    # мін. мс буфера перад пачаткам прайгравання (павялічана ад перарыванняў)
+TTS_PLAYBACK_MIN_BUFFER_MS = 200    # мін. мс буфера перад пачаткам прайгравання (паменшана для хуткасці)
 TTS_PLAYBACK_EMPTY_GRACE_MS = 800   # grace period калі чарга пустая (мс)
 
 # Voice Agent Configuration
