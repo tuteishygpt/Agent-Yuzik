@@ -236,9 +236,11 @@ async def _handle_simple_voice(
                         continue
 
                     if not first_tts_dispatched:
-                        # ── Першы сказ: адпраўляем адразу (хуткі старт) ──
-                        if len(ready) >= config.TTS_FIRST_SEGMENT_LIMIT:
-                            await _dispatch_to_tts(ready)
+                        # ── Першы кавалак: накапліваем пакуль не набярэм дастаткова ──
+                        group_buffer = (group_buffer + " " + ready).strip() if group_buffer else ready
+                        if len(group_buffer) >= config.TTS_FIRST_SEGMENT_LIMIT:
+                            await _dispatch_to_tts(group_buffer)
+                            group_buffer = ""
                             first_tts_dispatched = True
                     else:
                         # ── Наступныя сказы: групуем у большыя кавалкі ──
@@ -248,16 +250,11 @@ async def _handle_simple_voice(
                         group_buffer = (group_buffer + " " + ready).strip() if group_buffer else ready
 
         # ── Рэшткі пасля канца стрыму LLM ──
-        # Далучаем рэшту sentence_buffer да group_buffer
         leftover = sentence_buffer.strip()
         if leftover:
-            if not first_tts_dispatched:
-                # LLM адказаў без знакаў прыпынку — адпраўляем усё як ёсць
-                await _dispatch_to_tts(leftover)
-            else:
-                group_buffer = (group_buffer + " " + leftover).strip() if group_buffer else leftover
+            group_buffer = (group_buffer + " " + leftover).strip() if group_buffer else leftover
 
-        # Адпраўляем апошні згрупаваны кавалак
+        # Адпраўляем усё што засталося
         await _flush_group_buffer()
 
         # Wait for all TTS to finish
