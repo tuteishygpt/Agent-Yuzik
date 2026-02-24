@@ -128,7 +128,7 @@ async def _process_voice_message(
 
         # ── Step 2: Dispatch to handler ──
         if config.SIMPLE_VOICE_AGENT:
-            await handle_simple_voice(audio_data, websocket, audio_queue, perf)
+            await handle_simple_voice(audio_data, websocket, audio_queue, perf, user_id)
         else:
             await handle_adk_voice(audio_data, websocket, session_id, user_id, perf)
 

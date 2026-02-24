@@ -19,6 +19,7 @@ from google.genai import types
 
 import config
 from api.deps import get_genai_client
+from api.voice_history import get_voice_history
 from api.voice_perf import PerfLogger
 from api.voice_utils import LOCAL_SAMPLE_RATE
 from tools.text_to_speech_tool import stream_speech
@@ -225,6 +226,7 @@ async def handle_simple_voice(
     websocket: WebSocket,
     audio_queue: asyncio.Queue,
     perf: PerfLogger,
+    user_id: str = "voice_user",
 ):
     """Process audio via Simple Voice Agent (direct Gemini → TTS streaming)."""
     start_ts = perf.start_ts
@@ -239,22 +241,35 @@ async def handle_simple_voice(
 
     client = get_genai_client()
 
+    # ── Build multi-turn contents with voice history ──
+    voice_history = get_voice_history(user_id)
+    history_contents = voice_history.to_gemini_contents()
+
+    # Current user turn with audio
+    current_user_content = types.Content(
+        role="user",
+        parts=[
+            types.Part(
+                inline_data=types.Blob(
+                    mime_type="audio/wav",
+                    data=audio_data,
+                )
+            )
+        ],
+    )
+
+    all_contents = history_contents + [current_user_content]
+
+    if history_contents:
+        log.info(
+            f"[VOICE·HISTORY] Including {voice_history.turn_count} previous turns "
+            f"in Gemini context"
+        )
+
     t_api_call = time.time()
     response_stream = await client.aio.models.generate_content_stream(
         model=config.SIMPLE_VOICE_MODEL,
-        contents=[
-            types.Content(
-                role="user",
-                parts=[
-                    types.Part(
-                        inline_data=types.Blob(
-                            mime_type="audio/wav",
-                            data=audio_data,
-                        )
-                    )
-                ],
-            )
-        ],
+        contents=all_contents,
         config=types.GenerateContentConfig(
             system_instruction=config.SIMPLE_VOICE_SYSTEM_PROMPT,
             temperature=0.7,
@@ -378,12 +393,24 @@ async def handle_simple_voice(
     finally:
         tts.cancel()
 
+    # ── Save turn to voice history ──
+    if text_buffer.strip():
+        voice_history.add_turn(
+            user_text="[галасавое паведамленне]",
+            assistant_text=text_buffer.strip(),
+        )
+        log.info(
+            f"[VOICE·HISTORY] Saved turn: assistant={len(text_buffer)} chars, "
+            f"total turns={voice_history.turn_count}"
+        )
+
     total_ms = (time.time() - start_ts) * 1000
     await perf(
         "llm_complete",
         "🏁 Пайплайн Simple Voice завершаны",
         detail=f"Агульны час: {total_ms:.0f} мс | "
                f"LLM: {(llm_end_ts - gen_start)*1000:.0f} мс | "
-               f"Тэкст: {len(text_buffer)} сімв.",
+               f"Тэкст: {len(text_buffer)} сімв. | "
+               f"Гісторыя: {voice_history.turn_count} тураў",
         duration_ms=round(total_ms),
     )
