@@ -391,20 +391,23 @@ async def stream_audio(
              f"segments={len(texts)} | lengths={[len(t) for t in texts]}")
 
     # ── Sync generator with timing ──
-    def sync_generator():
-        t_inf = time.perf_counter()
-        first = True
-        count = 0
-        total_samples = 0
-
+    def _raw_inference_gen():
+        """Yields raw np.ndarray chunks from per-segment inference with per-segment timing."""
+        segment_idx = 0
         with torch.inference_mode(), torch.autocast(
             device_type="cuda",
             dtype=amp_dtype,
             enabled=str(device).startswith("cuda"),
         ):
-            raw_chunks = (
-                _to_np_audio(chunk)
-                for part in texts
+            for part in texts:
+                segment_idx += 1
+                t_seg = time.perf_counter()
+                seg_chunks = 0
+                seg_samples = 0
+                first_seg_chunk = True
+                log.info(f"[TTS·TIMING] ▶ Segment #{segment_idx}/{len(texts)}: "
+                         f"{len(part)} chars | «{part[:60]}»")
+
                 for chunk in XTTS_MODEL.inference_stream(
                     text=part,
                     language="be",
@@ -416,28 +419,54 @@ async def stream_audio(
                     top_k=getattr(app_config, 'TTS_TOP_K', 5),
                     top_p=getattr(app_config, 'TTS_TOP_P', 0.75),
                     enable_text_splitting=False,
-                )
-            )
+                ):
+                    c_np = _to_np_audio(chunk)
+                    if c_np.size == 0:
+                        continue
+                    seg_chunks += 1
+                    seg_samples += c_np.size
+                    if first_seg_chunk:
+                        seg_first_ms = (time.perf_counter() - t_seg) * 1000
+                        log.info(f"[TTS·TIMING]   Seg #{segment_idx} 1st raw chunk: "
+                                 f"{seg_first_ms:.1f} ms | {c_np.size} samples")
+                        first_seg_chunk = False
+                    yield c_np
 
-            for audio_chunk in _chunker(raw_chunks, sampling_rate, initial_buffer_s, subsequent_buffer_s):
-                count += 1
-                n = len(audio_chunk)
-                total_samples += n
-                ms = n / sampling_rate * 1000
-                elapsed = (time.perf_counter() - t_inf) * 1000
+                seg_ms = (time.perf_counter() - t_seg) * 1000
+                seg_audio_ms = seg_samples / sampling_rate * 1000
+                log.info(f"[TTS·TIMING] ◼ Segment #{segment_idx} done: "
+                         f"{seg_chunks} raw chunks | {seg_ms:.0f} ms inference | "
+                         f"{seg_audio_ms:.0f} ms audio")
 
-                if first:
-                    log.info(f"[TTS·TIMING] 🎵 1st chunk: inference={elapsed:.1f} ms | "
-                             f"total_from_start={(time.perf_counter()-t_pipeline)*1000:.1f} ms | "
-                             f"audio={ms:.0f} ms ({n} samples)")
-                    first = False
-                else:
-                    log.debug(f"[TTS·TIMING] Chunk #{count}: {ms:.0f} ms | elapsed={elapsed:.0f} ms")
-                yield audio_chunk
+    def sync_generator():
+        """Wraps raw inference chunks through _chunker for proper buffering."""
+        t_inf = time.perf_counter()
+        first = True
+        count = 0
+        total_samples = 0
+
+        for audio_chunk in _chunker(_raw_inference_gen(), sampling_rate, initial_buffer_s, subsequent_buffer_s):
+            count += 1
+            n = len(audio_chunk)
+            total_samples += n
+            ms = n / sampling_rate * 1000
+            elapsed = (time.perf_counter() - t_inf) * 1000
+
+            if first:
+                log.info(f"[TTS·TIMING] 🎵 1st buffered chunk: inference={elapsed:.1f} ms | "
+                         f"total_from_start={(time.perf_counter()-t_pipeline)*1000:.1f} ms | "
+                         f"audio={ms:.0f} ms ({n} samples)")
+                first = False
+            elif count <= 3:
+                log.info(f"[TTS·TIMING] Chunk #{count}: {ms:.0f} ms audio | elapsed={elapsed:.0f} ms")
+            yield audio_chunk
 
         total_audio = total_samples / sampling_rate * 1000
-        log.info(f"[TTS·TIMING] ✅ Done: inference={(time.perf_counter()-t_inf)*1000:.0f} ms | "
+        total_inf = (time.perf_counter() - t_inf) * 1000
+        rtf = total_inf / total_audio if total_audio > 0 else 0
+        log.info(f"[TTS·TIMING] ✅ Done: inference={total_inf:.0f} ms | "
                  f"chunks={count} | audio={total_audio:.0f} ms | "
+                 f"RTF={rtf:.2f}x | "
                  f"pipeline={(time.perf_counter()-t_pipeline)*1000:.0f} ms")
 
     # ── Producer thread + async queue ──
@@ -459,6 +488,8 @@ async def stream_audio(
     threading.Thread(target=producer, daemon=True).start()
 
     idx = 0
+    total_wait = 0
+    total_tobytes = 0
     while True:
         t_wait = time.perf_counter()
         chunk = await loop.run_in_executor(None, q.get)
@@ -467,17 +498,29 @@ async def stream_audio(
 
         idx += 1
         wait_ms = (time.perf_counter() - t_wait) * 1000
+        total_wait += wait_ms
+
+        t_conv = time.perf_counter()
+        bytes_data = chunk.tobytes()
+        conv_ms = (time.perf_counter() - t_conv) * 1000
+        total_tobytes += conv_ms
+
         if idx == 1:
             log.info(f"[TTS·TIMING] Queue→async 1st chunk: wait={wait_ms:.1f} ms | "
+                     f"tobytes={conv_ms:.2f} ms | "
                      f"thread_overhead={(time.perf_counter()-t_thread)*1000:.1f} ms")
-        elif idx <= 3:
-            log.debug(f"[TTS·TIMING] Queue→async #{idx}: wait={wait_ms:.1f} ms")
+        elif idx <= 3 or wait_ms > 50:
+            log.info(f"[TTS·TIMING] Queue→async #{idx}: wait={wait_ms:.1f} ms | "
+                     f"tobytes={conv_ms:.2f} ms")
 
-        bytes_data = chunk.tobytes()
         if yield_raw_pcm:
             yield bytes_data
         else:
             yield _add_wav_header(bytes_data, sample_rate=sampling_rate, channels=1)
+
+    log.info(f"[TTS·TIMING] Queue→async final: {idx} chunks | "
+             f"total_wait={total_wait:.0f} ms | total_tobytes={total_tobytes:.1f} ms | "
+             f"pipeline={(time.perf_counter()-t_pipeline)*1000:.0f} ms")
 
 
 def synthesize_to_file(

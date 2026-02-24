@@ -766,11 +766,13 @@ function addPerfEntry(data) {
     }
 
     const entry = document.createElement('div');
-    entry.className = 'perf-entry';
+    const isComplete = data.event === 'pipeline_complete' || data.event === 'llm_complete';
+    entry.className = `perf-entry${isComplete ? ' perf-entry-summary' : ''}`;
     entry.setAttribute('data-event', data.event || '');
 
     const timeStr = formatTime(data.timestamp);
     const elapsedStr = data.elapsed_ms !== undefined && data.elapsed_ms > 0 ? formatMs(data.elapsed_ms) : '';
+    const deltaStr = data.delta_ms !== undefined && data.delta_ms > 0 ? `Δ ${formatMs(data.delta_ms)}` : '';
 
     entry.innerHTML = `
         <div class="perf-entry-header">
@@ -778,7 +780,10 @@ function addPerfEntry(data) {
             <span class="perf-entry-time">${timeStr}</span>
         </div>
         ${data.detail ? `<div class="perf-entry-detail">${data.detail}</div>` : ''}
-        ${elapsedStr ? `<span class="perf-entry-elapsed">+${elapsedStr}</span>` : ''}
+        <div class="perf-entry-metrics">
+            ${elapsedStr ? `<span class="perf-entry-elapsed">+${elapsedStr}</span>` : ''}
+            ${deltaStr ? `<span class="perf-entry-delta">${deltaStr}</span>` : ''}
+        </div>
     `;
 
     body.appendChild(entry);
