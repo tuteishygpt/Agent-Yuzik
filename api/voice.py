@@ -52,17 +52,13 @@ def _create_wav_header(data_len: int) -> bytes:
 
 
 async def _send_audio_chunk(websocket: WebSocket, chunk: bytes, chunk_idx: int):
-    """Send audio chunk via WebSocket. Local mode = base64 PCM JSON, API mode = binary WAV."""
+    """Send audio chunk via WebSocket. Local mode = binary PCM, API mode = binary WAV."""
     if config.TTS_MODE == "local":
-        b64_data = base64.b64encode(chunk).decode('ascii')
+        # Binary protocol: 4-byte magic "PCM\0" + 4-byte uint32 LE sample count + raw Float32 PCM
+        # Eliminates base64 encoding overhead (+33% size) and JSON parsing
         samples = len(chunk) // 4  # Float32 = 4 bytes/sample
-        await websocket.send_json({
-            "type": "audio_pcm",
-            "data": b64_data,
-            "sr": LOCAL_SAMPLE_RATE,
-            "n": chunk_idx,
-            "samples": samples,
-        })
+        header = struct.pack('<4sI', b'PCM\x00', samples)
+        await websocket.send_bytes(header + chunk)
     else:
         await websocket.send_bytes(chunk)
 
@@ -467,10 +463,14 @@ async def voice_websocket(websocket: WebSocket, user_id: str = "voice_user"):
                         f"bytes. Starting processing..."
                     )
 
-                    full_wav = (
-                        _create_wav_header(len(audio_accumulator))
-                        + audio_accumulator
-                    )
+                    # Client may send complete WAV (with RIFF header) or raw PCM
+                    if audio_accumulator[:4] == b'RIFF':
+                        full_wav = bytes(audio_accumulator)
+                    else:
+                        full_wav = (
+                            _create_wav_header(len(audio_accumulator))
+                            + audio_accumulator
+                        )
 
                     # Cancel previous task if still running
                     if user_id in active_voice_tasks and not active_voice_tasks[user_id].done():

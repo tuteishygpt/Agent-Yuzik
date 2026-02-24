@@ -255,7 +255,18 @@ function connectWebSocket() {
     state.websocket.onmessage = async (event) => {
         try {
             if (event.data instanceof Blob) {
-                // Binary WAV chunk (legacy API mode / ADK artifacts)
+                const ab = await event.data.arrayBuffer();
+                // Check for binary PCM header: "PCM\0" (4 bytes) + uint32 samples (4 bytes)
+                if (ab.byteLength >= 8) {
+                    const hdr = new Uint8Array(ab, 0, 4);
+                    if (hdr[0] === 0x50 && hdr[1] === 0x43 && hdr[2] === 0x4D && hdr[3] === 0x00) {
+                        // Binary PCM from local TTS — zero-copy Float32, no base64 decode
+                        const f32 = new Float32Array(ab, 8);
+                        handleBinaryPcmChunk(f32);
+                        return;
+                    }
+                }
+                // Legacy WAV blob (API mode / ADK artifacts)
                 if (state.firstAudioTimestamp === 0 && state.lastVadEndTimestamp > 0) {
                     state.firstAudioTimestamp = Date.now();
                     const latency = state.firstAudioTimestamp - state.lastVadEndTimestamp;
@@ -267,7 +278,7 @@ function connectWebSocket() {
                         duration_ms: latency,
                     });
                 }
-                handleIncomingAudioChunk(event.data);
+                handleIncomingAudioChunk(new Blob([ab]));
             } else {
                 const data = JSON.parse(event.data);
                 handleServerMessage(data);
@@ -336,28 +347,13 @@ function handleServerMessage(data) {
 }
 
 // ===========================
-// PCM Chunk Handler (base64 Float32 → pcmPlayer)
+// PCM Chunk Handlers
 // ===========================
-async function handlePcmChunk(data) {
-    const sr = data.sr || 24000;
-    if (!pcmPlayer.ctx) pcmPlayer.init(sr);
 
-    // Fast base64 decode via fetch API (native implementation, ~3-5x faster)
-    const t0 = performance.now();
-    let f32;
-    try {
-        const resp = await fetch(`data:application/octet-stream;base64,${data.data}`);
-        const ab = await resp.arrayBuffer();
-        f32 = new Float32Array(ab);
-    } catch (_) {
-        // Fallback to manual decode
-        const bin = atob(data.data);
-        const buf = new ArrayBuffer(bin.length);
-        const u8 = new Uint8Array(buf);
-        for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
-        f32 = new Float32Array(buf);
-    }
-    const decodeMs = performance.now() - t0;
+// Binary PCM handler — zero-copy Float32 from ArrayBuffer (no base64 decode)
+function handleBinaryPcmChunk(f32) {
+    const sr = pcmPlayer.sampleRate || 24000;
+    if (!pcmPlayer.ctx) pcmPlayer.init(sr);
 
     state.pcmChunkCount++;
     const chunkAudioMs = (f32.length / sr * 1000).toFixed(0);
@@ -370,7 +366,7 @@ async function handlePcmChunk(data) {
             addPerfEntry({
                 event: 'first_pcm_received',
                 label: '📨 Першы PCM чанк атрыманы',
-                detail: `VAD→PCM: ${latency} мс | ${f32.length} samples (${chunkAudioMs} мс аўдыё) | decode: ${decodeMs.toFixed(1)} мс`,
+                detail: `VAD→PCM: ${latency} мс | ${f32.length} samples (${chunkAudioMs} мс аўдыё) | binary`,
                 elapsed_ms: latency,
                 duration_ms: latency,
             });
@@ -383,10 +379,29 @@ async function handlePcmChunk(data) {
     // Log first few chunks with queue stats
     if (state.pcmChunkCount <= 5) {
         const stats = pcmPlayer.getStats();
-        console.log(`[PCM] #${state.pcmChunkCount}: ${f32.length} samples (${chunkAudioMs} ms) | ` +
-            `decode=${decodeMs.toFixed(1)} ms | queue=${stats.queueMs} ms (${stats.queueChunks} bufs) | ` +
-            `playing=${pcmPlayer.playing}`);
+        console.log(`[PCM Binary] #${state.pcmChunkCount}: ${f32.length} samples (${chunkAudioMs} ms) | ` +
+            `queue=${stats.queueMs} ms (${stats.queueChunks} bufs) | playing=${pcmPlayer.playing}`);
     }
+}
+
+// Legacy base64 PCM handler (backward compatibility)
+async function handlePcmChunk(data) {
+    const sr = data.sr || 24000;
+    if (!pcmPlayer.ctx) pcmPlayer.init(sr);
+    const t0 = performance.now();
+    let f32;
+    try {
+        const resp = await fetch(`data:application/octet-stream;base64,${data.data}`);
+        const ab = await resp.arrayBuffer();
+        f32 = new Float32Array(ab);
+    } catch (_) {
+        const bin = atob(data.data);
+        const buf = new ArrayBuffer(bin.length);
+        const u8 = new Uint8Array(buf);
+        for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+        f32 = new Float32Array(buf);
+    }
+    handleBinaryPcmChunk(f32);
 }
 
 // ===========================
@@ -532,12 +547,15 @@ async function initVAD() {
                     addPerfEntry({
                         event: 'user_message',
                         label: '🎙️ Паведамленне адпраўлена',
-                        detail: 'VAD зафіксаваў канец мовы, аўдыё перадана на сервер',
+                        detail: `VAD завяршыў, аўдыё (${audio.length} samples) адпраўлена адразу`,
                         elapsed_ms: 0,
                         duration_ms: 0,
                         _isSessionStart: true,
                     });
 
+                    // Send complete VAD audio as WAV binary (single message, no accumulation needed)
+                    const wavBuffer = encodeWAV(audio);
+                    state.websocket.send(wavBuffer);
                     state.websocket.send(JSON.stringify({ type: 'end_audio' }));
                 }
             },
@@ -626,26 +644,8 @@ async function startSession() {
 
         await initVAD();
 
-        if (!state.recordingStream) {
-            state.recordingStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            const context = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-            const source = context.createMediaStreamSource(state.recordingStream);
-            const processor = context.createScriptProcessor(4096, 1, 1);
-
-            processor.onaudioprocess = (e) => {
-                if (state.isStreaming && state.isConnected && state.websocket.readyState === WebSocket.OPEN) {
-                    const inputData = e.inputBuffer.getChannelData(0);
-                    const buffer = new ArrayBuffer(inputData.length * 2);
-                    const view = new DataView(buffer);
-                    floatTo16BitPCM(view, 0, inputData);
-                    state.websocket.send(buffer);
-                }
-            };
-
-            source.connect(processor);
-            processor.connect(context.destination);
-            state.recordingProcessor = { context, source, processor };
-        }
+        // VAD handles its own mic capture — no need for separate ScriptProcessor streaming.
+        // Audio is sent as complete WAV in onSpeechEnd directly from VAD's audio buffer.
 
         // Pre-initialize pcmPlayer so it's ready when first chunk arrives
         pcmPlayer.init(24000);
@@ -663,16 +663,6 @@ async function startSession() {
 async function stopSession() {
     if (state.vad) {
         await state.vad.pause();
-    }
-    if (state.recordingProcessor) {
-        state.recordingProcessor.processor.disconnect();
-        state.recordingProcessor.source.disconnect();
-        state.recordingProcessor.context.close();
-        state.recordingProcessor = null;
-    }
-    if (state.recordingStream) {
-        state.recordingStream.getTracks().forEach(t => t.stop());
-        state.recordingStream = null;
     }
     stopAllPlayback();
     state.isRecording = false;
