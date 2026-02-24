@@ -41,6 +41,12 @@ sampling_rate = int(globals().get("sampling_rate", 24000))
 default_voice_file = globals().get("default_voice_file", None)
 repo_id = globals().get("repo_id", "archivartaunik/BE_XTTS_V2_10ep250k")
 
+# GPU / AMP — auto-detect BF16 support (Ampere+: A100, L4, T4 etc.)
+use_cuda = torch.cuda.is_available()
+use_bf16 = use_cuda and torch.cuda.is_bf16_supported()
+amp_dtype = torch.bfloat16 if use_bf16 else torch.float16
+log.info(f"AMP dtype: {amp_dtype} (bf16_supported={use_bf16}, device={device})")
+
 # ---- Глабальныя зменныя мадэлі ----
 XTTS_MODEL = None
 
@@ -55,7 +61,7 @@ class LatentsMeta:
     sound_norm_refs: bool
 
 LATENT_CACHE: dict[str, Tuple[torch.Tensor, torch.Tensor]] = {}
-GPU_LATENT_CACHE: dict[Tuple[str, str], Tuple[torch.Tensor, torch.Tensor]] = {}
+GPU_LATENT_CACHE: dict[Tuple[str, str, str], Tuple[torch.Tensor, torch.Tensor]] = {}
 
 
 def load_model(hf_repo_id: str = repo_id, target_model_dir: str = "./model"):
@@ -95,7 +101,7 @@ def load_model(hf_repo_id: str = repo_id, target_model_dir: str = "./model"):
     if device.startswith("cuda"):
         torch.backends.cuda.matmul.allow_tf32 = True
         torch.backends.cudnn.allow_tf32 = True
-        torch.backends.cudnn.benchmark = False
+        torch.backends.cudnn.benchmark = True   # find optimal algo for repeated inference
         try:
             torch.set_float32_matmul_precision("high")
         except Exception:
@@ -148,10 +154,15 @@ def _latents_for(path: str | None, *, to_device: Optional[str] = None) -> Tuple[
             log.info("Латэнты захаваны ў кэш.")
         LATENT_CACHE[key] = (g, s)
     if to_device:
-        dev_key = (key, to_device)
+        dev_key = (key, to_device, "bf16" if amp_dtype is torch.bfloat16 else "fp16")
         if dev_key in GPU_LATENT_CACHE:
             return GPU_LATENT_CACHE[dev_key]
-        g, s = g.to(to_device, non_blocking=True), s.to(to_device, non_blocking=True)
+        g = g.to(to_device, non_blocking=True)
+        s = s.to(to_device, non_blocking=True)
+        # Cast latents to match autocast precision — saves GPU memory & avoids cast at inference
+        if str(to_device).startswith("cuda"):
+            g = g.to(amp_dtype)
+            s = s.to(amp_dtype)
         GPU_LATENT_CACHE[dev_key] = (g, s)
     return g, s
 
@@ -332,7 +343,7 @@ async def stream_audio(
 
         with torch.inference_mode(), torch.autocast(
             device_type="cuda",
-            dtype=torch.float16,
+            dtype=amp_dtype,
             enabled=str(device).startswith("cuda"),
         ):
             raw_chunks = (
@@ -430,7 +441,7 @@ def synthesize_to_file(
     log.info(f"Сінтэз у файл для тэксту даўжынёй {len(text_input)} сімвалаў...")
     with torch.inference_mode(), torch.autocast(
         device_type="cuda",
-        dtype=torch.float16,
+        dtype=amp_dtype,
         enabled=str(device).startswith("cuda"),
     ):
         out = XTTS_MODEL.synthesize(

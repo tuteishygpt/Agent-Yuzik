@@ -45,10 +45,10 @@ TTS_TEMPERATURE = 0.15
 TTS_TOP_K = 5
 TTS_TOP_P = 0.75
 
-# TTS Streaming — Client-side playback
-TTS_SCRIPT_BUFFER_SIZE = 4096       # ScriptProcessor buffer (samples, 4096 = ~170ms)
-TTS_PLAYBACK_MIN_BUFFER_MS = 200    # мін. мс буфера перад пачаткам прайгравання (паменшана для хуткасці)
-TTS_PLAYBACK_EMPTY_GRACE_MS = 800   # grace period калі чарга пустая (мс)
+# TTS Streaming — Client-side playback (Colab-style: мінімальная затрымка)
+TTS_SCRIPT_BUFFER_SIZE = 1024       # ScriptProcessor buffer (samples, 1024 = ~42ms at 24kHz)
+TTS_PLAYBACK_MIN_BUFFER_MS = 0      # пачынаць адразу, без прэ-буферызацыі (як у Colab)
+TTS_PLAYBACK_EMPTY_GRACE_MS = 150   # grace period калі чарга пустая (мс)
 
 # Voice Agent Configuration
 SIMPLE_VOICE_AGENT = os.getenv("SIMPLE_VOICE_AGENT", "True").lower() == "true"

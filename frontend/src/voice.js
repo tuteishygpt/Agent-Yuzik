@@ -22,9 +22,9 @@ const pcmPlayer = {
     _totalSamples: 0,
     _pushTimestamp: 0,
     sampleRate: 24000,
-    scriptBufferSize: 4096,     // ScriptProcessor buffer (configurable from server)
-    minBufferMs: 300,           // Minimum ms to buffer before starting playback
-    emptyGraceMs: 800,          // Grace period before declaring playback ended
+    scriptBufferSize: 1024,     // ScriptProcessor buffer (~42ms at 24kHz, Colab-style)
+    minBufferMs: 0,             // Start immediately (Colab-style, no pre-buffering)
+    emptyGraceMs: 150,          // Grace period before declaring playback ended
 
     init(sampleRate) {
         sampleRate = sampleRate || this.sampleRate;
@@ -123,21 +123,9 @@ const pcmPlayer = {
             this._emptyTimeout = null;
         }
 
-        if (!this.playing) {
-            // Pre-buffer: wait until we have enough audio
-            const bufferedMs = this._bufferedMs();
-            if (bufferedMs >= this.minBufferMs) {
-                this._startPlayback();
-            } else if (!this._bufferTimeout) {
-                // Safety: if buffer doesn't fill in 600ms, start anyway
-                this._bufferTimeout = setTimeout(() => {
-                    if (!this.playing && this.queue.length > 0) {
-                        console.log(`[PCM Player] Buffer timeout, starting with ${this._bufferedMs().toFixed(0)} ms`);
-                        this._startPlayback();
-                    }
-                    this._bufferTimeout = null;
-                }, 600);
-            }
+        // Colab-style: start playing immediately when first chunk arrives
+        if (!this.playing && this.queue.length > 0) {
+            this._startPlayback();
         }
     },
 
