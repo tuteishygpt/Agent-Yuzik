@@ -40,7 +40,7 @@ HF_TOKEN = os.getenv("HF_TOKEN", "") or os.getenv("HUGGINGFACE_API_TOKEN", "")
 # TTS Streaming — Server-side buffers
 TTS_INITIAL_BUFFER_S = 0.05         # сек, мінімальны памер першага чанка (паменшана для хуткасці)
 TTS_MIN_BUFFER_S = 0.05             # сек, фіксаваны памер наступных чанкаў
-TTS_FIRST_SEGMENT_LIMIT = 40        # сімвалаў у першым тэкставым сегменце (чым менш, тым хутчэй пачнецца гук)
+TTS_FIRST_SEGMENT_LIMIT = 40        # сімвалаў у першым тэкставым сегменце (першы сказ для хуткага старту)
 TTS_TEMPERATURE = 0.15
 TTS_TOP_K = 5
 TTS_TOP_P = 0.75

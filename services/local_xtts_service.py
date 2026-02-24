@@ -211,6 +211,29 @@ def _chunker(chunks: Iterable[np.ndarray], sr: int, initial_target_s: float, tar
 # ---- Падзел тэксту ----
 _SENT_END = re.compile(r"([\.!\?…]+[»\")\\]]*\s+)")
 _WS = re.compile(r"\s+")
+_SENT_DELIM = re.compile(r'([.!?…]+[»\"\)\]]*)\s+')
+
+
+def _split_into_sentences(text: str) -> List[str]:
+    """Разбівае тэкст на асобныя сказы па межах .!?…"""
+    text = text.strip()
+    if not text:
+        return []
+    tokens = _SENT_DELIM.split(text)
+    sentences: List[str] = []
+    i = 0
+    while i < len(tokens):
+        part = tokens[i]
+        if i + 1 < len(tokens):
+            part += tokens[i + 1]   # далучыць знак прыпынку да папярэдняга сказа
+            i += 2
+        else:
+            i += 1
+        part = part.strip()
+        if part:
+            sentences.append(part)
+    return sentences
+
 
 def _fast_split(text: str, limit: int) -> List[str]:
     text = text.strip()
@@ -248,32 +271,65 @@ def _fast_split(text: str, limit: int) -> List[str]:
 
 
 def _split_text_smart(text_in: str, lang_short: str, chunk_limit: int) -> List[str]:
+    """
+    Разумны падзел тэксту для TTS стрымінгу:
+    - Першы сегмент: кароткі (першы сказ) для хуткага старту аўдыя
+    - Наступныя сегменты: поўныя сказы, згрупаваныя да chunk_limit сімвалаў
+    Ніколі не рэжа пасярэдзіне слова ці сказа.
+    """
     text_in = text_in.strip()
     if not text_in:
         return []
-    parts: List[str] = []
-    if len(text_in) > FIRST_SEGMENT_LIMIT:
-        head = text_in[:FIRST_SEGMENT_LIMIT]
-        m = re.search(r".*[\.!\?…»)]", head)
-        if m and len(m.group(0)) > 30:
-            head = m.group(0)
-        tail = text_in[len(head):].lstrip()
-        parts.append(head)
-        text_for_rest = tail
-    else:
-        text_for_rest = text_in
-    if not text_for_rest:
-        return parts or [text_in]
-    rest = _fast_split(text_for_rest, chunk_limit)
-    if not rest or sum(len(x) for x in rest) < int(0.6 * len(text_for_rest)):
-        try:
-            rest2 = split_sentence(text_for_rest, lang=lang_short, text_split_length=chunk_limit)
-            rest2 = [s.strip() for s in rest2 if s and s.strip()]
-            if rest2:
-                rest = rest2
-        except Exception:
-            pass
-    return parts + (rest or [text_for_rest])
+
+    # 1) Разбіваем увесь тэкст на сказы
+    sentences = _split_into_sentences(text_in)
+    if not sentences:
+        return [text_in]
+
+    # 2) Першы сегмент — першы сказ (для хуткага старту)
+    head = sentences[0]
+    rest = list(sentences[1:])
+
+    # Калі першы сказ вельмі доўгі — шукаем натуральную мяжу (коска, кропка з коскай, працяжнік)
+    if len(head) > FIRST_SEGMENT_LIMIT and FIRST_SEGMENT_LIMIT > 0:
+        search_zone = head[:FIRST_SEGMENT_LIMIT + 40]
+        brk = re.search(r'.{15,}?[,;:–—]\s', search_zone)
+        if brk:
+            cut = brk.end()
+            leftover = head[cut:].strip()
+            head = head[:cut].strip()
+            if leftover:
+                rest.insert(0, leftover)
+        # інакш — бярэм увесь першы сказ (лепш, чым рэзаць пасярэдзіне слова)
+
+    result = [head]
+
+    # 3) Астатнія сказы — групуем у кавалкі да chunk_limit сімвалаў
+    cur = ""
+    for sent in rest:
+        if not cur:
+            cur = sent
+        elif len(cur) + 1 + len(sent) <= chunk_limit:
+            cur = cur + " " + sent
+        else:
+            result.append(cur)
+            # Калі адзін сказ даўжэйшы за ліміт — разбіць па словах
+            if len(sent) > chunk_limit:
+                words = _WS.split(sent)
+                acc = ""
+                for w in words:
+                    if acc and len(acc) + 1 + len(w) > chunk_limit:
+                        result.append(acc)
+                        acc = w
+                    else:
+                        acc = (acc + " " + w).strip() if acc else w
+                cur = acc
+            else:
+                cur = sent
+    if cur:
+        result.append(cur)
+
+    return result
 
 
 def _add_wav_header(pcm_data: bytes, sample_rate: int = 24000, channels: int = 1) -> bytes:
@@ -329,7 +385,7 @@ async def stream_audio(
     be_limit = 250
     if char_limit_cfg and hasattr(char_limit_cfg, "char_limits"):
         be_limit = char_limit_cfg.char_limits.get("be", 250)
-    char_limit = min(180, be_limit)
+    char_limit = min(250, be_limit)
     texts = _split_text_smart(text_input.strip(), "be", char_limit) if ENABLE_TEXT_SPLITTING else [text_input.strip()]
     log.info(f"[TTS·TIMING] Text split: {(time.perf_counter()-t0)*1000:.1f} ms | "
              f"segments={len(texts)} | lengths={[len(t) for t in texts]}")

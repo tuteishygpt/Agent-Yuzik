@@ -118,6 +118,9 @@ async def _handle_simple_voice(
     sentence_buffer = ""
     first_token = True
     sent_first_audio_chunk = False
+    first_tts_dispatched = False             # ці адпраўлены першы кавалак у TTS
+    group_buffer = ""                        # буфер для групоўкі сказаў пасля першага
+    GROUP_LIMIT = 250                        # максімальны памер згрупаванага кавалка
 
     # Internal queue for sentences to be processed by TTS
     tts_sentence_queue: asyncio.Queue = asyncio.Queue()
@@ -142,7 +145,7 @@ async def _handle_simple_voice(
                     )
 
                 t_sentence_start = time.time()
-                log.info(f"[VOICE·TIMING] TTS Worker: sentence={len(sentence)} chars: {sentence[:50]}...")
+                log.info(f"[VOICE·TIMING] TTS Worker: sentence={len(sentence)} chars: {sentence[:80]}...")
                 sentence_chunk_count = 0
 
                 async for audio_chunk in stream_speech(sentence):
@@ -182,6 +185,23 @@ async def _handle_simple_voice(
                     duration_ms=round((time.time() - tts_gen_start) * 1000),
                 )
 
+    async def _dispatch_to_tts(text: str):
+        """Адпраўляе тэкст у чаргу TTS з лагаваннем."""
+        log.info(f"[VOICE·TIMING] Dispatch to TTS ({len(text)} chars): {text[:80]}...")
+        await send_perf(
+            "tts_text_split",
+            "✂️ Тэкст для агучвання",
+            detail=f"Кавалак ({len(text)} сімв.): {text[:120]}",
+        )
+        await tts_sentence_queue.put(text)
+
+    async def _flush_group_buffer():
+        """Адпраўляе назапашаны group_buffer у TTS."""
+        nonlocal group_buffer
+        if group_buffer.strip():
+            await _dispatch_to_tts(group_buffer.strip())
+            group_buffer = ""
+
     worker_task = asyncio.create_task(tts_worker())
 
     try:
@@ -204,31 +224,41 @@ async def _handle_simple_voice(
                     "text": text_buffer,
                 })
 
-                # ── Sentence-level TTS ──
+                # ── Два рэжымы: першы сказ → адразу, наступныя → групуем ──
                 matches = list(_SENTENCE_END_RE.finditer(sentence_buffer))
                 if matches:
                     last_match = matches[-1]
                     split_idx = last_match.end()
                     ready = sentence_buffer[:split_idx].strip()
-                    if len(ready) >= 30:
-                        log.info(f"[VOICE·TIMING] Sentence ready for TTS ({len(ready)} chars): {ready[:60]}...")
-                        await send_perf(
-                            "tts_text_split",
-                            "✂️ Тэкст для агучвання",
-                            detail=f"Крушыня ({len(ready)} сімв.): {ready}",
-                        )
-                        await tts_sentence_queue.put(ready)
-                        sentence_buffer = sentence_buffer[split_idx:]
+                    sentence_buffer = sentence_buffer[split_idx:]
 
-        # Process remaining text
-        if sentence_buffer.strip():
-            final_text = sentence_buffer.strip()
-            await send_perf(
-                "tts_text_split",
-                "✂️ Тэкст для агучвання",
-                detail=f"Крушыня ({len(final_text)} сімв.): {final_text}",
-            )
-            await tts_sentence_queue.put(final_text)
+                    if not ready:
+                        continue
+
+                    if not first_tts_dispatched:
+                        # ── Першы сказ: адпраўляем адразу (хуткі старт) ──
+                        if len(ready) >= config.TTS_FIRST_SEGMENT_LIMIT:
+                            await _dispatch_to_tts(ready)
+                            first_tts_dispatched = True
+                    else:
+                        # ── Наступныя сказы: групуем у большыя кавалкі ──
+                        if group_buffer and len(group_buffer) + 1 + len(ready) > GROUP_LIMIT:
+                            # Бягучы буфер перапоўніцца → адпраўляем яго
+                            await _flush_group_buffer()
+                        group_buffer = (group_buffer + " " + ready).strip() if group_buffer else ready
+
+        # ── Рэшткі пасля канца стрыму LLM ──
+        # Далучаем рэшту sentence_buffer да group_buffer
+        leftover = sentence_buffer.strip()
+        if leftover:
+            if not first_tts_dispatched:
+                # LLM адказаў без знакаў прыпынку — адпраўляем усё як ёсць
+                await _dispatch_to_tts(leftover)
+            else:
+                group_buffer = (group_buffer + " " + leftover).strip() if group_buffer else leftover
+
+        # Адпраўляем апошні згрупаваны кавалак
+        await _flush_group_buffer()
 
         # Wait for all TTS to finish
         await tts_sentence_queue.put(None)  # Sentinel
