@@ -7,6 +7,7 @@ import pathlib
 import re
 import struct
 import logging
+import threading
 from dataclasses import dataclass
 from typing import Iterator, Iterable, Optional, Tuple, List, AsyncGenerator
 import asyncio
@@ -62,6 +63,8 @@ class LatentsMeta:
 
 LATENT_CACHE: dict[str, Tuple[torch.Tensor, torch.Tensor]] = {}
 GPU_LATENT_CACHE: dict[Tuple[str, str, str], Tuple[torch.Tensor, torch.Tensor]] = {}
+
+_inference_lock = threading.Lock()
 
 
 def load_model(hf_repo_id: str = repo_id, target_model_dir: str = "./model"):
@@ -129,42 +132,43 @@ def _latents_key(path: str | None, meta: LatentsMeta) -> str:
 
 
 def _latents_for(path: str | None, *, to_device: Optional[str] = None) -> Tuple[torch.Tensor, torch.Tensor]:
-    if XTTS_MODEL is None:
-        raise RuntimeError("Мадэль не загружана. Выклічце load_model().")
-    cfg = XTTS_MODEL.config
-    meta = LatentsMeta(
-        model_id=repo_id,
-        gpt_cond_len=cfg.gpt_cond_len,
-        max_ref_len=cfg.max_ref_len,
-        sound_norm_refs=cfg.sound_norm_refs,
-    )
-    key = _latents_key(path, meta)
-    g, s = LATENT_CACHE.get(key) or (None, None)
-    if g is None:
-        disk_path = PERSIST_LATENTS_DIR / f"{key}.pt"
-        if disk_path.exists():
-            data = torch.load(disk_path, map_location="cpu")
-            g, s = data["gpt_cond_latent"], data["speaker_embedding"]
-        else:
-            log.info(f"Разлік латэнтаў для {path or 'стандартнага голасу'}...")
-            with torch.inference_mode():
-                g_cpu, s_cpu = XTTS_MODEL.get_conditioning_latents(audio_path=path)
-            g, s = g_cpu.cpu(), s_cpu.cpu()
-            torch.save({"gpt_cond_latent": g, "speaker_embedding": s}, disk_path)
-            log.info("Латэнты захаваны ў кэш.")
-        LATENT_CACHE[key] = (g, s)
-    if to_device:
-        dev_key = (key, to_device, "bf16" if amp_dtype is torch.bfloat16 else "fp16")
-        if dev_key in GPU_LATENT_CACHE:
-            return GPU_LATENT_CACHE[dev_key]
-        g = g.to(to_device, non_blocking=True)
-        s = s.to(to_device, non_blocking=True)
-        # Cast latents to match autocast precision — saves GPU memory & avoids cast at inference
-        if str(to_device).startswith("cuda"):
-            g = g.to(amp_dtype)
-            s = s.to(amp_dtype)
-        GPU_LATENT_CACHE[dev_key] = (g, s)
-    return g, s
+    with _inference_lock:
+        if XTTS_MODEL is None:
+            raise RuntimeError("Мадэль не загружана. Выклічце load_model().")
+        cfg = XTTS_MODEL.config
+        meta = LatentsMeta(
+            model_id=repo_id,
+            gpt_cond_len=cfg.gpt_cond_len,
+            max_ref_len=cfg.max_ref_len,
+            sound_norm_refs=cfg.sound_norm_refs,
+        )
+        key = _latents_key(path, meta)
+        g, s = LATENT_CACHE.get(key) or (None, None)
+        if g is None:
+            disk_path = PERSIST_LATENTS_DIR / f"{key}.pt"
+            if disk_path.exists():
+                data = torch.load(disk_path, map_location="cpu")
+                g, s = data["gpt_cond_latent"], data["speaker_embedding"]
+            else:
+                log.info(f"Разлік латэнтаў для {path or 'стандартнага голасу'}...")
+                with torch.inference_mode():
+                    g_cpu, s_cpu = XTTS_MODEL.get_conditioning_latents(audio_path=path)
+                g, s = g_cpu.cpu(), s_cpu.cpu()
+                torch.save({"gpt_cond_latent": g, "speaker_embedding": s}, disk_path)
+                log.info("Латэнты захаваны ў кэш.")
+            LATENT_CACHE[key] = (g, s)
+        if to_device:
+            dev_key = (key, to_device, "bf16" if amp_dtype is torch.bfloat16 else "fp16")
+            if dev_key in GPU_LATENT_CACHE:
+                return GPU_LATENT_CACHE[dev_key]
+            g = g.to(to_device, non_blocking=True)
+            s = s.to(to_device, non_blocking=True)
+            # Cast latents to match autocast precision — saves GPU memory & avoids cast at inference
+            if str(to_device).startswith("cuda"):
+                g = g.to(amp_dtype)
+                s = s.to(amp_dtype)
+            GPU_LATENT_CACHE[dev_key] = (g, s)
+        return g, s
 
 
 try:
@@ -395,29 +399,30 @@ async def stream_audio(
                 log.info(f"[TTS·TIMING] ▶ Segment #{segment_idx}/{len(texts)}: "
                          f"{len(part)} chars | «{part[:60]}»")
 
-                for chunk in XTTS_MODEL.inference_stream(
-                    text=part,
-                    language="be",
-                    gpt_cond_latent=gpt_cond_latent,
-                    speaker_embedding=speaker_embedding,
-                    temperature=getattr(app_config, 'TTS_TEMPERATURE', 0.15),
-                    length_penalty=0.9,
-                    repetition_penalty=7.0,
-                    top_k=getattr(app_config, 'TTS_TOP_K', 5),
-                    top_p=getattr(app_config, 'TTS_TOP_P', 0.75),
-                    enable_text_splitting=False,
-                ):
-                    c_np = _to_np_audio(chunk)
-                    if c_np.size == 0:
-                        continue
-                    seg_chunks += 1
-                    seg_samples += c_np.size
-                    if first_seg_chunk:
-                        seg_first_ms = (time.perf_counter() - t_seg) * 1000
-                        log.info(f"[TTS·TIMING]   Seg #{segment_idx} 1st raw chunk: "
-                                 f"{seg_first_ms:.1f} ms | {c_np.size} samples")
-                        first_seg_chunk = False
-                    yield c_np
+                with _inference_lock:
+                    for chunk in XTTS_MODEL.inference_stream(
+                        text=part,
+                        language="be",
+                        gpt_cond_latent=gpt_cond_latent,
+                        speaker_embedding=speaker_embedding,
+                        temperature=getattr(app_config, 'TTS_TEMPERATURE', 0.15),
+                        length_penalty=0.9,
+                        repetition_penalty=7.0,
+                        top_k=getattr(app_config, 'TTS_TOP_K', 5),
+                        top_p=getattr(app_config, 'TTS_TOP_P', 0.75),
+                        enable_text_splitting=False,
+                    ):
+                        c_np = _to_np_audio(chunk)
+                        if c_np.size == 0:
+                            continue
+                        seg_chunks += 1
+                        seg_samples += c_np.size
+                        if first_seg_chunk:
+                            seg_first_ms = (time.perf_counter() - t_seg) * 1000
+                            log.info(f"[TTS·TIMING]   Seg #{segment_idx} 1st raw chunk: "
+                                     f"{seg_first_ms:.1f} ms | {c_np.size} samples")
+                            first_seg_chunk = False
+                        yield c_np
 
                 seg_ms = (time.perf_counter() - t_seg) * 1000
                 seg_audio_ms = seg_samples / sampling_rate * 1000
@@ -530,19 +535,20 @@ def synthesize_to_file(
         dtype=amp_dtype,
         enabled=str(device).startswith("cuda"),
     ):
-        out = XTTS_MODEL.synthesize(
-            text=text_input.strip(),
-            config=XTTS_MODEL.config,
-            speaker_wav=speaker_audio or default_voice_file,
-            language="be",
-            gpt_cond_latent=gpt_cond_latent,
-            speaker_embedding=speaker_embedding,
-            temperature=0.25,
-            length_penalty=0.9,
-            repetition_penalty=7.0,
-            top_k=10,
-            top_p=0.80,
-        )
+        with _inference_lock:
+            out = XTTS_MODEL.synthesize(
+                text=text_input.strip(),
+                config=XTTS_MODEL.config,
+                speaker_wav=speaker_audio or default_voice_file,
+                language="be",
+                gpt_cond_latent=gpt_cond_latent,
+                speaker_embedding=speaker_embedding,
+                temperature=0.25,
+                length_penalty=0.9,
+                repetition_penalty=7.0,
+                top_k=10,
+                top_p=0.80,
+            )
     audio_np = _to_np_audio(out["wav"])
     bytes_data = audio_np.tobytes()
     wav_bytes = _add_wav_header(bytes_data, sample_rate=sampling_rate, channels=1)
