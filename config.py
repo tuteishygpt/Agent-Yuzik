@@ -38,8 +38,8 @@ TTS_MODE = os.getenv("TTS_MODE", "local").lower()  # "local" or "api"
 HF_TOKEN = os.getenv("HF_TOKEN", "") or os.getenv("HUGGINGFACE_API_TOKEN", "")
 
 # TTS Streaming — Server-side buffers
-TTS_INITIAL_BUFFER_S = 0.05         # сек, мінімальны памер першага чанка (паменшана для хуткасці)
-TTS_MIN_BUFFER_S = 0.05             # сек, фіксаваны памер наступных чанкаў
+TTS_INITIAL_BUFFER_S = 0.10         # сек, мінімальны памер першага чанка (павялічана для хуткасці/стабільнасці)
+TTS_MIN_BUFFER_S = 0.15             # сек, фіксаваны памер наступных чанкаў (0.15с дазваляе збіраць больш стабільныя чанкі)
 TTS_FIRST_SEGMENT_LIMIT = 40        # сімвалаў у першым тэкставым сегменце (першы сказ для хуткага старту)
 TTS_TEMPERATURE = 0.15
 TTS_TOP_K = 5
@@ -47,8 +47,8 @@ TTS_TOP_P = 0.75
 
 # TTS Streaming — Client-side playback (Colab-style: мінімальная затрымка)
 TTS_SCRIPT_BUFFER_SIZE = 1024       # ScriptProcessor buffer (samples, 1024 = ~42ms at 24kHz)
-TTS_PLAYBACK_MIN_BUFFER_MS = 0      # пачынаць адразу, без прэ-буферызацыі (як у Colab)
-TTS_PLAYBACK_EMPTY_GRACE_MS = 150   # grace period калі чарга пустая (мс)
+TTS_PLAYBACK_MIN_BUFFER_MS = 50     # пачынаць пасля лёгкай буферызацыі для стабільнасці
+TTS_PLAYBACK_EMPTY_GRACE_MS = 250   # grace period калі чарга пустая (мс) павялічана каб не абрываць гук
 
 # Voice Agent Configuration
 SIMPLE_VOICE_AGENT = os.getenv("SIMPLE_VOICE_AGENT", "True").lower() == "true"

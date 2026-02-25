@@ -123,9 +123,17 @@ const pcmPlayer = {
             this._emptyTimeout = null;
         }
 
-        // Colab-style: start playing immediately when first chunk arrives
+        // Start playing when minimum buffer is reached, or fallback after timeout
         if (!this.playing && this.queue.length > 0) {
-            this._startPlayback();
+            if (this._bufferedMs() >= this.minBufferMs) {
+                this._startPlayback();
+            } else if (!this._bufferTimeout) {
+                this._bufferTimeout = setTimeout(() => {
+                    if (!this.playing && this.queue.length > 0) {
+                        this._startPlayback();
+                    }
+                }, this.minBufferMs);
+            }
         }
     },
 

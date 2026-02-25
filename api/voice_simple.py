@@ -30,7 +30,8 @@ log = logging.getLogger("app.voice")
 _SENTENCE_END_RE = re.compile(r'[.!?…\n]+[\s»")\]]+')
 
 # Max characters to group into a single TTS chunk (after the first segment)
-_GROUP_LIMIT = 250
+# Паменшана з 250 да 190, каб TTS хутчэй атрымліваў новыя сказы і не чакаў доўга.
+_GROUP_LIMIT = 190
 
 
 class TTSWorker:
