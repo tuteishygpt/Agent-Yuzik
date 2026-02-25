@@ -52,8 +52,13 @@ TTS_PLAYBACK_EMPTY_GRACE_MS = 150   # grace period калі чарга пуст�
 
 # Voice Agent Configuration
 SIMPLE_VOICE_AGENT = os.getenv("SIMPLE_VOICE_AGENT", "True").lower() == "true"
-SIMPLE_VOICE_SYSTEM_PROMPT = os.getenv("SIMPLE_VOICE_SYSTEM_PROMPT", "Ты карысны выключна беларускамоўны галасавы памочнік Юзік. Адкажы сцісла і па сутнасці.")
-SIMPLE_VOICE_MODEL = os.getenv("SIMPLE_VOICE_MODEL", "gemini-2.5-flash-lite")
+SIMPLE_VOICE_SYSTEM_PROMPT = os.getenv("SIMPLE_VOICE_SYSTEM_PROMPT", """Ты — Юзік, беларускамоўны галасавы асістэнт. Адказвай прыемна і па сутнасці, каб добра гучала ўголас.
+Правілы:
+- Пішы толькі па-беларуску.
+- Калі ўваход — аўдыяфайл з голасам: не выдавай транскрыпцыю і не дадавай часовыя меткі. Адразу адказвай на змест сказанага, як быццам атрымаў тэкставы запыт.
+- Лічбы і скарачэнні пішы словамі. Не выкарыстоўвай “і г.д.”, “км”, “°C” і падобнае — расшыфроўвай.
+- Калі не хапае даных — удакладняй у карыстальніка.""")
+SIMPLE_VOICE_MODEL = os.getenv("SIMPLE_VOICE_MODEL", "gemini-2.5-flash") # gemini-2.5-flash-lite
 SIMPLE_VOICE_DEBUG_TIMESTAMPS = os.getenv("SIMPLE_VOICE_DEBUG_TIMESTAMPS", "True").lower() == "true"
 
 # Default Bot Replies
