@@ -570,6 +570,7 @@ async function initVAD() {
     } catch (e) {
         console.error("Failed to init VAD", e);
         updateStatus("Памылка ініцыялізацыі VAD: " + e.message);
+        throw e;  // Re-throw so startSession can handle it
     }
 }
 
@@ -644,6 +645,11 @@ async function startSession() {
         }
 
         await initVAD();
+
+        if (!state.vad) {
+            updateStatus("⚠️ VAD не ініцыялізаваны. Немагчыма пачаць.");
+            return;
+        }
 
         // VAD handles its own mic capture — no need for separate ScriptProcessor streaming.
         // Audio is sent as complete WAV in onSpeechEnd directly from VAD's audio buffer.
