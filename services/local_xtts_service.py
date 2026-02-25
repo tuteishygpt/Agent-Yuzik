@@ -33,7 +33,7 @@ except ImportError:
 INITIAL_MIN_BUFFER_S = getattr(app_config, 'TTS_INITIAL_BUFFER_S', 0.20)
 MIN_BUFFER_S        = getattr(app_config, 'TTS_MIN_BUFFER_S', 0.15)
 FADE_S              = 0.005
-ENABLE_TEXT_SPLITTING = True
+ENABLE_TEXT_SPLITTING = False
 FIRST_SEGMENT_LIMIT = getattr(app_config, 'TTS_FIRST_SEGMENT_LIMIT', 80)
 
 device = globals().get("device", "cuda:0" if torch.cuda.is_available() else "cpu")
