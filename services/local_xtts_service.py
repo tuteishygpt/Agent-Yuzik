@@ -26,7 +26,7 @@ try:
 except ImportError:
     HAS_TTS = False
     log.warning("TTS library is not installed. XTTS local service will not work.")
-    def split_sentence(text, lang, text_split_length):
+    def split_sentence(text, lang, text_split_length, min_chunk_length=40):
         return [text]
 
 # ---- Канфіг стрыму (з config.py / .env) ----
@@ -273,15 +273,20 @@ def _fast_split(text: str, limit: int) -> List[str]:
 def _split_text_smart(text_in: str, lang_short: str, chunk_limit: int) -> List[str]:
     """
     Разумны падзел тэксту для TTS стрымінгу:
+    - Спачатку робяцца астатнія апрацоўкі з tokenizer.py (выклік preprocess_text: лічбы, абрэвіятуры і г.д.)
     - Першы сегмент: кароткі (першы сказ) для хуткага старту аўдыя
-    - Наступныя сегменты: поўныя сказы, згрупаваныя да chunk_limit сімвалаў
-    Ніколі не рэжа пасярэдзіне слова ці сказа.
+    - Наступныя сегменты: разбіваюцца праз арыгінальны split_sentence з tokenizer.py
     """
     text_in = text_in.strip()
     if not text_in:
         return []
 
-    # 1) Разбіваем увесь тэкст на сказы
+    # 0) Выкарыстоўваем астатнія апрацоўкі з tokenizer.py (калі мадэль і яе такенізатар загружаныя)
+    global XTTS_MODEL
+    if XTTS_MODEL is not None and hasattr(XTTS_MODEL, "tokenizer") and XTTS_MODEL.tokenizer is not None:
+        text_in = XTTS_MODEL.tokenizer.preprocess_text(text_in, lang_short)
+
+    # 1) Разбіваем увесь тэкст на сказы, каб вылучыць самы хуткі першы сказ
     sentences = _split_into_sentences(text_in)
     if not sentences:
         return [text_in]
@@ -300,34 +305,16 @@ def _split_text_smart(text_in: str, lang_short: str, chunk_limit: int) -> List[s
             head = head[:cut].strip()
             if leftover:
                 rest.insert(0, leftover)
-        # інакш — бярэм увесь першы сказ (лепш, чым рэзаць пасярэдзіне слова)
+        # інакш — бярэм увесь першы сказ
 
     result = [head]
 
-    # 3) Астатнія сказы — групуем у кавалкі да chunk_limit сімвалаў
-    cur = ""
-    for sent in rest:
-        if not cur:
-            cur = sent
-        elif len(cur) + 1 + len(sent) <= chunk_limit:
-            cur = cur + " " + sent
-        else:
-            result.append(cur)
-            # Калі адзін сказ даўжэйшы за ліміт — разбіць па словах
-            if len(sent) > chunk_limit:
-                words = _WS.split(sent)
-                acc = ""
-                for w in words:
-                    if acc and len(acc) + 1 + len(w) > chunk_limit:
-                        result.append(acc)
-                        acc = w
-                    else:
-                        acc = (acc + " " + w).strip() if acc else w
-                cur = acc
-            else:
-                cur = sent
-    if cur:
-        result.append(cur)
+    # 3) Астатнія сказы перадаём у арыгінальную split_sentence
+    rest_text = " ".join(rest).strip()
+    if rest_text:
+        # split_sentence ўжо імпартаваная на пачатку файла
+        chunks = split_sentence(rest_text, lang_short, text_split_length=chunk_limit, min_chunk_length=40)
+        result.extend(chunks)
 
     return result
 
