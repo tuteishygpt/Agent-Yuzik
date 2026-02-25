@@ -9,7 +9,6 @@
 Калі TTS_MODE=api, праект запускаецца без torch / coqui-ai-TTS.
 """
 
-from __future__ import annotations
 
 import os
 import traceback
@@ -44,11 +43,11 @@ if TTS_MODE == "api":
 
     if HUGGINGFACE_API_TOKEN:
         gradio_client = Client(
-            "archivartaunik/Bextts", hf_token=HUGGINGFACE_API_TOKEN
+            "archivartaunik/Bextts", token=HUGGINGFACE_API_TOKEN
         )
         try:
             voice_client = Client(
-                "archivartaunik/BexttsAssist", hf_token=HUGGINGFACE_API_TOKEN
+                "archivartaunik/BexttsAssist", token=HUGGINGFACE_API_TOKEN
             )
             log.info("BexttsAssist client initialized successfully.")
         except Exception as e:
@@ -280,7 +279,7 @@ async def synthesize_speech(
 
     try:
         # ── Streaming path (абодва рэжымы) ──
-        user_id = tool_context.user_id if tool_context else None
+        user_id = tool_context._invocation_context.user_id if tool_context and hasattr(tool_context, "_invocation_context") else None
         if user_id and user_id in voice_queues:
             # Для API-рэжыму дадаткова правяраем voice_client
             if TTS_MODE == "api" and not voice_client:

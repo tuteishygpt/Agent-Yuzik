@@ -298,7 +298,7 @@ def _split_text_smart(text_in: str, lang_short: str, chunk_limit: int) -> List[s
     # Калі першы сказ вельмі доўгі — шукаем натуральную мяжу (коска, кропка з коскай, працяжнік)
     if len(head) > FIRST_SEGMENT_LIMIT and FIRST_SEGMENT_LIMIT > 0:
         search_zone = head[:FIRST_SEGMENT_LIMIT + 40]
-        brk = re.search(r'.{15,}?[,;:–—]\s', search_zone)
+        brk = re.search(r'.{30,}?[,;:–—]\s', search_zone)
         if brk:
             cut = brk.end()
             leftover = head[cut:].strip()

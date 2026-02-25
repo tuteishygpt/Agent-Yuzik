@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from google.adk.agents import LlmAgent
 from google.adk.tools import agent_tool, ToolContext, BaseTool
 from tools.text_to_speech_tool import synthesize_speech_tool
