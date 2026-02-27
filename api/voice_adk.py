@@ -8,6 +8,7 @@ then streams TTS for any text-only responses.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 
@@ -16,7 +17,7 @@ from fastapi import WebSocket
 import config
 from api.deps import adk_service
 from api.voice_perf import PerfLogger
-from api.voice_utils import send_audio_chunk
+from api.voice_utils import send_audio_chunk, compress_wav_to_mp3
 from tools.text_to_speech_tool import stream_speech
 
 log = logging.getLogger("app.voice")
@@ -33,12 +34,17 @@ async def handle_adk_voice(
     start_ts = perf.start_ts
     collected_text = []
 
+    # ── Compress WAV → MP3 before sending to agent ──
+    log.info(f"[VOICE·ADK·COMPRESS] Compressing WAV→MP3 | input={len(audio_data)}B")
+    mp3_data = await asyncio.to_thread(compress_wav_to_mp3, audio_data)
+    log.info(f"[VOICE·ADK·COMPRESS] Done: {len(audio_data)}B → {len(mp3_data)}B")
+
     async for ev in adk_service.run_agent_stream(
         session_id=session_id,
         user_id=user_id,
         text=None,
-        file_data=audio_data,
-        mime_type="audio/wav",
+        file_data=mp3_data,
+        mime_type="audio/mp3",
     ):
         if ev.is_final_response() and ev.content:
             text_parts = [p.text for p in ev.content.parts if p.text]

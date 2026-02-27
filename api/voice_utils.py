@@ -1,14 +1,18 @@
 # api/voice_utils.py
 """
-Shared utilities for voice mode: constants, WAV header, binary audio sending.
+Shared utilities for voice mode: constants, WAV header, binary audio sending,
+and audio compression (WAV → MP3).
 """
 
 from __future__ import annotations
 
+import io
 import struct
 import logging
+import time
 
 from fastapi import WebSocket
+from pydub import AudioSegment
 
 import config
 
@@ -59,3 +63,38 @@ def ensure_wav(audio_bytes: bytes) -> bytes:
     if audio_bytes[:4] == b'RIFF':
         return audio_bytes
     return create_wav_header(len(audio_bytes)) + audio_bytes
+
+
+def compress_wav_to_mp3(wav_data: bytes, sample_rate: int = 16000, bitrate: str = "64k") -> bytes:
+    """Compress WAV audio to MP3 at the given sample rate.
+
+    Uses pydub (backed by ffmpeg) to re-encode WAV → MP3 mono.
+    Returns the MP3 bytes. This is a synchronous/blocking call;
+    use ``asyncio.to_thread`` or ``loop.run_in_executor`` when calling
+    from async code.
+
+    Args:
+        wav_data: Raw WAV file bytes (RIFF header + PCM data).
+        sample_rate: Target sample rate in Hz (default 16000).
+        bitrate: MP3 bitrate string, e.g. "64k" or "32k".
+
+    Returns:
+        MP3 file bytes.
+    """
+    t0 = time.time()
+    audio = AudioSegment.from_file(io.BytesIO(wav_data), format="wav")
+    audio = audio.set_frame_rate(sample_rate).set_channels(1)
+
+    mp3_buf = io.BytesIO()
+    audio.export(mp3_buf, format="mp3", bitrate=bitrate)
+    mp3_bytes = mp3_buf.getvalue()
+
+    elapsed_ms = (time.time() - t0) * 1000
+    ratio = len(wav_data) / len(mp3_bytes) if mp3_bytes else 0
+    log.info(
+        f"[VOICE·COMPRESS] WAV→MP3: {len(wav_data)}B → {len(mp3_bytes)}B "
+        f"(×{ratio:.1f} сцісканне) | {elapsed_ms:.0f} мс | "
+        f"sr={sample_rate} bitrate={bitrate}"
+    )
+    return mp3_bytes
+
