@@ -22,6 +22,10 @@ log = logging.getLogger("app.voice")
 # Events that are always forwarded to the client UI (even after first audio)
 ALWAYS_SHOW_EVENTS: Set[str] = {
     "tts_complete", "llm_complete", "llm_stream_end", "pipeline_complete",
+    # Post-first-audio events that are still useful in UI
+    "history_loaded", "tts_worker_start", "tts_worker_done",
+    "split_group_flush", "split_final_flush", "history_saved",
+    "tts_sentence_done",
 }
 
 

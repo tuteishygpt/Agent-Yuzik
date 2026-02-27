@@ -93,12 +93,29 @@ def load_model(hf_repo_id: str = repo_id, target_model_dir: str = "./model"):
     config = XttsConfig()
     config.load_json(config_file)
     XTTS_MODEL = Xtts.init_from_config(config)
-    XTTS_MODEL.load_checkpoint(
-        config,
-        checkpoint_path=checkpoint_file,
-        vocab_path=vocab_file,
-        use_deepspeed=False,
-    )
+    _use_deepspeed = True
+    try:
+        XTTS_MODEL.load_checkpoint(
+            config,
+            checkpoint_path=checkpoint_file,
+            vocab_path=vocab_file,
+            use_deepspeed=True,
+        )
+        log.info("Checkpoint загружаны з DeepSpeed (use_deepspeed=True).")
+    except (TypeError, RuntimeError) as _ds_err:
+        log.warning(
+            f"DeepSpeed не падыходзіць ({_ds_err}), загружаем без DeepSpeed..."
+        )
+        _use_deepspeed = False
+        # Перастварым мадэль — load_checkpoint мяняе стан і паўторны выклік небяспечны
+        XTTS_MODEL = Xtts.init_from_config(config)
+        XTTS_MODEL.load_checkpoint(
+            config,
+            checkpoint_path=checkpoint_file,
+            vocab_path=vocab_file,
+            use_deepspeed=False,
+        )
+        log.info("Checkpoint загружаны без DeepSpeed (fallback).")
 
     torch.set_num_threads(1)
     if device.startswith("cuda"):
@@ -385,10 +402,12 @@ async def stream_audio(
     def _raw_inference_gen():
         """Yields raw np.ndarray chunks from per-segment inference with per-segment timing."""
         segment_idx = 0
+        _dev_type = "cuda" if str(device).startswith("cuda") else "cpu"
+        _amp_enabled = str(device).startswith("cuda")
         with torch.inference_mode(), torch.autocast(
-            device_type="cuda",
-            dtype=amp_dtype,
-            enabled=str(device).startswith("cuda"),
+            device_type=_dev_type,
+            dtype=amp_dtype if _amp_enabled else torch.float32,
+            enabled=_amp_enabled,
         ):
             for part in texts:
                 segment_idx += 1
@@ -530,10 +549,12 @@ def synthesize_to_file(
         to_device=device,
     )
     log.info(f"Сінтэз у файл для тэксту даўжынёй {len(text_input)} сімвалаў...")
+    _dev_type = "cuda" if str(device).startswith("cuda") else "cpu"
+    _amp_enabled = str(device).startswith("cuda")
     with torch.inference_mode(), torch.autocast(
-        device_type="cuda",
-        dtype=amp_dtype,
-        enabled=str(device).startswith("cuda"),
+        device_type=_dev_type,
+        dtype=amp_dtype if _amp_enabled else torch.float32,
+        enabled=_amp_enabled,
     ):
         with _inference_lock:
             out = XTTS_MODEL.synthesize(
