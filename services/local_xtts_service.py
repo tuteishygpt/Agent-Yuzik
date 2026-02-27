@@ -39,7 +39,8 @@ FIRST_SEGMENT_LIMIT = getattr(app_config, 'TTS_FIRST_SEGMENT_LIMIT', 80)
 
 device = globals().get("device", "cuda:0" if torch.cuda.is_available() else "cpu")
 sampling_rate = int(globals().get("sampling_rate", 24000))
-default_voice_file = globals().get("default_voice_file", None)
+_voice_cfg = getattr(app_config, 'TTS_VOICE_FILE', None)
+default_voice_file = _voice_cfg if _voice_cfg else None
 repo_id = globals().get("repo_id", "archivartaunik/BE_XTTS_V2_10ep250k")
 
 # GPU / AMP — auto-detect BF16 support (Ampere+: A100, L4, T4 etc.)
@@ -152,6 +153,14 @@ def _latents_for(path: str | None, *, to_device: Optional[str] = None) -> Tuple[
     with _inference_lock:
         if XTTS_MODEL is None:
             raise RuntimeError("Мадэль не загружана. Выклічце load_model().")
+
+        # ── Ранняя праверка шляху да голасавага файла ──
+        if not path or not os.path.exists(path):
+            raise RuntimeError(
+                f"Голасавы файл не знойдзены або не паказаны: {path!r}. "
+                "Праверце TTS_VOICE_FILE у .env і наяўнасць voice.wav у ./model/"
+            )
+
         cfg = XTTS_MODEL.config
         meta = LatentsMeta(
             model_id=repo_id,
@@ -167,7 +176,7 @@ def _latents_for(path: str | None, *, to_device: Optional[str] = None) -> Tuple[
                 data = torch.load(disk_path, map_location="cpu")
                 g, s = data["gpt_cond_latent"], data["speaker_embedding"]
             else:
-                log.info(f"Разлік латэнтаў для {path or 'стандартнага голасу'}...")
+                log.info(f"Разлік латэнтаў для {path}...")
                 with torch.inference_mode():
                     g_cpu, s_cpu = XTTS_MODEL.get_conditioning_latents(audio_path=path)
                 g, s = g_cpu.cpu(), s_cpu.cpu()
@@ -379,10 +388,19 @@ async def stream_audio(
 
     log.info(f"[TTS·TIMING] ── Pipeline start ── text={len(text_input)} chars")
 
+    # ── Resolve voice file (default_voice_file устанаўліваецца ўнутры load_model) ──
+    import services.local_xtts_service as _self_mod
+    _voice_path = speaker_audio or _self_mod.default_voice_file
+    if not _voice_path or not os.path.exists(_voice_path):
+        raise RuntimeError(
+            f"Голасавы файл не знойдзены: {_voice_path!r}. "
+            "Праверце TTS_VOICE_FILE у .env або наяўнасць ./model/voice.wav"
+        )
+
     # ── Latents ──
     t0 = time.perf_counter()
     gpt_cond_latent, speaker_embedding = _latents_for(
-        speaker_audio or default_voice_file,
+        _voice_path,
         to_device=device,
     )
     log.info(f"[TTS·TIMING] Latents: {(time.perf_counter()-t0)*1000:.1f} ms (cached)")

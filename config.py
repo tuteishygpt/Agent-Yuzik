@@ -44,6 +44,7 @@ TTS_FIRST_SEGMENT_LIMIT = 40        # сімвалаў у першым тэкс�
 TTS_TEMPERATURE = 0.15
 TTS_TOP_K = 5
 TTS_TOP_P = 0.75
+TTS_VOICE_FILE = os.getenv("TTS_VOICE_FILE", "./model/voice.wav")  # шлях да файла голасу XTTS
 
 # TTS Streaming — Client-side playback (Colab-style: мінімальная затрымка)
 TTS_SCRIPT_BUFFER_SIZE = 1024       # ScriptProcessor buffer (samples, 1024 = ~42ms at 24kHz)
