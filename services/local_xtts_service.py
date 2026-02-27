@@ -103,7 +103,7 @@ def load_model(hf_repo_id: str = repo_id, target_model_dir: str = "./model"):
             use_deepspeed=True,
         )
         log.info("Checkpoint загружаны з DeepSpeed (use_deepspeed=True).")
-    except (TypeError, RuntimeError) as _ds_err:
+    except (TypeError, RuntimeError, ImportError, OSError) as _ds_err:
         log.warning(
             f"DeepSpeed не падыходзіць ({_ds_err}), загружаем без DeepSpeed..."
         )
