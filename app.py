@@ -55,6 +55,16 @@ app.include_router(voice_router)
 app.include_router(voice_history_router)
 
 # ---------------------------------------------------------------------
+# Загрузка лакальнай ASR мадэлі пры старце (калі ўключана) -----------
+@app.on_event("startup")
+async def _load_local_asr():
+    if config.LOCAL_ASR:
+        from api.local_asr import load_asr_model
+        import asyncio
+        log.info("[STARTUP] LOCAL_ASR=True → loading ASR model in background…")
+        asyncio.create_task(asyncio.to_thread(load_asr_model))
+
+# ---------------------------------------------------------------------
 # Падрубанне інтэрфейсу (Static Files) --------------------------------
 from fastapi.staticfiles import StaticFiles
 
