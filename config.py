@@ -62,7 +62,7 @@ SIMPLE_VOICE_MODEL = os.getenv("SIMPLE_VOICE_MODEL", "gemini-2.5-flash-lite") # 
 SIMPLE_VOICE_DEBUG_TIMESTAMPS = os.getenv("SIMPLE_VOICE_DEBUG_TIMESTAMPS", "True").lower() == "true"
 
 # Local ASR Configuration
-LOCAL_ASR = os.getenv("LOCAL_ASR", "True").lower() == "false"
+LOCAL_ASR = os.getenv("LOCAL_ASR", "True").lower() == "true"
 LOCAL_ASR_MODEL = os.getenv("LOCAL_ASR_MODEL", "nvidia/stt_be_fastconformer_hybrid_large_pc")
 
 # Default Bot Replies

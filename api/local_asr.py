@@ -205,7 +205,9 @@ def transcribe_audio(y: np.ndarray, sr: int) -> str:
         y = np.mean(y, axis=0)
     y = y.astype(np.float32, copy=False)
     y, sr = _resample_to_16k(y, sr)
-    batch = y[None, :]
+
+    # NeMo transcribe() expects a list of 1D arrays, NOT a pre-batched 2D array
+    audio_list = [y]
 
     if TranscribeConfig is not None:
         cfg = TranscribeConfig(
@@ -215,11 +217,11 @@ def transcribe_audio(y: np.ndarray, sr: int) -> str:
             return_hypotheses=False,
         )
         _sync_cuda()
-        out = _asr_model.transcribe(batch, override_config=cfg)
+        out = _asr_model.transcribe(audio_list, override_config=cfg)
         _sync_cuda()
     else:
         _sync_cuda()
-        out = _asr_model.transcribe(batch, batch_size=1, verbose=False)
+        out = _asr_model.transcribe(audio_list, batch_size=1, verbose=False)
         _sync_cuda()
 
     first = out[0]
