@@ -41,7 +41,7 @@ HF_TOKEN = os.getenv("HF_TOKEN", "") or os.getenv("HUGGINGFACE_API_TOKEN", "")
 TTS_INITIAL_BUFFER_S = 0.10         # сек, мінімальны памер першага чанка (павялічана для хуткасці/стабільнасці)
 TTS_MIN_BUFFER_S = 0.15             # сек, фіксаваны памер наступных чанкаў (0.15с дазваляе збіраць больш стабільныя чанкі)
 TTS_FIRST_SEGMENT_LIMIT = 40        # сімвалаў у першым тэкставым сегменце (першы сказ для хуткага старту)
-TTS_TEMPERATURE = 0.15
+TTS_TEMPERATURE = 0.35
 TTS_TOP_K = 5
 TTS_TOP_P = 0.75
 

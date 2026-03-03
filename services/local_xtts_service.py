@@ -515,6 +515,232 @@ async def stream_audio(
              f"pipeline={(time.perf_counter()-t_pipeline)*1000:.0f} ms")
 
 
+async def stream_audio_multi(
+    sentence_queue: asyncio.Queue,
+    speaker_audio: Optional[str] = None,
+    initial_buffer_s: float = INITIAL_MIN_BUFFER_S,
+    subsequent_buffer_s: float = MIN_BUFFER_S,
+    yield_raw_pcm: bool = False,
+) -> AsyncGenerator[bytes, None]:
+    """
+    Continuous TTS streaming from an asyncio.Queue of sentences.
+
+    Unlike stream_audio() which handles one text at a time (each with its own
+    _chunker and producer thread), this function consumes ALL sentences from
+    a queue and processes them through a SINGLE _chunker — eliminating gaps
+    between sentences.
+
+    This matches the reference Colab code pattern:
+        all_chunks = (_to_np_audio(c) for part in texts
+                      for c in XTTS_MODEL.inference_stream(text=part, ...))
+        for chunk in _chunker(all_chunks, sr, initial_s, subsequent_s): ...
+
+    Queue protocol:
+      - str items  = sentences to synthesize
+      - None       = sentinel to stop
+    """
+    import queue as stdlib_queue
+    import threading
+
+    t_pipeline = time.perf_counter()
+
+    # ── Load model if needed ──
+    if XTTS_MODEL is None:
+        t0 = time.perf_counter()
+        load_model()
+        log.info(f"[TTS·TIMING] Model load: {(time.perf_counter()-t0)*1000:.1f} ms")
+
+    log.info("[TTS·TIMING] ── Multi-sentence pipeline start ──")
+
+    # ── Latents (cached) ──
+    t0 = time.perf_counter()
+    gpt_cond_latent, speaker_embedding = _latents_for(
+        speaker_audio or default_voice_file,
+        to_device=device,
+    )
+    log.info(f"[TTS·TIMING] Latents: {(time.perf_counter()-t0)*1000:.1f} ms (cached)")
+
+    loop = asyncio.get_running_loop()
+
+    # Bridge: async sentence_queue → sync stdlib queue
+    sync_sentence_q: stdlib_queue.Queue = stdlib_queue.Queue()
+    audio_out_q: stdlib_queue.Queue = stdlib_queue.Queue()
+    SENTINEL = object()
+
+    # Async forwarder: moves sentences from asyncio.Queue to sync queue
+    async def _forward_sentences():
+        try:
+            while True:
+                sentence = await sentence_queue.get()
+                sync_sentence_q.put(sentence)
+                if sentence is None:
+                    break
+        except asyncio.CancelledError:
+            sync_sentence_q.put(None)  # Stop producer thread
+            raise
+
+    forwarder_task = asyncio.create_task(_forward_sentences())
+
+    def producer():
+        """
+        Sync thread: reads sentences from sync_sentence_q,
+        runs inference_stream for each, feeds ALL raw chunks
+        through ONE _chunker, puts buffered chunks to audio_out_q.
+        """
+        try:
+            def _continuous_raw_gen():
+                """Single generator yielding raw audio chunks across ALL sentences."""
+                seg_idx = 0
+                while True:
+                    text = sync_sentence_q.get()
+                    if text is None:
+                        break
+                    text = text.strip()
+                    if not text:
+                        continue
+
+                    seg_idx += 1
+                    t_seg = time.perf_counter()
+                    log.info(
+                        f"[TTS·TIMING] ▶ Multi seg #{seg_idx}: "
+                        f"{len(text)} chars | «{text[:60]}»"
+                    )
+
+                    # Preprocess text via tokenizer (numbers, abbreviations, etc.)
+                    if (XTTS_MODEL is not None
+                            and hasattr(XTTS_MODEL, "tokenizer")
+                            and XTTS_MODEL.tokenizer is not None):
+                        text = XTTS_MODEL.tokenizer.preprocess_text(text, "be")
+
+                    seg_chunks = 0
+                    seg_samples = 0
+                    with _inference_lock:
+                        for chunk in XTTS_MODEL.inference_stream(
+                            text=text,
+                            language="be",
+                            gpt_cond_latent=gpt_cond_latent,
+                            speaker_embedding=speaker_embedding,
+                            temperature=getattr(app_config, 'TTS_TEMPERATURE', 0.15),
+                            length_penalty=0.9,
+                            repetition_penalty=7.0,
+                            top_k=getattr(app_config, 'TTS_TOP_K', 5),
+                            top_p=getattr(app_config, 'TTS_TOP_P', 0.75),
+                            enable_text_splitting=False,
+                        ):
+                            c_np = _to_np_audio(chunk)
+                            if c_np.size > 0:
+                                seg_chunks += 1
+                                seg_samples += c_np.size
+                                if seg_chunks == 1:
+                                    log.info(
+                                        f"[TTS·TIMING]   Seg #{seg_idx} 1st raw chunk: "
+                                        f"{(time.perf_counter()-t_seg)*1000:.1f} ms | "
+                                        f"{c_np.size} samples"
+                                    )
+                                yield c_np
+
+                    seg_ms = (time.perf_counter() - t_seg) * 1000
+                    seg_audio_ms = seg_samples / sampling_rate * 1000
+                    log.info(
+                        f"[TTS·TIMING] ◼ Seg #{seg_idx} done: "
+                        f"{seg_chunks} raw chunks | {seg_ms:.0f} ms inference | "
+                        f"{seg_audio_ms:.0f} ms audio"
+                    )
+
+            # ONE _chunker wrapping ALL sentences — no gaps!
+            t_inf = time.perf_counter()
+            count = 0
+            total_samples = 0
+
+            with torch.inference_mode(), torch.autocast(
+                device_type="cuda",
+                dtype=amp_dtype,
+                enabled=str(device).startswith("cuda"),
+            ):
+                for audio_chunk in _chunker(
+                    _continuous_raw_gen(),
+                    sampling_rate,
+                    initial_buffer_s,
+                    subsequent_buffer_s,
+                ):
+                    count += 1
+                    n = len(audio_chunk)
+                    total_samples += n
+                    ms = n / sampling_rate * 1000
+                    elapsed = (time.perf_counter() - t_inf) * 1000
+
+                    if count == 1:
+                        log.info(
+                            f"[TTS·TIMING] 🎵 Multi 1st buffered chunk: "
+                            f"inference={elapsed:.1f} ms | "
+                            f"total_from_start="
+                            f"{(time.perf_counter()-t_pipeline)*1000:.1f} ms | "
+                            f"audio={ms:.0f} ms ({n} samples)"
+                        )
+                    elif count <= 3:
+                        log.info(
+                            f"[TTS·TIMING] Multi chunk #{count}: "
+                            f"{ms:.0f} ms audio | elapsed={elapsed:.0f} ms"
+                        )
+
+                    audio_out_q.put(audio_chunk)
+
+            total_audio = total_samples / sampling_rate * 1000
+            total_inf = (time.perf_counter() - t_inf) * 1000
+            rtf = total_inf / total_audio if total_audio > 0 else 0
+            log.info(
+                f"[TTS·TIMING] ✅ Multi done: inference={total_inf:.0f} ms | "
+                f"chunks={count} | audio={total_audio:.0f} ms | RTF={rtf:.2f}x"
+            )
+
+        except Exception as e:
+            log.error(f"Error in multi TTS inference: {e}", exc_info=True)
+        finally:
+            audio_out_q.put(SENTINEL)
+
+    threading.Thread(target=producer, daemon=True).start()
+
+    # ── Async consumer: yield chunks from audio_out_q ──
+    idx = 0
+    total_wait = 0.0
+    try:
+        while True:
+            t_wait = time.perf_counter()
+            chunk = await loop.run_in_executor(None, audio_out_q.get)
+            wait_ms = (time.perf_counter() - t_wait) * 1000
+            total_wait += wait_ms
+
+            if chunk is SENTINEL:
+                break
+
+            idx += 1
+            bytes_data = chunk.tobytes()
+
+            if idx <= 3 or wait_ms > 50:
+                log.info(
+                    f"[TTS·TIMING] Multi queue→async #{idx}: "
+                    f"wait={wait_ms:.1f} ms | {len(bytes_data)} bytes"
+                )
+
+            if yield_raw_pcm:
+                yield bytes_data
+            else:
+                yield _add_wav_header(bytes_data, sample_rate=sampling_rate, channels=1)
+    finally:
+        # Cleanup: ensure forwarder is stopped if generator is closed/cancelled
+        forwarder_task.cancel()
+        try:
+            await forwarder_task
+        except asyncio.CancelledError:
+            pass
+
+    log.info(
+        f"[TTS·TIMING] Multi pipeline complete: {idx} chunks | "
+        f"total_wait={total_wait:.0f} ms | "
+        f"pipeline={(time.perf_counter()-t_pipeline)*1000:.0f} ms"
+    )
+
+
 def synthesize_to_file(
     text_input: str,
     output_path: str,

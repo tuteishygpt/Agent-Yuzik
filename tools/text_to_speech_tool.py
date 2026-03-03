@@ -250,6 +250,42 @@ async def _stream_speech_local(
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# stream_speech_multi — continuous multi-sentence TTS (no gaps)
+# ═══════════════════════════════════════════════════════════════════════
+
+async def stream_speech_multi(
+    sentence_queue: asyncio.Queue,
+    speaker_audio_path: Optional[str] = None,
+) -> AsyncGenerator[bytes, None]:
+    """
+    Continuous TTS streaming from a queue of sentences.
+    All sentences share ONE audio chunker — no gaps between sentences.
+
+    For local mode: uses stream_audio_multi (single _chunker across sentences).
+    For API mode: falls back to per-sentence streaming.
+
+    Queue protocol: str items = text, None = stop sentinel.
+    """
+    if TTS_MODE == "local":
+        from services.local_xtts_service import stream_audio_multi
+        async for chunk in stream_audio_multi(
+            sentence_queue, speaker_audio_path, yield_raw_pcm=True,
+        ):
+            yield chunk
+    else:
+        # API mode: per-sentence fallback (no local _chunker available)
+        while True:
+            sentence = await sentence_queue.get()
+            if sentence is None:
+                break
+            sentence = sentence.strip()
+            if not sentence:
+                continue
+            async for chunk in _stream_speech_api(sentence, speaker_audio_path):
+                yield chunk
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # synthesize_speech — асноўная функцыя (абодва рэжымы)
 # ═══════════════════════════════════════════════════════════════════════
 

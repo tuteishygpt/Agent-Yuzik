@@ -23,7 +23,7 @@ from api.deps import get_genai_client
 from api.voice_history import get_voice_history
 from api.voice_perf import PerfLogger
 from api.voice_utils import LOCAL_SAMPLE_RATE, compress_wav_to_mp3
-from tools.text_to_speech_tool import stream_speech
+from tools.text_to_speech_tool import stream_speech, stream_speech_multi
 
 # Local ASR (lazy import; module is always importable)
 from api import local_asr
@@ -125,174 +125,97 @@ class TTSWorker:
     # ── Internal worker loop ──
 
     async def _run(self):
+        """Consume sentences via stream_speech_multi — ONE continuous audio stream.
+
+        Instead of calling stream_speech() per sentence (each creating a new
+        _chunker with its own initial buffer delay), we pass the entire
+        sentence_queue to stream_speech_multi which processes ALL sentences
+        through a SINGLE _chunker — eliminating gaps between sentences.
+        """
         tts_gen_start = None
         tts_chunk_count = 0
         tts_total_audio_samples = 0
-        sentence_idx = 0
 
-        log.info(_step("TTS·WORKER", "⚙️  _run() loop started", self._start_ts))
+        log.info(_step("TTS·WORKER", "⚙️  _run() loop started (multi-sentence mode)", self._start_ts))
 
         try:
-            while True:
-                t_queue_wait = time.time()
-                log.info(_step(
-                    "TTS·WORKER",
-                    f"⏳ Waiting for sentence #{sentence_idx + 1} from sentence_queue…",
-                    self._start_ts,
-                ))
-                sentence = await self._sentence_queue.get()
-                queue_wait_ms = (time.time() - t_queue_wait) * 1000
+            tts_gen_start = time.time()
 
-                if sentence is None:
-                    log.info(_step(
-                        "TTS·WORKER",
-                        f"🛑 Sentinel received after {queue_wait_ms:.0f}ms wait → exiting loop",
-                        self._start_ts,
-                    ))
-                    break  # Sentinel
+            log.info(_step(
+                "TTS·GEN",
+                f"🔊 stream_speech_multi() starting | mode={config.TTS_MODE}",
+                self._start_ts,
+            ))
+            await self._perf(
+                "tts_start",
+                "🔊 Пачатак TTS генерацыі (multi)",
+                detail=f"Рэжым: {config.TTS_MODE} | "
+                       f"Ад старту: {(time.time()-self._start_ts)*1000:.0f} мс",
+                duration_ms=round((time.time() - self._start_ts) * 1000),
+            )
 
-                sentence_idx += 1
-                log.info(_step(
-                    "TTS·WORKER",
-                    f"📨 Got sentence #{sentence_idx} after {queue_wait_ms:.0f}ms wait | "
-                    f"{len(sentence)} chars: «{sentence[:80]}»",
-                    self._start_ts,
-                ))
+            async for audio_chunk in stream_speech_multi(self._sentence_queue):
+                tts_chunk_count += 1
 
-                if tts_gen_start is None:
-                    tts_gen_start = time.time()
-                    dispatch_to_worker_ms = (
-                        (tts_gen_start - self._first_dispatch_ts) * 1000
-                        if self._first_dispatch_ts else 0
+                chunk_samples = len(audio_chunk) // 4 if config.TTS_MODE == "local" else 0
+                tts_total_audio_samples += chunk_samples
+                chunk_audio_ms = (
+                    chunk_samples / LOCAL_SAMPLE_RATE * 1000
+                    if chunk_samples > 0 else 0
+                )
+
+                if not self.sent_first_audio_chunk:
+                    pipeline_ms = (time.time() - self._start_ts) * 1000
+                    tts_ms = (time.time() - tts_gen_start) * 1000
+                    llm_to_tts_ms = (
+                        (tts_gen_start - self.llm_first_token_ts) * 1000
+                        if self.llm_first_token_ts else 0
                     )
+                    chunk_info = ""
+                    if config.TTS_MODE == "local":
+                        chunk_info = (
+                            f" | chunk={chunk_samples} samples "
+                            f"({chunk_audio_ms:.0f}мс аўдыё)"
+                        )
                     log.info(_step(
                         "TTS·GEN",
-                        f"🔊 First sentence → TTS inference starting | "
-                        f"dispatch→worker={dispatch_to_worker_ms:.0f}ms",
+                        f"🎵 FIRST audio chunk → audio_queue | "
+                        f"pipeline={pipeline_ms:.0f}ms | "
+                        f"tts={tts_ms:.0f}ms | "
+                        f"llm→tts={llm_to_tts_ms:.0f}ms{chunk_info}",
                         self._start_ts,
                     ))
                     await self._perf(
-                        "tts_start",
-                        "🔊 Пачатак TTS генерацыі",
-                        detail=f"Даўжыня тэксту: {len(sentence)} сімв. | "
-                               f"Рэжым: {config.TTS_MODE} | "
-                               f"Чарга→worker: {dispatch_to_worker_ms:.0f} мс | "
-                               f"Queue wait: {queue_wait_ms:.0f} мс",
-                        duration_ms=round((time.time() - self._start_ts) * 1000),
+                        "tts_first_chunk",
+                        "🔊 Першы аўдыя чанк TTS → чарга",
+                        detail=f"🏁 Пайплайн: {pipeline_ms:.0f} мс | "
+                               f"TTS: {tts_ms:.0f} мс | "
+                               f"LLM→TTS: {llm_to_tts_ms:.0f} мс{chunk_info}",
+                        duration_ms=round(pipeline_ms),
                     )
+                    self.sent_first_audio_chunk = True
 
-                t_sentence_start = time.time()
-                log.info(_step(
-                    "TTS·GEN",
-                    f"🎤 stream_speech() START sentence #{sentence_idx} | {len(sentence)} chars",
+                t_put = time.time()
+                aq_size_before = self._audio_queue.qsize()
+                await self._audio_queue.put(audio_chunk)
+                put_ms = (time.time() - t_put) * 1000
+                aq_size_after = self._audio_queue.qsize()
+
+                log.debug(_step(
+                    "TTS·QUEUE",
+                    f"   chunk #{tts_chunk_count} → audio_queue "
+                    f"(qsize {aq_size_before}→{aq_size_after}) | "
+                    f"put={put_ms:.1f}ms | {len(audio_chunk)}B ({chunk_audio_ms:.0f}ms)",
                     self._start_ts,
                 ))
 
-                sentence_chunk_count = 0
-                first_chunk_in_sentence = True
-
-                async for audio_chunk in stream_speech(sentence):
-                    tts_chunk_count += 1
-                    sentence_chunk_count += 1
-
-                    chunk_samples = len(audio_chunk) // 4 if config.TTS_MODE == "local" else 0
-                    tts_total_audio_samples += chunk_samples
-                    chunk_audio_ms = (
-                        chunk_samples / LOCAL_SAMPLE_RATE * 1000
-                        if chunk_samples > 0 else 0
-                    )
-                    now_from_start = (time.time() - self._start_ts) * 1000
-
-                    if first_chunk_in_sentence:
-                        sentence_first_chunk_ms = (time.time() - t_sentence_start) * 1000
-                        log.info(_step(
-                            "TTS·GEN",
-                            f"🔉 Sentence #{sentence_idx}: FIRST audio chunk | "
-                            f"inference={sentence_first_chunk_ms:.0f}ms | "
-                            f"chunk={len(audio_chunk)}B ({chunk_audio_ms:.0f}ms audio)",
-                            self._start_ts,
-                        ))
-                        await self._perf(
-                            "tts_sentence_first_chunk",
-                            f"🔉 Сказ #{sentence_idx}: першы чанк",
-                            detail=f"Inference сказа: {sentence_first_chunk_ms:.0f} мс | "
-                                   f"{len(sentence)} сімв. | "
-                                   f"Ад старту: {now_from_start:.0f} мс | "
-                                   f"chunk={len(audio_chunk)}B ({chunk_audio_ms:.0f}мс аўдыё)",
-                            duration_ms=round(sentence_first_chunk_ms),
-                        )
-                        first_chunk_in_sentence = False
-
-                    if not self.sent_first_audio_chunk:
-                        pipeline_ms = (time.time() - self._start_ts) * 1000
-                        tts_ms = (time.time() - tts_gen_start) * 1000
-                        llm_to_tts_ms = (
-                            (tts_gen_start - self.llm_first_token_ts) * 1000
-                            if self.llm_first_token_ts else 0
-                        )
-                        chunk_info = ""
-                        if config.TTS_MODE == "local":
-                            chunk_info = (
-                                f" | chunk={chunk_samples} samples "
-                                f"({chunk_audio_ms:.0f}мс аўдыё)"
-                            )
-                        log.info(_step(
-                            "TTS·GEN",
-                            f"🎵 FIRST audio chunk EVER → audio_queue | "
-                            f"pipeline={pipeline_ms:.0f}ms | "
-                            f"tts={tts_ms:.0f}ms | "
-                            f"llm→tts={llm_to_tts_ms:.0f}ms{chunk_info}",
-                            self._start_ts,
-                        ))
-                        await self._perf(
-                            "tts_first_chunk",
-                            "🔊 Першы аўдыя чанк TTS → чарга",
-                            detail=f"🏁 Пайплайн: {pipeline_ms:.0f} мс | "
-                                   f"TTS: {tts_ms:.0f} мс | "
-                                   f"LLM→TTS: {llm_to_tts_ms:.0f} мс{chunk_info}",
-                            duration_ms=round(pipeline_ms),
-                        )
-                        self.sent_first_audio_chunk = True
-
-                    t_put = time.time()
-                    aq_size_before = self._audio_queue.qsize()
-                    await self._audio_queue.put(audio_chunk)
-                    put_ms = (time.time() - t_put) * 1000
-                    aq_size_after = self._audio_queue.qsize()
-
-                    log.debug(_step(
+                if put_ms > 5:
+                    log.warning(_step(
                         "TTS·QUEUE",
-                        f"   chunk #{tts_chunk_count} → audio_queue "
-                        f"(qsize {aq_size_before}→{aq_size_after}) | "
-                        f"put={put_ms:.1f}ms | {len(audio_chunk)}B ({chunk_audio_ms:.0f}ms)",
+                        f"⚠️  audio_queue.put SLOW: {put_ms:.1f}ms | "
+                        f"chunk #{tts_chunk_count} | qsize={aq_size_after}",
                         self._start_ts,
                     ))
-
-                    if put_ms > 5:
-                        log.warning(_step(
-                            "TTS·QUEUE",
-                            f"⚠️  audio_queue.put SLOW: {put_ms:.1f}ms | "
-                            f"chunk #{tts_chunk_count} | qsize={aq_size_after}",
-                            self._start_ts,
-                        ))
-
-                sentence_ms = (time.time() - t_sentence_start) * 1000
-                log.info(_step(
-                    "TTS·GEN",
-                    f"✅ Sentence #{sentence_idx} DONE | "
-                    f"{sentence_chunk_count} chunks in {sentence_ms:.0f}ms | "
-                    f"total chunks so far: {tts_chunk_count}",
-                    self._start_ts,
-                ))
-                await self._perf(
-                    "tts_sentence_done",
-                    f"✅ Сказ #{sentence_idx} завершаны",
-                    detail=f"{sentence_chunk_count} чанкаў за {sentence_ms:.0f} мс | "
-                           f"Queue wait was: {queue_wait_ms:.0f} мс | "
-                           f"Усяго чанкаў: {tts_chunk_count}",
-                    duration_ms=round(sentence_ms),
-                )
-                self._sentence_queue.task_done()
 
         except Exception as e:
             log.error(_step("TTS·WORKER", f"💥 EXCEPTION in _run(): {e}"), exc_info=True)
@@ -307,8 +230,7 @@ class TTSWorker:
                 rtf = total_tts_ms / total_audio_ms if total_audio_ms > 0 else 0
                 log.info(_step(
                     "TTS·WORKER",
-                    f"📊 SUMMARY | sentences={sentence_idx} | "
-                    f"chunks={tts_chunk_count} | "
+                    f"📊 SUMMARY | chunks={tts_chunk_count} | "
                     f"tts_time={total_tts_ms:.0f}ms | "
                     f"audio_generated={total_audio_ms:.0f}ms | "
                     f"RTF={rtf:.3f}x",
@@ -320,8 +242,7 @@ class TTSWorker:
                     detail=f"Час TTS: {total_tts_ms:.0f} мс | "
                            f"Чанкаў: {tts_chunk_count} | "
                            f"Аўдыё: {total_audio_ms:.0f} мс | "
-                           f"RTF: {rtf:.2f}x | "
-                           f"Сказаў: {sentence_idx}",
+                           f"RTF: {rtf:.2f}x",
                     duration_ms=round(total_tts_ms),
                 )
             log.info(_step("TTS·WORKER", "🏁 _run() finally block done", self._start_ts))
