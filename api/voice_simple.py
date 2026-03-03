@@ -25,8 +25,7 @@ from api.voice_perf import PerfLogger
 from api.voice_utils import LOCAL_SAMPLE_RATE, compress_wav_to_mp3
 from tools.text_to_speech_tool import stream_speech, stream_speech_multi
 
-# Local ASR (lazy import; module is always importable)
-from api import local_asr
+# Local ASR (imported inside handle_simple_voice if needed)
 
 log = logging.getLogger("app.voice")
 
@@ -295,6 +294,7 @@ async def handle_simple_voice(
     user_transcription: str | None = None  # filled when LOCAL_ASR is on
 
     if config.LOCAL_ASR:
+        from api import local_asr
         # ── Local ASR: transcribe audio → send TEXT to Gemini ──
         if not local_asr.is_ready():
             log.warning(_step("VOICE·ASR", "⚠️ LOCAL_ASR=True but model not loaded, loading now…", start_ts))

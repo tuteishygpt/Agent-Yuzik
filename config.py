@@ -58,7 +58,7 @@ SIMPLE_VOICE_SYSTEM_PROMPT = os.getenv("SIMPLE_VOICE_SYSTEM_PROMPT", """Ты —
 - Калі ўваход — аўдыяфайл з голасам: не выдавай транскрыпцыю і не дадавай часовыя меткі. Адразу адказвай на змест сказанага, як быццам атрымаў тэкставы запыт.
 - Лічбы і скарачэнні пішы словамі. Не выкарыстоўвай “і г.д.”, “км”, “°C” і падобнае — расшыфроўвай.
 - Калі не хапае даных — удакладняй у карыстальніка.""")
-SIMPLE_VOICE_MODEL = os.getenv("SIMPLE_VOICE_MODEL", "gemini-2.5-flash-lite") # gemini-2.5-flash-lite
+SIMPLE_VOICE_MODEL = os.getenv("SIMPLE_VOICE_MODEL", "gemini-3.1-flash-lite-preview") # gemini-2.5-flash-lite
 SIMPLE_VOICE_DEBUG_TIMESTAMPS = os.getenv("SIMPLE_VOICE_DEBUG_TIMESTAMPS", "True").lower() == "true"
 
 # Local ASR Configuration

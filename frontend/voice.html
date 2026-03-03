@@ -23,7 +23,41 @@
 
         <div class="mic-wrapper">
             <div class="mic-container" id="mic-btn">
-                🎤
+                <!-- Ідле / слухае — мікрафон -->
+                <svg class="state-icon icon-listen" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <rect x="22" y="6" width="20" height="32" rx="10" fill="currentColor" opacity="0.95" />
+                    <path d="M12 32c0 11 9 20 20 20s20-9 20-20" stroke="currentColor" stroke-width="4"
+                        stroke-linecap="round" fill="none" />
+                    <line x1="32" y1="52" x2="32" y2="60" stroke="currentColor" stroke-width="4"
+                        stroke-linecap="round" />
+                    <line x1="22" y1="60" x2="42" y2="60" stroke="currentColor" stroke-width="4"
+                        stroke-linecap="round" />
+                </svg>
+
+                <!-- Думае — Беларуская Валошка -->
+                <svg class="state-icon icon-think" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <!-- Цэнтр кветкі -->
+                    <circle cx="32" cy="32" r="6" fill="currentColor" />
+                    <!-- Пялёсткі (геаметрычныя, у стылі арнаменту) -->
+                    <path d="M32 4 L38 20 L32 26 L26 20 Z" fill="currentColor" opacity="0.9" />
+                    <path d="M32 60 L38 44 L32 38 L26 44 Z" fill="currentColor" opacity="0.9" />
+                    <path d="M4 32 L20 26 L26 32 L20 38 Z" fill="currentColor" opacity="0.9" />
+                    <path d="M60 32 L44 26 L38 32 L44 38 Z" fill="currentColor" opacity="0.9" />
+                    <!-- Дыяганальныя пялёсткі -->
+                    <path d="M12 12 L24 22 L18 28 L8 18 Z" fill="currentColor" opacity="0.7" />
+                    <path d="M52 52 L40 42 L46 36 L56 46 Z" fill="currentColor" opacity="0.7" />
+                    <path d="M12 52 L22 40 L28 46 L18 56 Z" fill="currentColor" opacity="0.7" />
+                    <path d="M52 12 L42 22 L36 16 L46 6 Z" fill="currentColor" opacity="0.7" />
+                </svg>
+
+                <!-- Гаворыць — гучнамоўца з хвалямі -->
+                <svg class="state-icon icon-speak" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <polygon points="10,22 26,22 38,10 38,54 26,42 10,42" fill="currentColor" opacity="0.95" />
+                    <path d="M44 22 Q52 32 44 42" stroke="currentColor" stroke-width="4" stroke-linecap="round"
+                        fill="none" />
+                    <path d="M49 16 Q61 32 49 48" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"
+                        fill="none" opacity="0.6" />
+                </svg>
             </div>
             <div class="mic-halo"></div>
         </div>
@@ -40,8 +74,8 @@
         </div>
 
         <div class="voice-controls">
-            <button class="voice-btn primary" id="start-btn">🎤 Пачаць</button>
-            <button class="voice-btn secondary" id="stop-btn" disabled>⏹️ Спыніць</button>
+            <button class="voice-btn primary" id="start-btn">▶ Пачаць</button>
+            <button class="voice-btn secondary" id="stop-btn" disabled>■ Спыніць</button>
         </div>
     </div>
 

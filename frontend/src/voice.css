@@ -64,6 +64,12 @@ body {
     animation: halo-pulse 2s infinite;
 }
 
+.mic-container.listening.speech-active~.mic-halo {
+    background: rgba(255, 30, 80, 0.7);
+    box-shadow: 0 0 40px rgba(255, 68, 102, 0.5);
+    animation: halo-pulse-active 0.8s infinite alternate ease-in-out;
+}
+
 .mic-container.processing~.mic-halo {
     background: rgba(255, 170, 0, 0.4);
     opacity: 1;
@@ -90,6 +96,20 @@ body {
     }
 }
 
+@keyframes halo-pulse-active {
+    0% {
+        transform: scale(1.2);
+        opacity: 0.5;
+        filter: blur(15px);
+    }
+
+    100% {
+        transform: scale(1.8);
+        opacity: 0.8;
+        filter: blur(25px);
+    }
+}
+
 .mic-container {
     width: 140px;
     height: 140px;
@@ -107,6 +127,138 @@ body {
     backdrop-filter: blur(20px);
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
 }
+
+/* ── SVG State Icons ─────────────────────────────────── */
+.state-icon {
+    width: 54px;
+    height: 54px;
+    position: absolute;
+    opacity: 0;
+    transform: scale(0.6) rotate(-10deg);
+    transition: opacity 0.4s ease, transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
+    pointer-events: none;
+    color: rgba(255, 255, 255, 0.75);
+}
+
+/* ── Idle / default: dim microphone ── */
+.mic-container:not(.listening):not(.processing):not(.speaking) .icon-listen {
+    opacity: 0.5;
+    transform: scale(0.95) rotate(0deg);
+    color: rgba(255, 255, 255, 0.5);
+}
+
+/* ── LISTENING: mic pulses up and glows ── */
+.mic-container.listening .icon-listen {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+    color: #ff4466;
+    filter: drop-shadow(0 0 10px rgba(255, 68, 102, 0.9));
+    animation: mic-breathe 1.4s ease-in-out infinite;
+}
+
+.mic-container.listening.speech-active .icon-listen {
+    color: #ff1e50;
+    filter: drop-shadow(0 0 20px rgba(255, 30, 80, 1.0));
+    animation: mic-active-vibration 0.2s infinite;
+}
+
+@keyframes mic-active-vibration {
+    0% {
+        transform: rotate(-1deg) scale(1.1);
+    }
+
+    50% {
+        transform: rotate(1deg) scale(1.15);
+    }
+
+    100% {
+        transform: rotate(-1deg) scale(1.1);
+    }
+}
+
+@keyframes mic-breathe {
+    0% {
+        transform: scale(1.0) translateY(0);
+        filter: drop-shadow(0 0 8px rgba(255, 68, 102, 0.6));
+    }
+
+    30% {
+        transform: scale(1.12) translateY(-3px);
+        filter: drop-shadow(0 0 18px rgba(255, 68, 102, 1.0));
+    }
+
+    60% {
+        transform: scale(0.95) translateY(1px);
+        filter: drop-shadow(0 0 6px rgba(255, 68, 102, 0.4));
+    }
+
+    100% {
+        transform: scale(1.0) translateY(0);
+        filter: drop-shadow(0 0 8px rgba(255, 68, 102, 0.6));
+    }
+}
+
+/* ── THINKING: belarusian cornflower (valoshka) pulses and spins ── */
+.mic-container.processing .icon-think {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+    color: #4488ff;
+    /* Колер валошкі */
+    animation: flowery-anim 4s ease-in-out infinite;
+}
+
+@keyframes flowery-anim {
+    0% {
+        transform: scale(0.85) rotate(0deg);
+        filter: drop-shadow(0 0 5px rgba(68, 136, 255, 0.4));
+    }
+
+    50% {
+        transform: scale(1.15) rotate(90deg);
+        filter: drop-shadow(0 0 22px rgba(68, 136, 255, 0.9));
+    }
+
+    100% {
+        transform: scale(0.85) rotate(180deg);
+        filter: drop-shadow(0 0 5px rgba(68, 136, 255, 0.4));
+    }
+}
+
+/* ── SPEAKING: speaker pushes forward with wave bursts ── */
+.mic-container.speaking .icon-speak {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+    color: #44ffaa;
+    animation: speak-anim 0.9s ease-in-out infinite;
+}
+
+@keyframes speak-anim {
+    0% {
+        transform: scale(1.0) translateX(0);
+        filter: drop-shadow(0 0 8px rgba(68, 255, 170, 0.6));
+    }
+
+    25% {
+        transform: scale(1.13) translateX(3px);
+        filter: drop-shadow(0 0 22px rgba(68, 255, 170, 1.0));
+    }
+
+    50% {
+        transform: scale(0.96) translateX(-2px);
+        filter: drop-shadow(0 0 5px rgba(68, 255, 170, 0.3));
+    }
+
+    75% {
+        transform: scale(1.1) translateX(2px);
+        filter: drop-shadow(0 0 18px rgba(68, 255, 170, 0.9));
+    }
+
+    100% {
+        transform: scale(1.0) translateX(0);
+        filter: drop-shadow(0 0 8px rgba(68, 255, 170, 0.6));
+    }
+}
+
 
 .mic-container:hover {
     transform: scale(1.05);
@@ -706,7 +858,11 @@ body {
     .mic-container {
         width: 110px;
         height: 110px;
-        font-size: 2.8rem;
+    }
+
+    .state-icon {
+        width: 44px;
+        height: 44px;
     }
 
     .mic-halo {
@@ -774,6 +930,11 @@ body {
     .mic-container {
         width: 100px;
         height: 100px;
+    }
+
+    .state-icon {
+        width: 38px;
+        height: 38px;
     }
 
     .transcript-box {

@@ -35,7 +35,12 @@ const pcmPlayer = {
         this.sampleRate = sampleRate;
         const AC = window.AudioContext || window.webkitAudioContext;
         if (!AC) { console.error('[PCM Player] AudioContext not supported'); return; }
-        this.ctx = new AC({ sampleRate });
+
+        // latencyHint: 'playback' часта прымушае мабільныя браўзеры выкарыстоўваць асноўны дынамік
+        this.ctx = new AC({
+            sampleRate,
+            latencyHint: 'playback'
+        });
         this.node = this.ctx.createScriptProcessor(this.scriptBufferSize, 1, 1);
         const self = this;
 
@@ -312,7 +317,7 @@ function handleServerMessage(data) {
             setProcessingState(true);
             break;
         case 'response':
-            setProcessingState(false);
+            // Не здымаем processing тут, чакаем пачатку аўдыё (setSpeakingState)
             updateTranscript(data.text, true);
             break;
         case 'error':
@@ -406,11 +411,21 @@ async function handlePcmChunk(data) {
 
 function ensureAudioContext() {
     if (!state.audioContext) {
-        state.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const AC = window.AudioContext || window.webkitAudioContext;
+        state.audioContext = new AC({ latencyHint: 'playback' });
     }
     if (state.audioContext.state === 'suspended') {
         state.audioContext.resume();
     }
+
+    // Кароткі нямы гук для "прагрэву" дынаміка на iOS
+    const oscillator = state.audioContext.createOscillator();
+    const gainNode = state.audioContext.createGain();
+    gainNode.gain.value = 0;
+    oscillator.connect(gainNode);
+    gainNode.connect(state.audioContext.destination);
+    oscillator.start(0);
+    oscillator.stop(0.001);
 }
 
 async function handleIncomingAudioChunk(blob) {
@@ -570,10 +585,10 @@ async function initVAD() {
             onFrameProcessed: (probs) => {
                 updateVisualizerFromVAD(probs.isSpeech);
             },
-            positiveSpeechThreshold: 0.8,
+            positiveSpeechThreshold: 0.85,
             negativeSpeechThreshold: 0.4,
-            redemptionFrames: 3,
-            minSpeechFrames: 3,
+            redemptionFrames: 8,
+            minSpeechFrames: 5,
         });
     } catch (e) {
         console.error("Failed to init VAD", e);
@@ -593,13 +608,32 @@ function updateVisualizerFromVAD(isSpeech) {
     const bars = elements.visualizer.querySelectorAll('.visualizer-bar');
     if (!bars.length) return;
     bars.forEach(bar => {
-        if (isSpeech || state.isSpeaking) {
+        // Хваля бегае толькі калі Юзік гаворыць АБО калі карыстальнік рэальна пачаў гаворку (VAD пацвердзіў)
+        const active = state.isSpeaking || (state.isRecording && !state.isProcessing && state.isStreaming);
+
+        if (active) {
             const height = 30 + Math.random() * 70;
             bar.style.height = height + '%';
         } else {
             bar.style.height = '20%';
         }
     });
+
+    // Паказваем візуальнае адрозненне цішыны ці гаворкі з VAD
+    // Выкарыстоўваем state.isStreaming для стабільнасці (гэта цэлы фрагмент гаворкі, а не адзін фрэйм)
+    if (state.isRecording && !state.isProcessing && !state.isSpeaking) {
+        if (state.isStreaming) {
+            if (!elements.micBtn.classList.contains('speech-active')) {
+                elements.micBtn.classList.add('speech-active');
+                updateStatus('🟢 Гаворка зафіксавана...');
+            }
+        } else {
+            if (elements.micBtn.classList.contains('speech-active')) {
+                elements.micBtn.classList.remove('speech-active');
+                updateStatus('Слухаю...');
+            }
+        }
+    }
 }
 
 // Helper to encode raw PCM to WAV
@@ -691,11 +725,11 @@ function setListeningState(listening) {
     elements.stopBtn.disabled = !listening;
     if (listening) {
         elements.startBtn.classList.add('recording');
-        elements.startBtn.innerHTML = '🔴 Працуе...';
+        elements.startBtn.innerHTML = '● Працуе...';
         elements.statusText.classList.add('active');
     } else {
         elements.startBtn.classList.remove('recording');
-        elements.startBtn.innerHTML = '🎤 Пачаць';
+        elements.startBtn.innerHTML = '▶ Пачаць';
         elements.statusText.classList.remove('active');
         elements.visualizer.className = 'audio-visualizer';
     }
@@ -706,12 +740,15 @@ function setProcessingState(processing) {
     if (processing) {
         elements.micBtn.className = 'mic-container processing';
         elements.visualizer.className = 'audio-visualizer processing';
-        updateStatus('Апрацоўка...');
-    } else {
-        if (!state.isSpeaking && state.isRecording) {
+        updateStatus('Думаю...');
+    } else if (!state.isSpeaking) {
+        if (state.isRecording) {
             elements.micBtn.className = 'mic-container listening';
             elements.visualizer.className = 'audio-visualizer listening';
             updateStatus('Слухаю...');
+        } else {
+            elements.micBtn.className = 'mic-container';
+            elements.visualizer.className = 'audio-visualizer';
         }
     }
 }
@@ -727,8 +764,9 @@ function setSpeakingState(speaking) {
     } else {
         elements.statusText.classList.remove('active');
         if (state.isRecording) {
-            updateStatus('Слухаю...');
+            elements.micBtn.className = 'mic-container listening';
             elements.visualizer.className = 'audio-visualizer listening';
+            updateStatus('Слухаю...');
             elements.statusText.classList.add('active');
         } else {
             elements.micBtn.className = 'mic-container';
@@ -742,7 +780,7 @@ function updateStatus(text) {
 }
 
 function updateTranscript(text, isResponse = false) {
-    const prefix = isResponse ? '🤖 ' : '👤 ';
+    const prefix = isResponse ? 'Юзік: ' : '👤 ';
     elements.transcript.textContent = prefix + text;
     if (elements.transcriptBox) {
         elements.transcriptBox.scrollTop = elements.transcriptBox.scrollHeight;
