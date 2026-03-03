@@ -418,6 +418,7 @@ async def handle_simple_voice(
 
     ws_send_count = 0
     dispatch_count = 0
+    _ws_last_sent_len = 0  # throttle: track last sent text length
 
     log.info(_step("VOICE·LLM", "🔄 Starting async iteration of LLM response stream…", start_ts))
 
@@ -452,20 +453,25 @@ async def handle_simple_voice(
             text_buffer += chunk.text
             sentence_buffer += chunk.text
 
-            # ── Send incremental text to client UI ──
-            ws_send_count += 1
-            t_ws = time.time()
-            await websocket.send_json({
-                "type": "response",
-                "text": text_buffer,
-            })
-            ws_ms = (time.time() - t_ws) * 1000
-            if ws_ms > 10:
-                log.warning(_step(
-                    "VOICE·WS",
-                    f"⚠️  websocket.send_json SLOW: {ws_ms:.1f}ms (token #{total_llm_tokens})",
-                    start_ts,
-                ))
+            # ── Send incremental text to client UI (throttled: every 8 tokens) ──
+            # Sending on every token blocks the event loop with hundreds of awaits,
+            # delaying sentence dispatch to TTS. 8-token batching keeps UI smooth
+            # while cutting await overhead ~8x.
+            if total_llm_tokens % 8 == 1:
+                ws_send_count += 1
+                t_ws = time.time()
+                await websocket.send_json({
+                    "type": "response",
+                    "text": text_buffer,
+                })
+                _ws_last_sent_len = len(text_buffer)
+                ws_ms = (time.time() - t_ws) * 1000
+                if ws_ms > 10:
+                    log.warning(_step(
+                        "VOICE·WS",
+                        f"⚠️  websocket.send_json SLOW: {ws_ms:.1f}ms (token #{total_llm_tokens})",
+                        start_ts,
+                    ))
 
             # ── Two modes: first sentence → immediately, rest → group ──
             matches = list(_SENTENCE_END_RE.finditer(sentence_buffer))
@@ -563,6 +569,11 @@ async def handle_simple_voice(
                    f"Тэкст: {len(text_buffer)} сімв.",
             duration_ms=round(llm_total_ms),
         )
+
+        # ── Final UI text flush (throttling may have skipped last tokens) ──
+        if text_buffer and len(text_buffer) > _ws_last_sent_len:
+            ws_send_count += 1
+            await websocket.send_json({"type": "response", "text": text_buffer})
 
         # ── Flush remaining text ──
         leftover = sentence_buffer.strip()

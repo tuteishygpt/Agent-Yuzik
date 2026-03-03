@@ -192,24 +192,50 @@ def _seconds_to_samples(sec: float, sr: int) -> int:
 
 
 def _chunker(chunks: Iterable[np.ndarray], sr: int, initial_target_s: float, target_s: float) -> Iterator[np.ndarray]:
+    """Buffer raw TTS chunks and yield fixed-size audio chunks.
+
+    Uses a deque of arrays instead of np.concatenate-per-chunk to avoid
+    O(n) full-buffer copies on every incoming raw chunk.
+    """
+    from collections import deque
+
     is_first = True
     target_samples = _seconds_to_samples(initial_target_s, sr)
-    min_first = _seconds_to_samples(0.06, sr)
-    min_next  = _seconds_to_samples(0.05, sr)
-    buffer = np.array([], dtype=np.float32)
+    buf: deque[np.ndarray] = deque()
+    buf_size = 0  # total samples in buf
+
     for c_np in map(_to_np_audio, chunks):
         if c_np.size == 0:
             continue
-        buffer = np.concatenate([buffer, c_np])
-        # Строга наразаем буфер на невялікія чанкі, каб не адпраўляць агромністыя дадзеныя па WebSocket
-        while buffer.size >= target_samples:
-            yield buffer[:target_samples]
-            buffer = buffer[target_samples:]
+        buf.append(c_np)
+        buf_size += c_np.size
+
+        while buf_size >= target_samples:
+            # Materialise exactly target_samples from the deque
+            out_parts: list[np.ndarray] = []
+            need = target_samples
+            while need > 0 and buf:
+                head = buf[0]
+                if head.size <= need:
+                    out_parts.append(head)
+                    need -= head.size
+                    buf_size -= head.size
+                    buf.popleft()
+                else:
+                    out_parts.append(head[:need])
+                    buf[0] = head[need:]
+                    buf_size -= need
+                    need = 0
+            yield np.concatenate(out_parts) if len(out_parts) > 1 else out_parts[0]
             if is_first:
                 is_first = False
                 target_samples = _seconds_to_samples(target_s, sr)
-    if buffer.size > 0:
-        yield buffer
+
+    # Yield remainder
+    if buf_size > 0:
+        remaining = list(buf)
+        yield np.concatenate(remaining) if len(remaining) > 1 else remaining[0]
+
 
 
 # ---- Падзел тэксту ----
@@ -569,15 +595,11 @@ async def stream_audio_multi(
 
     # Async forwarder: moves sentences from asyncio.Queue to sync queue
     async def _forward_sentences():
-        try:
-            while True:
-                sentence = await sentence_queue.get()
-                sync_sentence_q.put(sentence)
-                if sentence is None:
-                    break
-        except asyncio.CancelledError:
-            sync_sentence_q.put(None)  # Stop producer thread
-            raise
+        while True:
+            sentence = await sentence_queue.get()
+            sync_sentence_q.put(sentence)
+            if sentence is None:
+                break
 
     forwarder_task = asyncio.create_task(_forward_sentences())
 
@@ -703,37 +725,30 @@ async def stream_audio_multi(
     # ── Async consumer: yield chunks from audio_out_q ──
     idx = 0
     total_wait = 0.0
-    try:
-        while True:
-            t_wait = time.perf_counter()
-            chunk = await loop.run_in_executor(None, audio_out_q.get)
-            wait_ms = (time.perf_counter() - t_wait) * 1000
-            total_wait += wait_ms
+    while True:
+        t_wait = time.perf_counter()
+        chunk = await loop.run_in_executor(None, audio_out_q.get)
+        wait_ms = (time.perf_counter() - t_wait) * 1000
+        total_wait += wait_ms
 
-            if chunk is SENTINEL:
-                break
+        if chunk is SENTINEL:
+            break
 
-            idx += 1
-            bytes_data = chunk.tobytes()
+        idx += 1
+        bytes_data = chunk.tobytes()
 
-            if idx <= 3 or wait_ms > 50:
-                log.info(
-                    f"[TTS·TIMING] Multi queue→async #{idx}: "
-                    f"wait={wait_ms:.1f} ms | {len(bytes_data)} bytes"
-                )
+        if idx <= 3 or wait_ms > 50:
+            log.info(
+                f"[TTS·TIMING] Multi queue→async #{idx}: "
+                f"wait={wait_ms:.1f} ms | {len(bytes_data)} bytes"
+            )
 
-            if yield_raw_pcm:
-                yield bytes_data
-            else:
-                yield _add_wav_header(bytes_data, sample_rate=sampling_rate, channels=1)
-    finally:
-        # Cleanup: ensure forwarder is stopped if generator is closed/cancelled
-        forwarder_task.cancel()
-        try:
-            await forwarder_task
-        except asyncio.CancelledError:
-            pass
+        if yield_raw_pcm:
+            yield bytes_data
+        else:
+            yield _add_wav_header(bytes_data, sample_rate=sampling_rate, channels=1)
 
+    await forwarder_task
     log.info(
         f"[TTS·TIMING] Multi pipeline complete: {idx} chunks | "
         f"total_wait={total_wait:.0f} ms | "
