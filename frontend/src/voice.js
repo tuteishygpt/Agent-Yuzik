@@ -885,19 +885,36 @@ async function startSession() {
 }
 
 async function stopSession() {
-    if (state.vad) {
-        await state.vad.pause();
-    }
+    // Stop all audio playback immediately
     stopAllPlayback();
+
+    // Stop VAD (whether active or paused)
+    if (state.vad) {
+        try { await state.vad.pause(); } catch (_) {}
+    }
+
+    // Reset all state flags
     state.isRecording = false;
+    state.isProcessing = false;
+    state.isSpeaking = false;
+    state.isStreaming = false;
+    state._vadPaused = false;
+
+    // Restore audio session to default
+    audioSessionHelper.setAuto();
+
     setListeningState(false);
+    updateStatus('Націсніце на мікрафон для пачатку');
 }
 
 function setListeningState(listening) {
     elements.micBtn.className = `mic-container ${listening ? 'listening' : ''}`;
     elements.visualizer.className = `audio-visualizer ${listening ? 'listening' : ''}`;
     elements.startBtn.disabled = listening;
-    elements.stopBtn.disabled = !listening;
+    // Stop button should be enabled whenever the session is active
+    // (listening, processing, OR speaking)
+    const sessionActive = listening || state.isProcessing || state.isSpeaking;
+    elements.stopBtn.disabled = !sessionActive;
     if (listening) {
         elements.startBtn.classList.add('recording');
         elements.startBtn.innerHTML = '● Працуе...';
@@ -916,6 +933,7 @@ function setProcessingState(processing) {
         // Pause VAD while processing/speaking to avoid echo-triggered false positives
         pauseVAD();
         audioSessionHelper.setPlayback();
+        elements.stopBtn.disabled = false;  // keep Stop active
         elements.micBtn.className = 'mic-container processing';
         elements.visualizer.className = 'audio-visualizer processing';
         updateStatus('Думаю...');
@@ -940,6 +958,7 @@ function setSpeakingState(speaking) {
         // Pause VAD during bot playback (anti-echo + forces playback session)
         pauseVAD();
         audioSessionHelper.setPlayback();
+        elements.stopBtn.disabled = false;  // keep Stop active
         elements.micBtn.className = 'mic-container speaking';
         elements.visualizer.className = 'audio-visualizer speaking';
         updateStatus('Юзік адказвае...');
