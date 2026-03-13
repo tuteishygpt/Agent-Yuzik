@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import sys
 import time
+import threading
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -22,6 +23,7 @@ log = logging.getLogger("app.voice.asr")
 # ── Module-level state ────────────────────────────────────────────────
 _asr_model = None
 _model_loading = False
+_asr_lock = threading.Lock()
 
 # TranscribeConfig exists in most recent NeMo; keep a safe fallback
 TranscribeConfig = None
@@ -175,13 +177,15 @@ def transcribe_paths(paths: list[str], batch_size: int = 1) -> str:
             verbose=False,
             return_hypotheses=False,
         )
-        _sync_cuda()
-        out = _asr_model.transcribe(paths, override_config=cfg)
-        _sync_cuda()
+        with _asr_lock:
+            _sync_cuda()
+            out = _asr_model.transcribe(paths, override_config=cfg)
+            _sync_cuda()
     else:
-        _sync_cuda()
-        out = _asr_model.transcribe(paths, batch_size=batch_size, verbose=False)
-        _sync_cuda()
+        with _asr_lock:
+            _sync_cuda()
+            out = _asr_model.transcribe(paths, batch_size=batch_size, verbose=False)
+            _sync_cuda()
 
     first = out[0]
     return first.text if hasattr(first, "text") else str(first)
@@ -216,13 +220,15 @@ def transcribe_audio(y: np.ndarray, sr: int) -> str:
             verbose=False,
             return_hypotheses=False,
         )
-        _sync_cuda()
-        out = _asr_model.transcribe(audio_list, override_config=cfg)
-        _sync_cuda()
+        with _asr_lock:
+            _sync_cuda()
+            out = _asr_model.transcribe(audio_list, override_config=cfg)
+            _sync_cuda()
     else:
-        _sync_cuda()
-        out = _asr_model.transcribe(audio_list, batch_size=1, verbose=False)
-        _sync_cuda()
+        with _asr_lock:
+            _sync_cuda()
+            out = _asr_model.transcribe(audio_list, batch_size=1, verbose=False)
+            _sync_cuda()
 
     first = out[0]
     return first.text if hasattr(first, "text") else str(first)
