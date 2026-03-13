@@ -118,6 +118,35 @@ const speakerphone = {
 };
 
 // ===========================
+// Audio Session helper (navigator.audioSession API, Chrome 128+)
+// Sets session type to 'playback' during bot response → forces loudspeaker.
+// Falls back silently on browsers that don't support it.
+// ===========================
+const audioSessionHelper = {
+    _supported: typeof navigator !== 'undefined' && 'audioSession' in navigator,
+
+    setPlayback() {
+        if (!this._supported) return;
+        try {
+            navigator.audioSession.type = 'playback';
+            console.log('[AudioSession] type → playback (loudspeaker)');
+        } catch (e) {
+            console.warn('[AudioSession] setPlayback failed:', e);
+        }
+    },
+
+    setAuto() {
+        if (!this._supported) return;
+        try {
+            navigator.audioSession.type = 'auto';
+            console.log('[AudioSession] type → auto');
+        } catch (e) {
+            console.warn('[AudioSession] setAuto failed:', e);
+        }
+    }
+};
+
+// ===========================
 // PCM Audio Player (ScriptProcessor-based, minimal latency)
 // Directly writes Float32 samples to output — no decodeAudioData overhead.
 // ===========================
@@ -155,16 +184,21 @@ const pcmPlayer = {
             sampleRate,
             latencyHint: 'playback'
         });
-        this.node = this.ctx.createScriptProcessor(this.scriptBufferSize, 1, 1);
+        // 2-channel (stereo) output — forces loudspeaker on mobile
+        // (mono ScriptProcessor output is sometimes routed to earpiece)
+        this.node = this.ctx.createScriptProcessor(this.scriptBufferSize, 1, 2);
         const self = this;
 
         this.node.onaudioprocess = (e) => {
-            const out = e.outputBuffer.getChannelData(0);
+            const outL = e.outputBuffer.getChannelData(0);
+            const outR = e.outputBuffer.getChannelData(1);
             let i = 0;
 
-            while (i < out.length) {
+            while (i < outL.length) {
                 if (self.queue.length === 0 || !self.playing) {
-                    out[i++] = 0.0;
+                    outL[i] = 0.0;
+                    outR[i] = 0.0;
+                    i++;
                     continue;
                 }
                 if (!self._firstSampleFired) {
@@ -184,8 +218,12 @@ const pcmPlayer = {
                     }
                 }
                 let cur = self.queue[0];
-                const take = Math.min(cur.length, out.length - i);
-                out.set(cur.subarray(0, take), i);
+                const take = Math.min(cur.length, outL.length - i);
+                // Duplicate mono → L + R
+                for (let j = 0; j < take; j++) {
+                    outL[i + j] = cur[j];
+                    outR[i + j] = cur[j];
+                }
                 i += take;
                 if (take === cur.length) self.queue.shift();
                 else self.queue[0] = cur.subarray(take);
@@ -209,7 +247,7 @@ const pcmPlayer = {
 
         this.node.connect(this.ctx.destination);
         const bufMs = (this.scriptBufferSize / sampleRate * 1000).toFixed(0);
-        console.log(`[PCM Player] Init: ${sampleRate} Hz, buffer=${this.scriptBufferSize} (${bufMs} ms), minBuf=${this.minBufferMs} ms`);
+        console.log(`[PCM Player] Init: ${sampleRate} Hz, STEREO, buffer=${this.scriptBufferSize} (${bufMs} ms), minBuf=${this.minBufferMs} ms`);
     },
 
     /** Get total buffered ms */
@@ -294,6 +332,7 @@ const state = {
     audioContext: null,
     websocket: null,
     vad: null,
+    _vadPaused: false,  // true when VAD is paused during bot response
     userId: 'voice-user-' + Math.random().toString(36).substring(7),
     audioQueue: [],
     currentAudio: null,
@@ -556,9 +595,24 @@ async function handleIncomingAudioChunk(blob) {
     }
 }
 
+/**
+ * Convert a mono AudioBuffer to stereo (duplicate channel 0 → both L and R).
+ * If already stereo+, returns as-is.
+ */
+function monoToStereo(monoBuffer, ctx) {
+    if (monoBuffer.numberOfChannels >= 2) return monoBuffer;
+    const stereo = ctx.createBuffer(2, monoBuffer.length, monoBuffer.sampleRate);
+    const mono = monoBuffer.getChannelData(0);
+    stereo.getChannelData(0).set(mono);
+    stereo.getChannelData(1).set(mono);
+    return stereo;
+}
+
 function scheduleAudioBuffer(buffer) {
+    // Duplicate mono → stereo to force loudspeaker on mobile
+    const stereoBuffer = monoToStereo(buffer, state.audioContext);
     const source = state.audioContext.createBufferSource();
-    source.buffer = buffer;
+    source.buffer = stereoBuffer;
     source.connect(state.audioContext.destination);
 
     const currentTime = state.audioContext.currentTime;
@@ -579,7 +633,7 @@ function scheduleAudioBuffer(buffer) {
         state.playbackLogSent = true;
     }
 
-    state.nextStartTime += buffer.duration;
+    state.nextStartTime += stereoBuffer.duration;
 
     if (!state.scheduledSources) state.scheduledSources = [];
     state.scheduledSources.push(source);
@@ -859,11 +913,16 @@ function setListeningState(listening) {
 function setProcessingState(processing) {
     state.isProcessing = processing;
     if (processing) {
+        // Pause VAD while processing/speaking to avoid echo-triggered false positives
+        pauseVAD();
+        audioSessionHelper.setPlayback();
         elements.micBtn.className = 'mic-container processing';
         elements.visualizer.className = 'audio-visualizer processing';
         updateStatus('Думаю...');
     } else if (!state.isSpeaking) {
         if (state.isRecording) {
+            resumeVAD();
+            audioSessionHelper.setAuto();
             elements.micBtn.className = 'mic-container listening';
             elements.visualizer.className = 'audio-visualizer listening';
             updateStatus('Слухаю...');
@@ -878,13 +937,19 @@ function setSpeakingState(speaking) {
     state.isSpeaking = speaking;
     if (speaking) {
         state.isProcessing = false;
+        // Pause VAD during bot playback (anti-echo + forces playback session)
+        pauseVAD();
+        audioSessionHelper.setPlayback();
         elements.micBtn.className = 'mic-container speaking';
         elements.visualizer.className = 'audio-visualizer speaking';
         updateStatus('Юзік адказвае...');
         elements.statusText.classList.add('active');
     } else {
         elements.statusText.classList.remove('active');
+        // Resume VAD after bot finishes speaking
+        audioSessionHelper.setAuto();
         if (state.isRecording) {
+            resumeVAD();
             elements.micBtn.className = 'mic-container listening';
             elements.visualizer.className = 'audio-visualizer listening';
             updateStatus('Слухаю...');
@@ -893,6 +958,24 @@ function setSpeakingState(speaking) {
             elements.micBtn.className = 'mic-container';
             elements.visualizer.className = 'audio-visualizer';
         }
+    }
+}
+
+/** Pause VAD mic processing (if running) */
+function pauseVAD() {
+    if (state.vad && state.isRecording && !state._vadPaused) {
+        state.vad.pause();
+        state._vadPaused = true;
+        console.log('[VAD] ⏸ Paused (bot responding)');
+    }
+}
+
+/** Resume VAD mic processing (if it was paused by us) */
+function resumeVAD() {
+    if (state.vad && state.isRecording && state._vadPaused) {
+        state.vad.start();
+        state._vadPaused = false;
+        console.log('[VAD] ▶ Resumed (bot done)');
     }
 }
 
