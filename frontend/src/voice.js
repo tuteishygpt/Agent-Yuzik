@@ -7,6 +7,117 @@
 const VAD_SCRIPT_URL = "https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.18/dist/bundle.min.js";
 
 // ===========================
+// Speakerphone (loudspeaker) helper for mobile devices
+// On iOS/Android, AudioContext may route to earpiece instead of loudspeaker.
+// Playing a silent <audio> element BEFORE creating AudioContext forces the
+// system to route all subsequent audio output through the loudspeaker.
+// ===========================
+const speakerphone = {
+    _activated: false,
+    _audioEl: null,
+
+    /** Detect mobile / touch device */
+    _isMobile() {
+        return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+            || ('ontouchstart' in window)
+            || (navigator.maxTouchPoints > 0);
+    },
+
+    /**
+     * Generate a tiny silent WAV data URI (44 bytes header + 1600 samples = ~3.2kB).
+     * 16kHz mono, 100ms of silence — enough to claim the loudspeaker route.
+     */
+    _silentWavDataUri() {
+        const sampleRate = 16000;
+        const numSamples = 1600; // 100ms
+        const byteRate = sampleRate * 2;
+        const dataSize = numSamples * 2;
+        const buffer = new ArrayBuffer(44 + dataSize);
+        const view = new DataView(buffer);
+        // RIFF header
+        const writeStr = (offset, str) => {
+            for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+        };
+        writeStr(0, 'RIFF');
+        view.setUint32(4, 36 + dataSize, true);
+        writeStr(8, 'WAVE');
+        writeStr(12, 'fmt ');
+        view.setUint32(16, 16, true);
+        view.setUint16(20, 1, true);
+        view.setUint16(22, 1, true);
+        view.setUint32(24, sampleRate, true);
+        view.setUint32(28, byteRate, true);
+        view.setUint16(32, 2, true);
+        view.setUint16(34, 16, true);
+        writeStr(36, 'data');
+        view.setUint32(40, dataSize, true);
+        // samples are already 0 (silence)
+        const bytes = new Uint8Array(buffer);
+        let binary = '';
+        for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+        return 'data:audio/wav;base64,' + btoa(binary);
+    },
+
+    /**
+     * Force loudspeaker output on mobile devices.
+     * Must be called inside a user gesture (click/tap) handler.
+     * Returns a promise that resolves when the speaker route is claimed.
+     */
+    async activate() {
+        if (this._activated) return;
+        if (!this._isMobile()) {
+            console.log('[Speakerphone] Desktop detected — skipping');
+            this._activated = true;
+            return;
+        }
+
+        console.log('[Speakerphone] Mobile detected — forcing loudspeaker...');
+
+        try {
+            // Create a hidden <audio> element and play silent audio
+            const audio = document.createElement('audio');
+            audio.setAttribute('playsinline', '');
+            audio.setAttribute('webkit-playsinline', '');
+            audio.volume = 1.0; // must be non-zero to claim the speaker
+            audio.src = this._silentWavDataUri();
+            document.body.appendChild(audio);
+            this._audioEl = audio;
+
+            await audio.play();
+            console.log('[Speakerphone] ✅ Silent audio played — loudspeaker route claimed');
+
+            // Keep the element alive (removing it may release the speaker route on some devices)
+            // Clean up after a safe delay
+            audio.addEventListener('ended', () => {
+                // Do NOT remove the element — some iOS versions release the speaker route
+                // audio.remove();
+                console.log('[Speakerphone] Silent audio ended (element kept alive)');
+            });
+
+            this._activated = true;
+        } catch (e) {
+            console.warn('[Speakerphone] Could not play silent audio:', e);
+            // Mark as activated anyway to avoid retrying
+            this._activated = true;
+        }
+    },
+
+    /** Re-activate loudspeaker if needed (e.g. after AudioContext resume) */
+    async ensureActive() {
+        if (!this._isMobile()) return;
+        if (this._audioEl && this._audioEl.paused) {
+            try {
+                this._audioEl.src = this._silentWavDataUri();
+                await this._audioEl.play();
+                console.log('[Speakerphone] Re-activated loudspeaker route');
+            } catch (e) {
+                console.warn('[Speakerphone] Re-activation failed:', e);
+            }
+        }
+    }
+};
+
+// ===========================
 // PCM Audio Player (ScriptProcessor-based, minimal latency)
 // Directly writes Float32 samples to output — no decodeAudioData overhead.
 // ===========================
@@ -35,6 +146,9 @@ const pcmPlayer = {
         this.sampleRate = sampleRate;
         const AC = window.AudioContext || window.webkitAudioContext;
         if (!AC) { console.error('[PCM Player] AudioContext not supported'); return; }
+
+        // Ensure loudspeaker route is claimed before creating AudioContext
+        speakerphone.ensureActive();
 
         // latencyHint: 'playback' часта прымушае мабільныя браўзеры выкарыстоўваць асноўны дынамік
         this.ctx = new AC({
@@ -410,6 +524,9 @@ async function handlePcmChunk(data) {
 // ===========================
 
 function ensureAudioContext() {
+    // Ensure loudspeaker route before creating/resuming AudioContext
+    speakerphone.ensureActive();
+
     if (!state.audioContext) {
         const AC = window.AudioContext || window.webkitAudioContext;
         state.audioContext = new AC({ latencyHint: 'playback' });
@@ -685,6 +802,10 @@ async function startSession() {
             updateStatus("⚠️ Браўзер не падтрымлівае доступ да мікрафона");
             return;
         }
+
+        // Force loudspeaker on mobile BEFORE any AudioContext creation
+        // (must be inside user gesture — startSession is called from click handler)
+        await speakerphone.activate();
 
         await initVAD();
 
