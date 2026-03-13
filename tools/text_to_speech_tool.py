@@ -256,6 +256,7 @@ async def _stream_speech_local(
 async def stream_speech_multi(
     sentence_queue: asyncio.Queue,
     speaker_audio_path: Optional[str] = None,
+    cancel_event=None,
 ) -> AsyncGenerator[bytes, None]:
     """
     Continuous TTS streaming from a queue of sentences.
@@ -265,16 +266,20 @@ async def stream_speech_multi(
     For API mode: falls back to per-sentence streaming.
 
     Queue protocol: str items = text, None = stop sentinel.
+    cancel_event: threading.Event — set to abort generation early.
     """
     if TTS_MODE == "local":
         from services.local_xtts_service import stream_audio_multi
         async for chunk in stream_audio_multi(
             sentence_queue, speaker_audio_path, yield_raw_pcm=True,
+            cancel_event=cancel_event,
         ):
             yield chunk
     else:
         # API mode: per-sentence fallback (no local _chunker available)
         while True:
+            if cancel_event and cancel_event.is_set():
+                break
             sentence = await sentence_queue.get()
             if sentence is None:
                 break
@@ -282,6 +287,8 @@ async def stream_speech_multi(
             if not sentence:
                 continue
             async for chunk in _stream_speech_api(sentence, speaker_audio_path):
+                if cancel_event and cancel_event.is_set():
+                    break
                 yield chunk
 
 
@@ -325,7 +332,11 @@ async def synthesize_speech(
                 queue_obj, loop = voice_queues[user_id]
 
                 async for chunk in stream_speech(text, speaker_audio_path):
-                    loop.call_soon_threadsafe(queue_obj.put_nowait, chunk)
+                    if asyncio.get_running_loop() is loop:
+                        await queue_obj.put(chunk)
+                    else:
+                        future = asyncio.run_coroutine_threadsafe(queue_obj.put(chunk), loop)
+                        await asyncio.wrap_future(future)
 
                 return types.Part(text="[Audio streamed directly]")
 

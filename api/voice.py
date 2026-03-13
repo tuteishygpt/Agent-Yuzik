@@ -15,6 +15,7 @@ import asyncio
 import json
 import logging
 import time
+import uuid
 from typing import Dict
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -157,7 +158,8 @@ async def _process_voice_message(
 async def voice_websocket(websocket: WebSocket, user_id: str = "voice_user"):
     """Real-time voice conversation with the agent."""
     await websocket.accept()
-    log.info(f"Voice WebSocket connected for user {user_id}")
+    ws_session_id = str(uuid.uuid4())
+    log.info(f"Voice WebSocket connected for user {user_id}, session {ws_session_id}")
 
     # Send streaming config to client
     await websocket.send_json({
@@ -172,9 +174,9 @@ async def voice_websocket(websocket: WebSocket, user_id: str = "voice_user"):
     session_id = await adk_service.get_or_create_session(user_id)
 
     # Create queue for streaming audio and register user
-    audio_queue: asyncio.Queue = asyncio.Queue()
+    audio_queue: asyncio.Queue = asyncio.Queue(maxsize=100)
     loop = asyncio.get_running_loop()
-    register_voice_user(user_id, audio_queue, loop)
+    register_voice_user(ws_session_id, audio_queue, loop)
 
     # Audio accumulator for legacy chunk protocol
     audio_accumulator = bytearray()
@@ -185,15 +187,18 @@ async def voice_websocket(websocket: WebSocket, user_id: str = "voice_user"):
         """Start voice processing task from audio bytes."""
         nonlocal audio_accumulator
         full_wav = ensure_wav(audio_bytes)
+        request_id = str(uuid.uuid4())
 
         # Cancel previous task if still running
-        if user_id in active_voice_tasks and not active_voice_tasks[user_id].done():
-            active_voice_tasks[user_id].cancel()
+        if ws_session_id in active_voice_tasks and not active_voice_tasks[ws_session_id].done():
+            log.info(f"Cancelling previous task for session {ws_session_id}")
+            active_voice_tasks[ws_session_id].cancel()
 
+        log.info(f"Starting request {request_id} for session {ws_session_id}")
         task = asyncio.create_task(
             _process_voice_message(full_wav, websocket, audio_queue, session_id, user_id)
         )
-        active_voice_tasks[user_id] = task
+        active_voice_tasks[ws_session_id] = task
         audio_accumulator = bytearray()
 
     # ── Main receive loop ──
@@ -233,26 +238,26 @@ async def voice_websocket(websocket: WebSocket, user_id: str = "voice_user"):
                     _start_processing(bytes(audio_accumulator))
 
                 elif msg_type == "interrupt":
-                    log.info(f"Interruption received for user {user_id}")
+                    log.info(f"Interruption received for session {ws_session_id}")
                     while not audio_queue.empty():
                         try:
                             audio_queue.get_nowait()
                         except Exception:
                             pass
 
-                    if user_id in active_voice_tasks:
-                        active_voice_tasks[user_id].cancel()
-                        del active_voice_tasks[user_id]
+                    if ws_session_id in active_voice_tasks:
+                        active_voice_tasks[ws_session_id].cancel()
+                        del active_voice_tasks[ws_session_id]
                     await websocket.send_json({"type": "interruption_handshake"})
 
     except WebSocketDisconnect:
-        log.info(f"Voice WebSocket disconnected for user {user_id}")
+        log.info(f"Voice WebSocket disconnected for session {ws_session_id}")
     except Exception as e:
-        log.exception(f"Voice WebSocket error: {e}")
+        log.exception(f"Voice WebSocket error for session {ws_session_id}: {e}")
     finally:
-        unregister_voice_user(user_id)
+        unregister_voice_user(ws_session_id)
         if sender_task:
             sender_task.cancel()
-        if user_id in active_voice_tasks:
-            active_voice_tasks[user_id].cancel()
-            del active_voice_tasks[user_id]
+        if ws_session_id in active_voice_tasks:
+            active_voice_tasks[ws_session_id].cancel()
+            del active_voice_tasks[ws_session_id]

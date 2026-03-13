@@ -10,6 +10,7 @@ import logging
 import threading
 from dataclasses import dataclass
 from typing import Iterator, Iterable, Optional, Tuple, List, AsyncGenerator
+import queue as stdlib_queue
 import asyncio
 
 import numpy as np
@@ -65,6 +66,75 @@ LATENT_CACHE: dict[str, Tuple[torch.Tensor, torch.Tensor]] = {}
 GPU_LATENT_CACHE: dict[Tuple[str, str, str], Tuple[torch.Tensor, torch.Tensor]] = {}
 
 _inference_lock = threading.Lock()
+_load_model_lock = threading.Lock()
+
+GLOBAL_GPU_QUEUE = stdlib_queue.Queue()
+
+@dataclass
+class TTSJob:
+    text: str
+    gpt_cond_latent: torch.Tensor
+    speaker_embedding: torch.Tensor
+    cancel_event: Optional[threading.Event]
+    raw_out_q: stdlib_queue.Queue
+    session_id: str
+    seg_idx: int
+    temperature: float
+    top_k: int
+    top_p: float
+
+def _gpu_worker_loop():
+    log.info("Starting global GPU worker thread for XTTS")
+    while True:
+        try:
+            job: TTSJob = GLOBAL_GPU_QUEUE.get()
+        except Exception:
+            break
+            
+        if job is None:
+            break
+            
+        if job.cancel_event and job.cancel_event.is_set():
+            job.raw_out_q.put(None)
+            continue
+            
+        try:
+            with torch.inference_mode(), torch.autocast(
+                device_type="cuda",
+                dtype=amp_dtype,
+                enabled=str(device).startswith("cuda"),
+            ):
+                with _inference_lock:
+                    if job.cancel_event and job.cancel_event.is_set():
+                        job.raw_out_q.put(None)
+                        continue
+                        
+                    for chunk in XTTS_MODEL.inference_stream(
+                        text=job.text,
+                        language="be",
+                        gpt_cond_latent=job.gpt_cond_latent,
+                        speaker_embedding=job.speaker_embedding,
+                        temperature=job.temperature,
+                        length_penalty=0.9,
+                        repetition_penalty=7.0,
+                        top_k=job.top_k,
+                        top_p=job.top_p,
+                        enable_text_splitting=False,
+                    ):
+                        c_np = _to_np_audio(chunk)
+                        if c_np.size > 0:
+                            job.raw_out_q.put(c_np)
+                            
+                        if job.cancel_event and job.cancel_event.is_set():
+                            log.info(f"[GPU Worker] Cancel mid-inference seg #{job.seg_idx}, releasing GPU")
+                            break
+        except Exception as e:
+            log.error(f"Error in global GPU worker: {e}", exc_info=True)
+            
+        job.raw_out_q.put(None)
+
+_gpu_worker_thread_obj = threading.Thread(target=_gpu_worker_loop, daemon=True)
+_gpu_worker_thread_obj.start()
 
 
 def load_model(hf_repo_id: str = repo_id, target_model_dir: str = "./model"):
@@ -72,55 +142,61 @@ def load_model(hf_repo_id: str = repo_id, target_model_dir: str = "./model"):
     global XTTS_MODEL, default_voice_file, sampling_rate
     if XTTS_MODEL is not None:
         return XTTS_MODEL
-    if not HAS_TTS:
-        raise ImportError("Please install TTS package: pip install TTS")
+        
+    with _load_model_lock:
+        if XTTS_MODEL is not None:
+            return XTTS_MODEL
+            
+        if not HAS_TTS:
+            raise ImportError("Please install TTS package: pip install TTS")
+    
+        log.info(f"Загрузка лакальнай мадэлі XTTS (прылада: {device})...")
+        from huggingface_hub import hf_hub_download
 
-    log.info(f"Загрузка лакальнай мадэлі XTTS (прылада: {device})...")
-    from huggingface_hub import hf_hub_download
+        os.makedirs(target_model_dir, exist_ok=True)
+        checkpoint_file = os.path.join(target_model_dir, "model.pth")
+        config_file = os.path.join(target_model_dir, "config.json")
+        vocab_file = os.path.join(target_model_dir, "vocab.json")
+        local_voice_file = os.path.join(target_model_dir, "voice.wav")
 
-    os.makedirs(target_model_dir, exist_ok=True)
-    checkpoint_file = os.path.join(target_model_dir, "model.pth")
-    config_file = os.path.join(target_model_dir, "config.json")
-    vocab_file = os.path.join(target_model_dir, "vocab.json")
-    local_voice_file = os.path.join(target_model_dir, "voice.wav")
+        for fname in ("model.pth", "config.json", "vocab.json", "voice.wav"):
+            fpath = os.path.join(target_model_dir, fname)
+            if not os.path.exists(fpath):
+                log.info(f"Сцягваем файл {fname}...")
+                hf_hub_download(hf_repo_id, filename=fname, local_dir=target_model_dir)
 
-    for fname in ("model.pth", "config.json", "vocab.json", "voice.wav"):
-        fpath = os.path.join(target_model_dir, fname)
-        if not os.path.exists(fpath):
-            log.info(f"Сцягваем файл {fname}...")
-            hf_hub_download(hf_repo_id, filename=fname, local_dir=target_model_dir)
+        config = XttsConfig()
+        config.load_json(config_file)
+        model = Xtts.init_from_config(config)
+        model.load_checkpoint(
+            config,
+            checkpoint_path=checkpoint_file,
+            vocab_path=vocab_file,
+            use_deepspeed=False,
+        )
 
-    config = XttsConfig()
-    config.load_json(config_file)
-    XTTS_MODEL = Xtts.init_from_config(config)
-    XTTS_MODEL.load_checkpoint(
-        config,
-        checkpoint_path=checkpoint_file,
-        vocab_path=vocab_file,
-        use_deepspeed=False,
-    )
+        torch.set_num_threads(1)
+        if device.startswith("cuda"):
+            torch.backends.cuda.matmul.allow_tf32 = True
+            torch.backends.cudnn.allow_tf32 = True
+            torch.backends.cudnn.benchmark = True   # find optimal algo for repeated inference
+            try:
+                torch.set_float32_matmul_precision("high")
+            except Exception:
+                pass
 
-    torch.set_num_threads(1)
-    if device.startswith("cuda"):
-        torch.backends.cuda.matmul.allow_tf32 = True
-        torch.backends.cudnn.allow_tf32 = True
-        torch.backends.cudnn.benchmark = True   # find optimal algo for repeated inference
-        try:
-            torch.set_float32_matmul_precision("high")
-        except Exception:
-            pass
+        model.to(device).eval()
+        sampling_rate = int(model.config.audio["sample_rate"])
 
-    XTTS_MODEL.to(device).eval()
-    sampling_rate = int(XTTS_MODEL.config.audio["sample_rate"])
+        tokenizer = VoiceBpeTokenizer(vocab_file=vocab_file)
+        model.tokenizer = tokenizer
 
-    tokenizer = VoiceBpeTokenizer(vocab_file=vocab_file)
-    XTTS_MODEL.tokenizer = tokenizer
+        if not default_voice_file:
+            default_voice_file = local_voice_file
 
-    if not default_voice_file:
-        default_voice_file = local_voice_file
-
-    log.info("Лакальная мадэль XTTS паспяхова загружана!")
-    return XTTS_MODEL
+        XTTS_MODEL = model
+        log.info("Лакальная мадэль XTTS паспяхова загружана!")
+        return XTTS_MODEL
 
 
 def _latents_key(path: str | None, meta: LatentsMeta) -> str:
@@ -411,50 +487,55 @@ async def stream_audio(
     def _raw_inference_gen():
         """Yields raw np.ndarray chunks from per-segment inference with per-segment timing."""
         segment_idx = 0
-        with torch.inference_mode(), torch.autocast(
-            device_type="cuda",
-            dtype=amp_dtype,
-            enabled=str(device).startswith("cuda"),
-        ):
-            for part in texts:
-                segment_idx += 1
-                t_seg = time.perf_counter()
-                seg_chunks = 0
-                seg_samples = 0
-                first_seg_chunk = True
-                log.info(f"[TTS·TIMING] ▶ Segment #{segment_idx}/{len(texts)}: "
-                         f"{len(part)} chars | «{part[:60]}»")
+        session_id = str(id(texts))
 
-                with _inference_lock:
-                    for chunk in XTTS_MODEL.inference_stream(
-                        text=part,
-                        language="be",
-                        gpt_cond_latent=gpt_cond_latent,
-                        speaker_embedding=speaker_embedding,
-                        temperature=getattr(app_config, 'TTS_TEMPERATURE', 0.15),
-                        length_penalty=0.9,
-                        repetition_penalty=7.0,
-                        top_k=getattr(app_config, 'TTS_TOP_K', 5),
-                        top_p=getattr(app_config, 'TTS_TOP_P', 0.75),
-                        enable_text_splitting=False,
-                    ):
-                        c_np = _to_np_audio(chunk)
-                        if c_np.size == 0:
-                            continue
-                        seg_chunks += 1
-                        seg_samples += c_np.size
-                        if first_seg_chunk:
-                            seg_first_ms = (time.perf_counter() - t_seg) * 1000
-                            log.info(f"[TTS·TIMING]   Seg #{segment_idx} 1st raw chunk: "
-                                     f"{seg_first_ms:.1f} ms | {c_np.size} samples")
-                            first_seg_chunk = False
-                        yield c_np
+        for part in texts:
+            segment_idx += 1
+            t_seg = time.perf_counter()
+            seg_chunks = 0
+            seg_samples = 0
+            
+            log.info(f"[TTS·TIMING] ▶ Segment #{segment_idx}/{len(texts)} submitted to global queue: "
+                     f"{len(part)} chars | «{part[:60]}»")
 
-                seg_ms = (time.perf_counter() - t_seg) * 1000
-                seg_audio_ms = seg_samples / sampling_rate * 1000
-                log.info(f"[TTS·TIMING] ◼ Segment #{segment_idx} done: "
-                         f"{seg_chunks} raw chunks | {seg_ms:.0f} ms inference | "
-                         f"{seg_audio_ms:.0f} ms audio")
+            raw_out_q = stdlib_queue.Queue()
+            
+            job = TTSJob(
+                text=part,
+                gpt_cond_latent=gpt_cond_latent,
+                speaker_embedding=speaker_embedding,
+                cancel_event=None,
+                raw_out_q=raw_out_q,
+                session_id=session_id,
+                seg_idx=segment_idx,
+                temperature=getattr(app_config, 'TTS_TEMPERATURE', 0.15),
+                top_k=getattr(app_config, 'TTS_TOP_K', 5),
+                top_p=getattr(app_config, 'TTS_TOP_P', 0.75),
+            )
+            
+            GLOBAL_GPU_QUEUE.put(job)
+            
+            first_seg_chunk = True
+            
+            while True:
+                c_np = raw_out_q.get()
+                if c_np is None:
+                    break
+                    
+                seg_chunks += 1
+                seg_samples += c_np.size
+                if first_seg_chunk:
+                    seg_first_ms = (time.perf_counter() - t_seg) * 1000
+                    log.info(f"[TTS·TIMING]   Seg #{segment_idx} 1st raw chunk (from worker): "
+                             f"{seg_first_ms:.1f} ms | {c_np.size} samples")
+                    first_seg_chunk = False
+                yield c_np
+
+            seg_ms = (time.perf_counter() - t_seg) * 1000
+            seg_audio_ms = seg_samples / sampling_rate * 1000
+            log.info(f"[TTS·TIMING] ◼ Segment #{segment_idx} done: "
+                     f"{seg_chunks} raw chunks | {seg_ms:.0f} ms inference | "
+                     f"{seg_audio_ms:.0f} ms audio")
 
     def sync_generator():
         """Wraps raw inference chunks through _chunker for proper buffering."""
@@ -547,6 +628,7 @@ async def stream_audio_multi(
     initial_buffer_s: float = INITIAL_MIN_BUFFER_S,
     subsequent_buffer_s: float = MIN_BUFFER_S,
     yield_raw_pcm: bool = False,
+    cancel_event: Optional[threading.Event] = None,
 ) -> AsyncGenerator[bytes, None]:
     """
     Continuous TTS streaming from an asyncio.Queue of sentences.
@@ -595,26 +677,40 @@ async def stream_audio_multi(
 
     # Async forwarder: moves sentences from asyncio.Queue to sync queue
     async def _forward_sentences():
-        while True:
-            sentence = await sentence_queue.get()
-            sync_sentence_q.put(sentence)
-            if sentence is None:
-                break
+        try:
+            while True:
+                sentence = await sentence_queue.get()
+                sync_sentence_q.put(sentence)
+                if sentence is None:
+                    break
+        except asyncio.CancelledError:
+            # Unblock producer thread waiting on sync_sentence_q.get()
+            sync_sentence_q.put(None)
+            raise
 
     forwarder_task = asyncio.create_task(_forward_sentences())
 
     def producer():
         """
         Sync thread: reads sentences from sync_sentence_q,
-        runs inference_stream for each, feeds ALL raw chunks
-        through ONE _chunker, puts buffered chunks to audio_out_q.
+        submits TTSJobs to GLOBAL_GPU_QUEUE, feeds ALL raw chunks
+        from the job's raw_out_q through ONE _chunker, puts buffered
+        chunks to audio_out_q.
         """
         try:
+            session_id = str(id(sync_sentence_q))
+            
             def _continuous_raw_gen():
-                """Single generator yielding raw audio chunks across ALL sentences."""
+                """Single generator yielding raw audio chunks across ALL sentences from GPU worker."""
                 seg_idx = 0
                 while True:
-                    text = sync_sentence_q.get()
+                    if cancel_event and cancel_event.is_set():
+                        log.info("[TTS·TIMING] ⛔ Cancel event set, stopping sentence generator")
+                        return
+                    try:
+                        text = sync_sentence_q.get(timeout=0.5)
+                    except stdlib_queue.Empty:
+                        continue
                     if text is None:
                         break
                     text = text.strip()
@@ -624,43 +720,54 @@ async def stream_audio_multi(
                     seg_idx += 1
                     t_seg = time.perf_counter()
                     log.info(
-                        f"[TTS·TIMING] ▶ Multi seg #{seg_idx}: "
+                        f"[TTS·TIMING] ▶ Multi seg #{seg_idx} submitted to global queue: "
                         f"{len(text)} chars | «{text[:60]}»"
                     )
 
-                    # Preprocess text via tokenizer (numbers, abbreviations, etc.)
+                    # Preprocess text via tokenizer
                     if (XTTS_MODEL is not None
                             and hasattr(XTTS_MODEL, "tokenizer")
                             and XTTS_MODEL.tokenizer is not None):
                         text = XTTS_MODEL.tokenizer.preprocess_text(text, "be")
 
+                    raw_out_q = stdlib_queue.Queue()
+                    
+                    job = TTSJob(
+                        text=text,
+                        gpt_cond_latent=gpt_cond_latent,
+                        speaker_embedding=speaker_embedding,
+                        cancel_event=cancel_event,
+                        raw_out_q=raw_out_q,
+                        session_id=session_id,
+                        seg_idx=seg_idx,
+                        temperature=getattr(app_config, 'TTS_TEMPERATURE', 0.15),
+                        top_k=getattr(app_config, 'TTS_TOP_K', 5),
+                        top_p=getattr(app_config, 'TTS_TOP_P', 0.75),
+                    )
+                    
+                    GLOBAL_GPU_QUEUE.put(job)
+                    
                     seg_chunks = 0
                     seg_samples = 0
-                    with _inference_lock:
-                        for chunk in XTTS_MODEL.inference_stream(
-                            text=text,
-                            language="be",
-                            gpt_cond_latent=gpt_cond_latent,
-                            speaker_embedding=speaker_embedding,
-                            temperature=getattr(app_config, 'TTS_TEMPERATURE', 0.15),
-                            length_penalty=0.9,
-                            repetition_penalty=7.0,
-                            top_k=getattr(app_config, 'TTS_TOP_K', 5),
-                            top_p=getattr(app_config, 'TTS_TOP_P', 0.75),
-                            enable_text_splitting=False,
-                        ):
-                            c_np = _to_np_audio(chunk)
-                            if c_np.size > 0:
-                                seg_chunks += 1
-                                seg_samples += c_np.size
-                                if seg_chunks == 1:
-                                    log.info(
-                                        f"[TTS·TIMING]   Seg #{seg_idx} 1st raw chunk: "
-                                        f"{(time.perf_counter()-t_seg)*1000:.1f} ms | "
-                                        f"{c_np.size} samples"
-                                    )
-                                yield c_np
-
+                    
+                    while True:
+                        c_np = raw_out_q.get()
+                        if c_np is None:
+                            break # end of sentence
+                            
+                        seg_chunks += 1
+                        seg_samples += c_np.size
+                        if seg_chunks == 1:
+                            log.info(
+                                f"[TTS·TIMING]   Seg #{seg_idx} 1st raw chunk (from worker): "
+                                f"{(time.perf_counter()-t_seg)*1000:.1f} ms | "
+                                f"{c_np.size} samples"
+                            )
+                        yield c_np
+                        
+                    # Exit generator entirely if cancelled
+                    if cancel_event and cancel_event.is_set():
+                        return
                     seg_ms = (time.perf_counter() - t_seg) * 1000
                     seg_audio_ms = seg_samples / sampling_rate * 1000
                     log.info(
@@ -674,38 +781,34 @@ async def stream_audio_multi(
             count = 0
             total_samples = 0
 
-            with torch.inference_mode(), torch.autocast(
-                device_type="cuda",
-                dtype=amp_dtype,
-                enabled=str(device).startswith("cuda"),
+            # inference_mode / autocast are no longer needed here, they happen in global worker!
+            for audio_chunk in _chunker(
+                _continuous_raw_gen(),
+                sampling_rate,
+                initial_buffer_s,
+                subsequent_buffer_s,
             ):
-                for audio_chunk in _chunker(
-                    _continuous_raw_gen(),
-                    sampling_rate,
-                    initial_buffer_s,
-                    subsequent_buffer_s,
-                ):
-                    count += 1
-                    n = len(audio_chunk)
-                    total_samples += n
-                    ms = n / sampling_rate * 1000
-                    elapsed = (time.perf_counter() - t_inf) * 1000
+                count += 1
+                n = len(audio_chunk)
+                total_samples += n
+                ms = n / sampling_rate * 1000
+                elapsed = (time.perf_counter() - t_inf) * 1000
 
-                    if count == 1:
-                        log.info(
-                            f"[TTS·TIMING] 🎵 Multi 1st buffered chunk: "
-                            f"inference={elapsed:.1f} ms | "
-                            f"total_from_start="
-                            f"{(time.perf_counter()-t_pipeline)*1000:.1f} ms | "
-                            f"audio={ms:.0f} ms ({n} samples)"
-                        )
-                    elif count <= 3:
-                        log.info(
-                            f"[TTS·TIMING] Multi chunk #{count}: "
-                            f"{ms:.0f} ms audio | elapsed={elapsed:.0f} ms"
-                        )
+                if count == 1:
+                    log.info(
+                        f"[TTS·TIMING] 🎵 Multi 1st buffered chunk: "
+                        f"elapsed={elapsed:.1f} ms | "
+                        f"total_from_start="
+                        f"{(time.perf_counter()-t_pipeline)*1000:.1f} ms | "
+                        f"audio={ms:.0f} ms ({n} samples)"
+                    )
+                elif count <= 3:
+                    log.info(
+                        f"[TTS·TIMING] Multi chunk #{count}: "
+                        f"{ms:.0f} ms audio | elapsed={elapsed:.0f} ms"
+                    )
 
-                    audio_out_q.put(audio_chunk)
+                audio_out_q.put(audio_chunk)
 
             total_audio = total_samples / sampling_rate * 1000
             total_inf = (time.perf_counter() - t_inf) * 1000
@@ -725,30 +828,42 @@ async def stream_audio_multi(
     # ── Async consumer: yield chunks from audio_out_q ──
     idx = 0
     total_wait = 0.0
-    while True:
-        t_wait = time.perf_counter()
-        chunk = await loop.run_in_executor(None, audio_out_q.get)
-        wait_ms = (time.perf_counter() - t_wait) * 1000
-        total_wait += wait_ms
+    try:
+        while True:
+            t_wait = time.perf_counter()
+            chunk = await loop.run_in_executor(None, audio_out_q.get)
+            wait_ms = (time.perf_counter() - t_wait) * 1000
+            total_wait += wait_ms
 
-        if chunk is SENTINEL:
-            break
+            if chunk is SENTINEL:
+                break
 
-        idx += 1
-        bytes_data = chunk.tobytes()
+            idx += 1
+            bytes_data = chunk.tobytes()
 
-        if idx <= 3 or wait_ms > 50:
-            log.info(
-                f"[TTS·TIMING] Multi queue→async #{idx}: "
-                f"wait={wait_ms:.1f} ms | {len(bytes_data)} bytes"
-            )
+            if idx <= 3 or wait_ms > 50:
+                log.info(
+                    f"[TTS·TIMING] Multi queue→async #{idx}: "
+                    f"wait={wait_ms:.1f} ms | {len(bytes_data)} bytes"
+                )
 
-        if yield_raw_pcm:
-            yield bytes_data
-        else:
-            yield _add_wav_header(bytes_data, sample_rate=sampling_rate, channels=1)
-
-    await forwarder_task
+            if yield_raw_pcm:
+                yield bytes_data
+            else:
+                yield _add_wav_header(bytes_data, sample_rate=sampling_rate, channels=1)
+    finally:
+        # Ensure producer thread can exit: set cancel, send sentinel, cleanup forwarder
+        if cancel_event:
+            cancel_event.set()
+        try:
+            sync_sentence_q.put_nowait(None)
+        except Exception:
+            pass
+        forwarder_task.cancel()
+        try:
+            await forwarder_task
+        except (asyncio.CancelledError, Exception):
+            pass
     log.info(
         f"[TTS·TIMING] Multi pipeline complete: {idx} chunks | "
         f"total_wait={total_wait:.0f} ms | "

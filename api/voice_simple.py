@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import threading
 import time
 from datetime import datetime, timezone
 from typing import Callable, Awaitable
@@ -68,6 +69,7 @@ class TTSWorker:
 
         self._sentence_queue: asyncio.Queue = asyncio.Queue()
         self._task: asyncio.Task | None = None
+        self._cancel_event = threading.Event()
 
         # State
         self.sent_first_audio_chunk = False
@@ -92,8 +94,9 @@ class TTSWorker:
         log.info(_step("TTS·WORKER", "✅ Worker task finished", self._start_ts))
 
     def cancel(self):
+        self._cancel_event.set()
         if self._task and not self._task.done():
-            log.info(_step("TTS·WORKER", "❌ Worker task cancelled", self._start_ts))
+            log.info(_step("TTS·WORKER", "❌ Worker task cancelled (cancel_event set)", self._start_ts))
             self._task.cancel()
 
     async def dispatch(self, text: str):
@@ -153,7 +156,7 @@ class TTSWorker:
                 duration_ms=round((time.time() - self._start_ts) * 1000),
             )
 
-            async for audio_chunk in stream_speech_multi(self._sentence_queue):
+            async for audio_chunk in stream_speech_multi(self._sentence_queue, cancel_event=self._cancel_event):
                 tts_chunk_count += 1
 
                 chunk_samples = len(audio_chunk) // 4 if config.TTS_MODE == "local" else 0
@@ -425,6 +428,11 @@ async def handle_simple_voice(
     try:
         t_first_iter = time.time()
         async for chunk in response_stream:
+            from fastapi.websockets import WebSocketState
+            if websocket.client_state != WebSocketState.CONNECTED:
+                log.warning(_step("VOICE·LLM", "⚠️ WebSocket disconnected, aborting pipeline", start_ts))
+                break
+
             if not chunk.text:
                 continue
 
@@ -619,10 +627,22 @@ async def handle_simple_voice(
 
     # ── Save turn to voice history ──
     if text_buffer.strip():
+        user_text = user_transcription if user_transcription else "[галасавое паведамленне]"
+        assistant_text = text_buffer.strip()
+
         voice_history.add_turn(
-            user_text=user_transcription if user_transcription else "[галасавое паведамленне]",
-            assistant_text=text_buffer.strip(),
+            user_text=user_text,
+            assistant_text=assistant_text,
         )
+
+        try:
+            with open("dialogues.txt", "a", encoding="utf-8") as f:
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                f.write(f"[{timestamp}] USER ({user_id}): {user_text}\n")
+                f.write(f"[{timestamp}] BOT: {assistant_text}\n---\n")
+        except Exception as e:
+            log.error(f"Памылка пры захаванні дыялогу ў файл: {e}")
+
         log.info(_step(
             "VOICE·HISTORY",
             f"💾 Saved turn to history | "
@@ -634,8 +654,8 @@ async def handle_simple_voice(
             "history_saved",
             "💾 Гісторыя захавана",
             detail=f"Адказ: {len(text_buffer)} сімв. | "
-                   f"Усяго тураў: {voice_history.turn_count} | "
-                   f"Ад старту: {(time.time()-start_ts)*1000:.0f} мс",
+            f"Усяго тураў: {voice_history.turn_count} | "
+            f"Ад старту: {(time.time()-start_ts)*1000:.0f} мс",
             duration_ms=round((time.time() - start_ts) * 1000),
         )
 
