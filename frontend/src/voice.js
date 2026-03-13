@@ -421,7 +421,7 @@ function connectWebSocket() {
                     }
                 }
                 // Legacy WAV blob (API mode / ADK artifacts)
-                if (state.firstAudioTimestamp === 0 && state.lastVadEndTimestamp > 0) {
+                if (state.firstAudioTimestamp === 0 && state.lastVadEndTimestamp > 0 && !state.interruptRequested) {
                     state.firstAudioTimestamp = Date.now();
                     const latency = state.firstAudioTimestamp - state.lastVadEndTimestamp;
                     addPerfEntry({
@@ -432,7 +432,9 @@ function connectWebSocket() {
                         duration_ms: latency,
                     });
                 }
-                handleIncomingAudioChunk(new Blob([ab]));
+                if (!state.interruptRequested) {
+                    handleIncomingAudioChunk(new Blob([ab]));
+                }
             } else {
                 const data = JSON.parse(event.data);
                 handleServerMessage(data);
@@ -495,7 +497,9 @@ function handleServerMessage(data) {
 
         // ── Raw PCM audio chunks (local TTS, minimal latency) ──
         case 'audio_pcm':
-            handlePcmChunk(data);
+            if (!state.interruptRequested) {
+                handlePcmChunk(data);
+            }
             break;
     }
 }
@@ -506,6 +510,8 @@ function handleServerMessage(data) {
 
 // Binary PCM handler — zero-copy Float32 from ArrayBuffer (no base64 decode)
 function handleBinaryPcmChunk(f32) {
+    if (state.interruptRequested) return;
+
     const sr = pcmPlayer.sampleRate || 24000;
     if (!pcmPlayer.ctx) pcmPlayer.init(sr);
 
@@ -715,6 +721,7 @@ async function initVAD() {
                 }
 
                 if (state.isConnected && state.websocket.readyState === WebSocket.OPEN) {
+                    state.interruptRequested = false;
                     // Encode WAV first (before starting latency timer)
                     const wavBuffer = encodeWAV(audio);
 
@@ -770,6 +777,7 @@ async function initVAD() {
 
 function handleInterruption() {
     stopAllPlayback();
+    state.interruptRequested = true;
     if (state.websocket && state.websocket.readyState === WebSocket.OPEN) {
         state.websocket.send(JSON.stringify({ type: 'interrupt' }));
     }
@@ -873,6 +881,8 @@ async function startSession() {
 
         // Pre-initialize pcmPlayer so it's ready when first chunk arrives
         pcmPlayer.init(24000);
+
+        state.interruptRequested = false;
 
         await state.vad.start();
         state.isRecording = true;
@@ -1120,7 +1130,13 @@ function init() {
     });
 
     elements.stopBtn.addEventListener('click', () => {
-        stopSession();
+        if (state.isSpeaking || state.isProcessing) {
+            handleInterruption();
+            setProcessingState(false);
+            setSpeakingState(false);
+        } else {
+            stopSession();
+        }
     });
 
     // Perf panel controls
