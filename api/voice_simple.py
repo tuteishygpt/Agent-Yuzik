@@ -262,6 +262,7 @@ async def handle_simple_voice(
     ws_session_id: str = "",
 ):
     """Process audio via Simple Voice Agent (direct Gemini → TTS streaming)."""
+    session_id = ws_session_id
     start_ts = perf.start_ts
     gen_start = time.time()
 
@@ -276,7 +277,7 @@ async def handle_simple_voice(
     )
 
     # ── Teacher mode extension ──
-    teacher_state = teacher_controller.get_state(session_id=ws_session_id, user_id=user_id)
+    teacher_state = teacher_controller.get_state(session_id=session_id, user_id=user_id)
     if teacher_state:
         log.info(_step("VOICE·TEACHER", f"📚 Teacher mode active | lesson={teacher_state.lesson_id}", start_ts))
         await perf(
@@ -289,10 +290,32 @@ async def handle_simple_voice(
         tts = TTSWorker(audio_queue, perf, start_ts)
         tts.start()
         try:
+            teacher_transcript = ""
+            if config.LOCAL_ASR:
+                from api import local_asr
+
+                if not local_asr.is_ready():
+                    log.warning(_step("VOICE?ASR", "?? LOCAL_ASR=True but model not loaded, loading now?", start_ts))
+                    await asyncio.to_thread(local_asr.load_asr_model)
+
+                teacher_transcript = await asyncio.to_thread(local_asr.transcribe_wav_bytes, audio_data)
+                log.info(_step("VOICE·TEACHER", f"📝 Local transcript: «{teacher_transcript[:120]}»", start_ts))
+            else:
+                log.info(_step("VOICE·TEACHER", "📝 LOCAL_ASR disabled, teacher mode will use remote transcription", start_ts))
+
             outcome = await teacher_controller.process_audio_turn(
-                session_id=ws_session_id,
+                session_id=session_id,
                 user_id=user_id,
                 audio_data=audio_data,
+                transcript=teacher_transcript,
+            )
+
+            log.info(
+                _step(
+                    "VOICE·TEACHER",
+                    f"📝 Teacher transcript result: «{outcome.transcript[:120]}» | normalized=«{outcome.normalized_transcript[:120]}»",
+                    start_ts,
+                )
             )
 
             if outcome.transcript:

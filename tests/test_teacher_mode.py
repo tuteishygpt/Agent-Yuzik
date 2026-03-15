@@ -3,10 +3,13 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+import wave
+from io import BytesIO
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from api.teacher_mode.controller import TeacherController
+from api.teacher_mode.gemini_adapter import GeminiTeacherAdapter
 from api.teacher_mode.lesson_store import LessonStore
 from api.teacher_mode.models import (
     EvaluationBlock,
@@ -28,18 +31,41 @@ class FakeAdapter:
         return self._result
 
 
-def _result(next_step_id: str, action: TeacherAction, status: StudentAnswerStatus = StudentAnswerStatus.correct):
+class BrokenAdapter:
+    async def evaluate_student_audio(self, **kwargs):
+        raise ValueError("bad model payload")
+
+
+class StubTeacherAdapter(GeminiTeacherAdapter):
+    def __init__(self, *, transcript_text: str = "", payload: dict | None = None):
+        self.transcript_text = transcript_text
+        self.payload = payload
+
+    async def _transcribe_audio_with_model(self, **kwargs) -> str:
+        return self.transcript_text
+
+    async def _evaluate_transcript(self, **kwargs) -> dict:
+        if self.payload is None:
+            raise ValueError("missing payload")
+        return self.payload
+
+
+def _result(
+    next_step_id: str,
+    action: TeacherAction,
+    status: StudentAnswerStatus = StudentAnswerStatus.correct,
+):
     return GeminiTeacherResult(
         input_understanding=InputUnderstanding(
-            transcript="добры дзень",
-            normalized_transcript="добры дзень",
+            transcript="dobry dzien",
+            normalized_transcript="dobry dzien",
             detected_language="be",
             audio_quality_status="ok",
         ),
         evaluation=EvaluationBlock(
             student_answer_status=status,
             confidence=0.9,
-            matched_target="добры дзень",
+            matched_target="dobry dzien",
             error_tags=[],
         ),
         pedagogical_action=PedagogicalActionBlock(
@@ -47,8 +73,22 @@ def _result(next_step_id: str, action: TeacherAction, status: StudentAnswerStatu
             next_step_id=next_step_id,
             state_patch={},
         ),
-        tts_output=TTSBlock(reply_text="Выдатна, ідзем далей!", reply_style="friendly", max_tts_length_seconds=8),
+        tts_output=TTSBlock(
+            reply_text="Vyadatna, idzem dalej!",
+            reply_style="friendly",
+            max_tts_length_seconds=8,
+        ),
     )
+
+
+def _wav_bytes() -> bytes:
+    buf = BytesIO()
+    with wave.open(buf, "wb") as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(16000)
+        wav_file.writeframes(b"\x00\x00" * 1600)
+    return buf.getvalue()
 
 
 def test_teacher_controller_valid_transition_advances():
@@ -95,3 +135,119 @@ def test_teacher_controller_retry_limit_turns_into_hint():
     assert out1.teacher_action in {TeacherAction.correct_and_retry, TeacherAction.hint_and_retry}
     assert out2.teacher_action == TeacherAction.hint_and_retry
     assert out2.fallback_reason == "retry_limit_hint"
+
+
+def test_teacher_controller_preserves_transcript_on_fallback():
+    lesson_store = LessonStore()
+    session_store = SessionStateStore()
+    controller = TeacherController(lesson_store, session_store, BrokenAdapter())
+
+    controller.start_lesson(session_id="s4", user_id="u4", lesson_id="basics_family")
+    out = asyncio.run(
+        controller.process_audio_turn(
+            session_id="s4",
+            user_id="u4",
+            audio_data=b"x",
+            transcript="mama i tata",
+        )
+    )
+
+    assert out.fallback_reason == "model_or_parse_error"
+    assert out.transcript == "mama i tata"
+    assert out.normalized_transcript == "mama i tata"
+
+
+def test_teacher_adapter_uses_remote_transcript_when_input_transcript_missing():
+    lesson = LessonStore().get_lesson("basics_family")
+    session = TeacherController(
+        LessonStore(),
+        SessionStateStore(),
+        FakeAdapter(_result("intro", TeacherAction.repeat_question)),
+    ).start_lesson(session_id="s6", user_id="u6", lesson_id="basics_family")
+    adapter = StubTeacherAdapter(
+        transcript_text="mama i tata",
+        payload={
+            "input_understanding": {
+                "transcript": "",
+                "normalized_transcript": "",
+                "detected_language": "be",
+                "audio_quality_status": "ok",
+            },
+            "evaluation": {
+                "student_answer_status": "correct",
+                "confidence": 0.9,
+                "matched_target": "mama i tata",
+                "error_tags": [],
+            },
+            "pedagogical_action": {
+                "teacher_action": "praise_and_advance",
+                "next_step_id": "ask_sister",
+                "state_patch": {},
+            },
+            "tts_output": {
+                "reply_text": "Vyadatna, idzem dalej!",
+                "reply_style": "friendly",
+                "max_tts_length_seconds": 8,
+            },
+        },
+    )
+
+    result = asyncio.run(
+        adapter.evaluate_student_audio(
+            audio_data=_wav_bytes(),
+            transcript="",
+            lesson=lesson,
+            session=session,
+        )
+    )
+
+    assert result.input_understanding.transcript == "mama i tata"
+    assert result.input_understanding.normalized_transcript == "mama i tata"
+    assert result.evaluation.student_answer_status == StudentAnswerStatus.correct
+    assert result.pedagogical_action.next_step_id == "ask_sister"
+
+
+def test_teacher_adapter_returns_unclear_fallback_for_invalid_json():
+    adapter = GeminiTeacherAdapter()
+    lesson = LessonStore().get_lesson("basics_family")
+    session = TeacherController(
+        LessonStore(),
+        SessionStateStore(),
+        FakeAdapter(_result("intro", TeacherAction.repeat_question)),
+    ).start_lesson(session_id="s5", user_id="u5", lesson_id="basics_family")
+
+    result = adapter._build_unclear_fallback(
+        transcript="",
+        lesson=lesson,
+        session=session,
+    )
+    assert result.evaluation.student_answer_status == StudentAnswerStatus.unclear
+    assert result.pedagogical_action.teacher_action == TeacherAction.repeat_question
+    assert "мама" in result.tts_output.reply_text.lower()
+
+
+def test_teacher_adapter_normalizes_simplified_model_payload():
+    lesson = LessonStore().get_lesson("basics_greetings")
+    session = TeacherController(
+        LessonStore(),
+        SessionStateStore(),
+        FakeAdapter(_result("intro", TeacherAction.repeat_question)),
+    ).start_lesson(session_id="s7", user_id="u7", lesson_id="basics_greetings")
+
+    payload = GeminiTeacherAdapter._normalize_payload(
+        payload={
+            "input_understanding": "The student correctly said 'Добры дзень'.",
+            "evaluation": "correct",
+            "pedagogical_action": "proceed_to_next_step",
+            "tts_output": "Выдатна! Цяпер давай пазнаёмімся. Як сказаць: Мяне завуць...?",
+        },
+        transcript="Добры дзень",
+        lesson=lesson,
+        session=session,
+    )
+
+    result = GeminiTeacherResult.model_validate(payload)
+    assert result.input_understanding.transcript == "Добры дзень"
+    assert result.evaluation.student_answer_status == StudentAnswerStatus.correct
+    assert result.pedagogical_action.teacher_action == TeacherAction.praise_and_advance
+    assert result.pedagogical_action.next_step_id == "ask_name"

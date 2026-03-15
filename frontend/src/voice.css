@@ -39,6 +39,108 @@ body {
     margin-bottom: 0.5rem;
 }
 
+.teacher-panel {
+    width: min(100%, 560px);
+    padding: 0.75rem 0.9rem;
+    border: 1px solid var(--glass-border);
+    border-radius: 16px;
+    background: var(--glass-bg);
+    backdrop-filter: blur(20px);
+}
+
+.teacher-panel-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.teacher-panel-label {
+    min-width: 76px;
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+.teacher-panel-status,
+.teacher-lesson-meta {
+    color: var(--text-secondary);
+}
+
+.teacher-panel-status {
+    margin-top: 0.35rem;
+    font-size: 0.8rem;
+}
+
+.teacher-select {
+    flex: 1;
+    min-width: 0;
+    padding: 0.65rem 0.85rem;
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-primary);
+    font: inherit;
+    outline: none;
+}
+
+.teacher-select:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.teacher-lesson-meta {
+    margin-top: 0.45rem;
+    font-size: 0.8rem;
+    line-height: 1.45;
+}
+
+.teacher-panel.active {
+    border-color: rgba(78, 130, 238, 0.6);
+    box-shadow: 0 0 0 1px rgba(78, 130, 238, 0.16);
+}
+
+.teacher-switch {
+    position: relative;
+    width: 52px;
+    height: 30px;
+    display: inline-flex;
+    align-items: center;
+}
+
+.teacher-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.teacher-switch-slider {
+    position: absolute;
+    inset: 0;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.18);
+    transition: background 0.2s ease;
+    cursor: pointer;
+}
+
+.teacher-switch-slider::before {
+    content: "";
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: #fff;
+    transition: transform 0.2s ease;
+}
+
+.teacher-switch input:checked + .teacher-switch-slider {
+    background: var(--primary);
+}
+
+.teacher-switch input:checked + .teacher-switch-slider::before {
+    transform: translateX(22px);
+}
+
 .mic-wrapper {
     position: relative;
     display: flex;

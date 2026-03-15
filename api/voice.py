@@ -261,10 +261,12 @@ async def voice_websocket(websocket: WebSocket, user_id: str = "voice_user"):
                         user_id=user_id,
                         lesson_id=lesson_id,
                     )
+                    lesson = teacher_controller.lesson_store.get_lesson(lesson_id)
                     await websocket.send_json({
                         "type": "teacher_mode_started",
                         "lesson_id": state.lesson_id,
                         "step_id": state.current_step_id,
+                        "prompt": lesson.steps[0].prompt if lesson.steps else "",
                         "mode": "teacher",
                     })
 

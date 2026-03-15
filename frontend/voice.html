@@ -21,6 +21,21 @@
 
         <h1 class="voice-title">🎙️ Галасавы Агент - Юзік</h1>
 
+                <section class="teacher-panel" id="teacher-panel">
+            <div class="teacher-panel-row">
+                <span class="teacher-panel-label">Настаўнік</span>
+                <select class="teacher-select" id="teacher-lesson-select" disabled>
+                    <option value="">Загрузка ўрокаў...</option>
+                </select>
+                <label class="teacher-switch" aria-label="Уключыць рэжым настаўніка">
+                    <input type="checkbox" id="teacher-toggle">
+                    <span class="teacher-switch-slider"></span>
+                </label>
+            </div>
+            <p class="teacher-lesson-meta" id="teacher-lesson-meta" hidden></p>
+            <p class="teacher-panel-status" id="teacher-status" hidden></p>
+        </section>
+
         <div class="mic-wrapper">
             <div class="mic-container" id="mic-btn">
                 <!-- Ідле / слухае — мікрафон -->

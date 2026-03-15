@@ -351,6 +351,9 @@ const state = {
     scheduledSources: [],
     speakingTimeout: null,
     playbackLogSent: false,
+    teacherMode: false,
+    teacherLessons: [],
+    currentLessonId: '',
 };
 
 // ===========================
@@ -372,7 +375,145 @@ const elements = {
     perfLogBody: document.getElementById('perf-log-body'),
     perfClear: document.getElementById('perf-clear'),
     perfClose: document.getElementById('perf-close'),
+    teacherPanel: document.getElementById('teacher-panel'),
+    teacherToggle: document.getElementById('teacher-toggle'),
+    teacherStatus: document.getElementById('teacher-status'),
+    teacherLessonSelect: document.getElementById('teacher-lesson-select'),
+    teacherLessonMeta: document.getElementById('teacher-lesson-meta'),
 };
+
+function describeLesson(lesson) {
+    if (!lesson) {
+        return "";
+    }
+    return `${lesson.level} ? ${lesson.steps_count} крокі ? ${lesson.lesson_goal}`;
+}
+
+function updateTeacherPanel() {
+    const hasLesson = Boolean(state.currentLessonId);
+    const active = state.teacherMode;
+    const lesson = state.teacherLessons.find(item => item.lesson_id === state.currentLessonId);
+
+    if (elements.teacherPanel) {
+        elements.teacherPanel.classList.toggle('active', active);
+    }
+
+    if (elements.teacherToggle) {
+        elements.teacherToggle.checked = active;
+        elements.teacherToggle.disabled = !hasLesson || !state.isConnected;
+    }
+
+    if (elements.teacherLessonSelect) {
+        elements.teacherLessonSelect.disabled = state.teacherLessons.length === 0;
+    }
+
+    if (elements.teacherLessonMeta) {
+        const meta = describeLesson(lesson);
+        elements.teacherLessonMeta.hidden = !active || !meta;
+        elements.teacherLessonMeta.textContent = meta;
+    }
+
+    if (elements.teacherStatus) {
+        let status = "";
+        if (!state.isConnected) {
+            status = "Няма злучэння";
+        } else if (active && lesson) {
+            status = `Актыўны ўрок: ${lesson.title}`;
+        }
+
+        elements.teacherStatus.hidden = !status;
+        elements.teacherStatus.textContent = status;
+    }
+}
+
+function renderTeacherLessons() {
+    if (!elements.teacherLessonSelect) {
+        return;
+    }
+
+    const select = elements.teacherLessonSelect;
+    select.innerHTML = "";
+
+    if (!state.teacherLessons.length) {
+        select.innerHTML = '<option value="">Урокі недаступныя</option>';
+        state.currentLessonId = "";
+        updateTeacherPanel();
+        return;
+    }
+
+    state.teacherLessons.forEach(lesson => {
+        const option = document.createElement('option');
+        option.value = lesson.lesson_id;
+        option.textContent = lesson.title;
+        select.appendChild(option);
+    });
+
+    if (!state.currentLessonId) {
+        state.currentLessonId = state.teacherLessons[0].lesson_id;
+    }
+
+    select.value = state.currentLessonId;
+    updateTeacherPanel();
+}
+
+async function fetchTeacherLessons() {
+    try {
+        const response = await fetch('/api/teacher/lessons');
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        const payload = await response.json();
+        state.teacherLessons = payload.lessons || [];
+        renderTeacherLessons();
+    } catch (error) {
+        console.error('Failed to load teacher lessons:', error);
+        state.teacherLessons = [];
+        state.currentLessonId = "";
+        if (elements.teacherStatus) {
+            elements.teacherStatus.hidden = false;
+            elements.teacherStatus.textContent = "Не ўдалося загрузіць ўрокі";
+        }
+        updateTeacherPanel();
+    }
+}
+
+function sendTeacherMessage(payload) {
+    if (!state.websocket || state.websocket.readyState !== WebSocket.OPEN) {
+        throw new Error('WebSocket is not connected');
+    }
+    state.websocket.send(JSON.stringify(payload));
+}
+
+function startTeacherMode() {
+    if (!state.currentLessonId) {
+        updateStatus("Спачатку абярыце ўрок.");
+        if (elements.teacherToggle) {
+            elements.teacherToggle.checked = false;
+        }
+        return;
+    }
+
+    try {
+        sendTeacherMessage({ type: 'teacher_start_lesson', lesson_id: state.currentLessonId });
+        updateStatus("Уключаю рэжым настаўніка...");
+    } catch (error) {
+        console.error('Failed to start teacher mode:', error);
+        if (elements.teacherToggle) {
+            elements.teacherToggle.checked = false;
+        }
+        updateTeacherPanel();
+    }
+}
+
+function stopTeacherMode() {
+    try {
+        sendTeacherMessage({ type: 'teacher_stop_lesson' });
+    } catch (error) {
+        console.error('Failed to stop teacher mode:', error);
+    }
+    state.teacherMode = false;
+    updateTeacherPanel();
+}
 
 // ===========================
 // WebSocket Connection
@@ -391,12 +532,18 @@ function connectWebSocket() {
     state.websocket.onopen = () => {
         state.isConnected = true;
         updateConnectionStatus(true);
+        updateTeacherPanel();
+        if (elements.teacherToggle?.checked && state.currentLessonId) {
+            startTeacherMode();
+        }
         console.log('WebSocket connected');
     };
 
     state.websocket.onclose = () => {
         state.isConnected = false;
+        state.teacherMode = false;
         updateConnectionStatus(false);
+        updateTeacherPanel();
         console.log('WebSocket disconnected');
         setTimeout(() => { if (!state.isConnected) connectWebSocket(); }, 3000);
     };
@@ -455,6 +602,7 @@ function updateConnectionStatus(connected) {
 function handleServerMessage(data) {
     switch (data.type) {
         case 'transcript':
+        case 'transcription':
             updateTranscript(data.text);
             break;
         case 'processing':
@@ -463,8 +611,8 @@ function handleServerMessage(data) {
                 const latency = state.firstProcessingTimestamp - state.lastVadEndTimestamp;
                 addPerfEntry({
                     event: 'processing_start',
-                    label: '⚙️ Сервер пачаў апрацоўку',
-                    detail: `Затрымка (VAD → апрацоўка): ${latency} мс`,
+                    label: "?? ?????? ????? ?????????",
+                    detail: `???????? (VAD ? ?????????): ${latency} ??`,
                     elapsed_ms: latency,
                     duration_ms: latency,
                 });
@@ -472,12 +620,15 @@ function handleServerMessage(data) {
             setProcessingState(true);
             break;
         case 'response':
-            // Не здымаем processing тут, чакаем пачатку аўдыё (setSpeakingState)
             updateTranscript(data.text, true);
+            if (data.mode === 'teacher') {
+                state.teacherMode = true;
+                updateTeacherPanel();
+            }
             break;
         case 'error':
             setProcessingState(false);
-            updateStatus('Памылка: ' + data.message);
+            updateStatus("???????: " + data.message);
             break;
         case 'interruption_handshake':
             console.log('Server acknowledged interruption');
@@ -485,8 +636,22 @@ function handleServerMessage(data) {
         case 'perf_log':
             addPerfEntry(data);
             break;
-
-        // ── Server config (sent on WebSocket connect) ──
+        case 'teacher_mode_started':
+            state.teacherMode = true;
+            state.currentLessonId = data.lesson_id || state.currentLessonId;
+            updateTeacherPanel();
+            if (data.prompt) {
+                updateTranscript(data.prompt, true);
+            }
+            updateStatus("????? ?????????? ???????.");
+            break;
+        case 'teacher_mode_stopped':
+            state.teacherMode = false;
+            updateTeacherPanel();
+            if (!state.isRecording && !state.isProcessing && !state.isSpeaking) {
+                updateStatus("????????? ?? ???????? ??? ???????");
+            }
+            break;
         case 'voice_config':
             console.log('[Voice] Server config received:', data);
             if (data.sample_rate) pcmPlayer.sampleRate = data.sample_rate;
@@ -494,8 +659,6 @@ function handleServerMessage(data) {
             if (data.playback_min_buffer_ms !== undefined) pcmPlayer.minBufferMs = data.playback_min_buffer_ms;
             if (data.playback_empty_grace_ms !== undefined) pcmPlayer.emptyGraceMs = data.playback_empty_grace_ms;
             break;
-
-        // ── Raw PCM audio chunks (local TTS, minimal latency) ──
         case 'audio_pcm':
             if (!state.interruptRequested) {
                 handlePcmChunk(data);
@@ -1118,6 +1281,8 @@ function togglePerfPanel() {
 // ===========================
 function init() {
     createVisualizerBars();
+    fetchTeacherLessons();
+    updateTeacherPanel();
     connectWebSocket();
 
     elements.micBtn.addEventListener('click', () => {
@@ -1138,6 +1303,32 @@ function init() {
             stopSession();
         }
     });
+
+    if (elements.teacherToggle) {
+        elements.teacherToggle.addEventListener('change', () => {
+            if (elements.teacherToggle.checked) {
+                startTeacherMode();
+            } else {
+                stopTeacherMode();
+            }
+        });
+    }
+
+    if (elements.teacherLessonSelect) {
+        elements.teacherLessonSelect.addEventListener('change', () => {
+            state.currentLessonId = elements.teacherLessonSelect.value;
+            const shouldRestart = state.teacherMode;
+            if (shouldRestart) {
+                stopTeacherMode();
+                if (elements.teacherToggle) {
+                    elements.teacherToggle.checked = true;
+                }
+                startTeacherMode();
+            } else {
+                updateTeacherPanel();
+            }
+        });
+    }
 
     // Perf panel controls
     if (elements.perfToggle) {

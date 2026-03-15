@@ -45,12 +45,14 @@ app.add_middleware(
 from api.chat import router as chat_router
 from api.files import router as files_router
 from api.health import router as health_router
+from api.teacher import router as teacher_router
 from api.voice import router as voice_router
 from api.voice_history import router as voice_history_router
 
 app.include_router(chat_router)
 app.include_router(files_router)
 app.include_router(health_router)
+app.include_router(teacher_router)
 app.include_router(voice_router)
 app.include_router(voice_history_router)
 

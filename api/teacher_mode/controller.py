@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import time
 
 from api.teacher_mode.analytics import log_teacher_turn
@@ -12,6 +13,8 @@ from api.teacher_mode.models import (
     TeacherTurnOutcome,
 )
 from api.teacher_mode.session_store import SessionStateStore
+
+log = logging.getLogger("app.voice.teacher")
 
 
 class TeacherController:
@@ -51,6 +54,7 @@ class TeacherController:
         session_id: str,
         user_id: str,
         audio_data: bytes,
+        transcript: str = "",
     ) -> TeacherTurnOutcome:
         t0 = time.time()
         state = self.session_store.get(session_id, user_id)
@@ -60,15 +64,22 @@ class TeacherController:
         lesson = self.lesson_store.get_lesson(state.lesson_id)
         fallback_reason = None
         error_tags: list[str] = []
+        resolved_transcript = transcript.strip()
+        resolved_normalized = resolved_transcript.lower()
 
         try:
             result = await self.adapter.evaluate_student_audio(
                 audio_data=audio_data,
+                transcript=transcript,
                 lesson=lesson,
                 session=state,
             )
+            resolved_transcript = (result.input_understanding.transcript or resolved_transcript).strip()
+            resolved_normalized = (
+                result.input_understanding.normalized_transcript or resolved_transcript.lower()
+            ).strip()
 
-            next_step_id = result.pedagogical_action.next_step_id
+            next_step_id = result.pedagogical_action.next_step_id or state.current_step_id
             allowed = lesson.allowed_transitions.get(state.current_step_id, [])
             if next_step_id != state.current_step_id and next_step_id not in allowed:
                 fallback_reason = "invalid_transition"
@@ -77,10 +88,16 @@ class TeacherController:
                 reply_text = self._fallback_reply(state.current_step_id, lesson)
             else:
                 teacher_action = result.pedagogical_action.teacher_action
-                reply_text = self._limit_reply_text(result.tts_output.reply_text)
+                reply_text = self._limit_reply_text(
+                    result.tts_output.reply_text or self._fallback_reply(state.current_step_id, lesson)
+                )
 
             state.current_step_id = next_step_id
-            if teacher_action in {TeacherAction.correct_and_retry, TeacherAction.hint_and_retry, TeacherAction.repeat_question}:
+            if teacher_action in {
+                TeacherAction.correct_and_retry,
+                TeacherAction.hint_and_retry,
+                TeacherAction.repeat_question,
+            }:
                 state.attempt_count += 1
             else:
                 state.attempt_count = 0
@@ -98,13 +115,13 @@ class TeacherController:
             if teacher_action == TeacherAction.finish_lesson:
                 state.lesson_status = LessonStatus.completed
 
-            state.recent_turn_summary = f"{result.evaluation.student_answer_status.value}:{result.input_understanding.normalized_transcript[:80]}"
+            state.recent_turn_summary = f"{result.evaluation.student_answer_status.value}:{resolved_normalized[:80]}"
             self.session_store.save(state)
 
             outcome = TeacherTurnOutcome(
                 reply_text=reply_text,
-                transcript=result.input_understanding.transcript,
-                normalized_transcript=result.input_understanding.normalized_transcript,
+                transcript=resolved_transcript,
+                normalized_transcript=resolved_normalized,
                 answer_status=result.evaluation.student_answer_status,
                 teacher_action=teacher_action,
                 step_id=state.current_step_id,
@@ -113,8 +130,17 @@ class TeacherController:
             error_tags = list(result.evaluation.error_tags)
 
         except Exception:
+            log.exception(
+                "teacher_controller_error lesson=%s step=%s transcript=%r normalized=%r",
+                state.lesson_id,
+                state.current_step_id,
+                resolved_transcript,
+                resolved_normalized,
+            )
             outcome = TeacherTurnOutcome(
                 reply_text=self._fallback_reply(state.current_step_id, lesson),
+                transcript=resolved_transcript,
+                normalized_transcript=resolved_normalized,
                 step_id=state.current_step_id,
                 fallback_reason="model_or_parse_error",
             )
@@ -132,7 +158,7 @@ class TeacherController:
 
     def _fallback_reply(self, step_id: str, lesson) -> str:
         hint = lesson.hints.get(step_id) or self._step_hint(lesson, step_id)
-        return self._limit_reply_text(f"Не расслышала адказ. Паўтарым крок. {hint}")
+        return self._limit_reply_text(f"Дрэнна пачуў адказ. Паўтарым крок. {hint}")
 
     @staticmethod
     def _step_hint(lesson, step_id: str) -> str:
