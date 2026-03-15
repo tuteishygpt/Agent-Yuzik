@@ -2,22 +2,133 @@
   "lesson_id": "basics_greetings",
   "title": "Вітанні па-беларуску",
   "level": "A1",
-  "lesson_goal": "Навучыцца вітацца і развітвацца",
+  "lesson_goal": "Навучыцца натуральна вітацца, пытацца пра справы, прадстаўляцца і развітвацца па-беларуску",
+  "lesson_words": [
+    "Добры дзень",
+    "Дзень добры",
+    "Добры вечар",
+    "Добрага здароўя",
+    "Здароў",
+    "Вітаю",
+    "Чалом",
+    "Дабраслаў",
+    "Як маешся?",
+    "Як маецеся?",
+    "А што ты?",
+    "Як цябе завуць?",
+    "Мяне завуць",
+    "Вельмі прыемна",
+    "Да пабачання",
+    "Да пабачэння",
+    "Бывай",
+    "Бывайце",
+    "Шчасліва"
+  ],
   "steps": [
-    {"step_id": "intro", "type": "intro", "prompt": "Прывітанне! Скажы: Добры дзень.", "hint": "Пачні з фразы Добры дзень."},
-    {"step_id": "ask_name", "type": "ask", "prompt": "Як сказаць: Мяне завуць ...?", "expected_answer": "Мяне завуць", "hint": "Выкарыстай словы Мяне завуць."},
-    {"step_id": "summary", "type": "summary", "prompt": "Паўтары два выразы: Добры дзень і Да пабачэння.", "hint": "Скажы абедзве фразы."}
+    {
+      "step_id": "intro",
+      "type": "intro",
+      "prompt": "Пачнем з простага вітання. Паўтары: Добры дзень.",
+      "hint": "Скажы: Добры дзень."
+    },
+    {
+      "step_id": "day_good",
+      "type": "ask",
+      "prompt": "Які яшчэ натуральны беларускі варыянт вітання, блізкі да Добры дзень?",
+      "expected_answer": "Дзень добры",
+      "hint": "Скажы: Дзень добры."
+    },
+    {
+      "step_id": "good_evening",
+      "type": "ask",
+      "prompt": "А як павітацца ўвечары?",
+      "expected_answer": "Добры вечар",
+      "hint": "Скажы: Добры вечар."
+    },
+    {
+      "step_id": "health_greeting",
+      "type": "ask",
+      "prompt": "Якая беларуская фраза адпавядае ветліваму вітанню накшталт здравствуйте?",
+      "expected_answer": "Добрага здароўя",
+      "hint": "Поўная фраза: Добрага здароўя!"
+    },
+    {
+      "step_id": "ask_name",
+      "type": "ask",
+      "prompt": "Як ветліва спытаць у чалавека яго імя?",
+      "expected_answer": "Як цябе завуць",
+      "hint": "Пачні так: Як цябе завуць?"
+    },
+    {
+      "step_id": "say_name",
+      "type": "sentence",
+      "prompt": "Цяпер прадстаўся сам. Скажы сказ з фразай Мяне завуць...",
+      "expected_answer": "Мяне завуць",
+      "hint": "Напрыклад: Мяне завуць Аня."
+    },
+    {
+      "step_id": "ask_feeling",
+      "type": "sentence",
+      "prompt": "Скажы беларускую фразу, каб спытаць у суразмоўцы пра справы.",
+      "expected_answer": "Як маешся",
+      "hint": "Можна сказаць: Як маешся?"
+    },
+    {
+      "step_id": "nice_to_meet",
+      "type": "sentence",
+      "prompt": "Скажы ветлівую фразу пасля знаёмства.",
+      "expected_answer": "Вельмі прыемна",
+      "hint": "Можна сказаць: Вельмі прыемна."
+    },
+    {
+      "step_id": "goodbye",
+      "type": "ask",
+      "prompt": "Як па-беларуску сказаць goodbye?",
+      "expected_answer": "Да пабачання",
+      "hint": "Лепш сказаць: Да пабачання."
+    },
+    {
+      "step_id": "summary",
+      "type": "summary",
+      "prompt": "Паўтары кароткі дыялог: Добры дзень. Як маешся? Як цябе завуць? Мяне завуць ... Да пабачання.",
+      "hint": "Скажы ўвесь дыялог павольна і выразна."
+    }
   ],
   "allowed_transitions": {
-    "intro": ["ask_name"],
-    "ask_name": ["summary"],
+    "intro": ["day_good"],
+    "day_good": ["good_evening"],
+    "good_evening": ["health_greeting"],
+    "health_greeting": ["ask_name"],
+    "ask_name": ["say_name"],
+    "say_name": ["ask_feeling"],
+    "ask_feeling": ["nice_to_meet"],
+    "nice_to_meet": ["goodbye"],
+    "goodbye": ["summary"],
     "summary": ["summary"]
   },
-  "retry_limits": {"intro": 2, "ask_name": 2, "summary": 2},
+  "retry_limits": {
+    "intro": 2,
+    "day_good": 2,
+    "good_evening": 2,
+    "health_greeting": 2,
+    "ask_name": 3,
+    "say_name": 3,
+    "ask_feeling": 2,
+    "nice_to_meet": 2,
+    "goodbye": 2,
+    "summary": 3
+  },
   "hints": {
     "intro": "Скажы: Добры дзень.",
-    "ask_name": "Пачні так: Мяне завуць Аня.",
-    "summary": "Скажы абедзве фразы павольна."
+    "day_good": "Яшчэ адзін добры варыянт: Дзень добры.",
+    "good_evening": "Вячэрняе вітанне: Добры вечар.",
+    "health_greeting": "Ветлівае вітанне: Добрага здароўя.",
+    "ask_name": "Поўная фраза: Як цябе завуць?",
+    "say_name": "Пачні са слоў Мяне завуць, а потым дадай імя.",
+    "ask_feeling": "Кароткае пытанне пра справы: Як маешся?",
+    "nice_to_meet": "Кароткая ветлівая фраза: Вельмі прыемна.",
+    "goodbye": "Фраза для развітання: Да пабачання.",
+    "summary": "Паўтары ўвесь дыялог: вітанне, пытанне пра справы, пытанне пра імя, адказ і развітанне."
   },
-  "finish_condition": "student_can_say_greeting_and_bye"
+  "finish_condition": "student_can_use_core_belarusian_greetings_questions_and_goodbyes"
 }

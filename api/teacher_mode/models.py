@@ -26,6 +26,7 @@ class LessonDefinition(BaseModel):
     title: str
     level: str
     lesson_goal: str
+    lesson_words: List[str] = Field(default_factory=list)
     steps: List[LessonStep]
     allowed_transitions: Dict[str, List[str]]
     retry_limits: Dict[str, int] = Field(default_factory=dict)

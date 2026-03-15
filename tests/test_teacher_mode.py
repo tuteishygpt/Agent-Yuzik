@@ -54,18 +54,22 @@ def _result(
     next_step_id: str,
     action: TeacherAction,
     status: StudentAnswerStatus = StudentAnswerStatus.correct,
+    *,
+    transcript: str = "dobry dzien",
+    normalized_transcript: str = "dobry dzien",
+    matched_target: str = "dobry dzien",
 ):
     return GeminiTeacherResult(
         input_understanding=InputUnderstanding(
-            transcript="dobry dzien",
-            normalized_transcript="dobry dzien",
+            transcript=transcript,
+            normalized_transcript=normalized_transcript,
             detected_language="be",
             audio_quality_status="ok",
         ),
         evaluation=EvaluationBlock(
             student_answer_status=status,
             confidence=0.9,
-            matched_target="dobry dzien",
+            matched_target=matched_target,
             error_tags=[],
         ),
         pedagogical_action=PedagogicalActionBlock(
@@ -94,7 +98,7 @@ def _wav_bytes() -> bytes:
 def test_teacher_controller_valid_transition_advances():
     lesson_store = LessonStore()
     session_store = SessionStateStore()
-    adapter = FakeAdapter(_result("ask_name", TeacherAction.praise_and_advance))
+    adapter = FakeAdapter(_result("day_good", TeacherAction.praise_and_advance))
     controller = TeacherController(lesson_store, session_store, adapter)
 
     controller.start_lesson(session_id="s1", user_id="u1", lesson_id="basics_greetings")
@@ -102,7 +106,7 @@ def test_teacher_controller_valid_transition_advances():
 
     state = controller.get_state(session_id="s1", user_id="u1")
     assert state is not None
-    assert state.current_step_id == "ask_name"
+    assert state.current_step_id == "day_good"
     assert out.teacher_action == TeacherAction.praise_and_advance
 
 
@@ -120,6 +124,25 @@ def test_teacher_controller_invalid_transition_fallbacks():
     assert state.current_step_id == "intro"
     assert out.teacher_action == TeacherAction.repeat_question
     assert out.fallback_reason == "invalid_transition"
+
+
+def test_teacher_controller_blocks_premature_finish_and_advances_normally():
+    lesson_store = LessonStore()
+    session_store = SessionStateStore()
+    adapter = FakeAdapter(_result("good_evening", TeacherAction.finish_lesson))
+    controller = TeacherController(lesson_store, session_store, adapter)
+
+    state = controller.start_lesson(session_id="s2b", user_id="u2b", lesson_id="basics_greetings")
+    state.current_step_id = "day_good"
+    controller.session_store.save(state)
+
+    out = asyncio.run(controller.process_audio_turn(session_id="s2b", user_id="u2b", audio_data=b"x"))
+
+    state = controller.get_state(session_id="s2b", user_id="u2b")
+    assert state is not None
+    assert state.current_step_id == "good_evening"
+    assert out.teacher_action == TeacherAction.praise_and_advance
+    assert out.fallback_reason == "premature_finish_blocked"
 
 
 def test_teacher_controller_retry_limit_turns_into_hint():
@@ -155,6 +178,59 @@ def test_teacher_controller_preserves_transcript_on_fallback():
     assert out.fallback_reason == "model_or_parse_error"
     assert out.transcript == "mama i tata"
     assert out.normalized_transcript == "mama i tata"
+
+
+def test_teacher_controller_advances_on_exact_intro_match_even_if_model_retries():
+    lesson_store = LessonStore()
+    session_store = SessionStateStore()
+    adapter = FakeAdapter(
+        _result(
+            "intro",
+            TeacherAction.repeat_question,
+            StudentAnswerStatus.correct,
+            transcript="Добры дзень",
+            normalized_transcript="добры дзень",
+            matched_target="Добры дзень",
+        )
+    )
+    controller = TeacherController(lesson_store, session_store, adapter)
+
+    controller.start_lesson(session_id="s4b", user_id="u4b", lesson_id="basics_greetings")
+    out = asyncio.run(controller.process_audio_turn(session_id="s4b", user_id="u4b", audio_data=b"x"))
+
+    state = controller.get_state(session_id="s4b", user_id="u4b")
+    assert state is not None
+    assert state.current_step_id == "day_good"
+    assert out.teacher_action == TeacherAction.praise_and_advance
+    assert out.step_id == "day_good"
+
+
+def test_teacher_controller_advances_on_sentence_prefix_match():
+    lesson_store = LessonStore()
+    session_store = SessionStateStore()
+    adapter = FakeAdapter(
+        _result(
+            "say_name",
+            TeacherAction.repeat_question,
+            StudentAnswerStatus.correct,
+            transcript="Мяне завуць Аня",
+            normalized_transcript="мяне завуць аня",
+            matched_target="Мяне завуць",
+        )
+    )
+    controller = TeacherController(lesson_store, session_store, adapter)
+
+    state = controller.start_lesson(session_id="s4c", user_id="u4c", lesson_id="basics_greetings")
+    state.current_step_id = "say_name"
+    controller.session_store.save(state)
+
+    out = asyncio.run(controller.process_audio_turn(session_id="s4c", user_id="u4c", audio_data=b"x"))
+
+    state = controller.get_state(session_id="s4c", user_id="u4c")
+    assert state is not None
+    assert state.current_step_id == "ask_feeling"
+    assert out.teacher_action == TeacherAction.praise_and_advance
+    assert out.step_id == "ask_feeling"
 
 
 def test_teacher_adapter_uses_remote_transcript_when_input_transcript_missing():
@@ -250,4 +326,12 @@ def test_teacher_adapter_normalizes_simplified_model_payload():
     assert result.input_understanding.transcript == "Добры дзень"
     assert result.evaluation.student_answer_status == StudentAnswerStatus.correct
     assert result.pedagogical_action.teacher_action == TeacherAction.praise_and_advance
-    assert result.pedagogical_action.next_step_id == "ask_name"
+    assert result.pedagogical_action.next_step_id == "day_good"
+
+
+def test_greetings_lesson_exposes_lesson_words():
+    lesson = LessonStore().get_lesson("basics_greetings")
+
+    assert "Добры дзень" in lesson.lesson_words
+    assert "Добрага здароўя" in lesson.lesson_words
+    assert "Да пабачання" in lesson.lesson_words

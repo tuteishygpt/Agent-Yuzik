@@ -37,6 +37,7 @@ class GeminiTeacherAdapter:
             "title": lesson.title,
             "level": lesson.level,
             "lesson_goal": lesson.lesson_goal,
+            "lesson_words": lesson.lesson_words,
             "steps": [s.model_dump() for s in lesson.steps],
             "allowed_transitions": lesson.allowed_transitions,
             "retry_limits": lesson.retry_limits,

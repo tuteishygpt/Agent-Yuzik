@@ -366,6 +366,7 @@ const elements = {
     statusText: document.getElementById('status-text'),
     visualizer: document.getElementById('visualizer'),
     transcript: document.getElementById('transcript'),
+    ttsText: document.getElementById('tts-text'),
     startBtn: document.getElementById('start-btn'),
     stopBtn: document.getElementById('stop-btn'),
     transcriptBox: document.querySelector('.transcript-box'),
@@ -603,7 +604,7 @@ function handleServerMessage(data) {
     switch (data.type) {
         case 'transcript':
         case 'transcription':
-            updateTranscript(data.text);
+            updateTranscription(data.text);
             break;
         case 'processing':
             if (state.firstProcessingTimestamp === 0 && state.lastVadEndTimestamp > 0) {
@@ -620,7 +621,7 @@ function handleServerMessage(data) {
             setProcessingState(true);
             break;
         case 'response':
-            updateTranscript(data.text, true);
+            updateTtsText(data.text);
             if (data.mode === 'teacher') {
                 state.teacherMode = true;
                 updateTeacherPanel();
@@ -641,7 +642,7 @@ function handleServerMessage(data) {
             state.currentLessonId = data.lesson_id || state.currentLessonId;
             updateTeacherPanel();
             if (data.prompt) {
-                updateTranscript(data.prompt, true);
+                updateTtsText(data.prompt);
             }
             updateStatus("????? ?????????? ???????.");
             break;
@@ -1178,6 +1179,22 @@ function updateStatus(text) {
 function updateTranscript(text, isResponse = false) {
     const prefix = isResponse ? 'Юзік: ' : '👤 ';
     elements.transcript.textContent = prefix + text;
+    if (elements.transcriptBox) {
+        elements.transcriptBox.scrollTop = elements.transcriptBox.scrollHeight;
+    }
+}
+
+function updateTranscription(text) {
+    elements.transcript.textContent = text ? `Вучань: ${text}` : 'Вучань: —';
+    if (elements.transcriptBox) {
+        elements.transcriptBox.scrollTop = elements.transcriptBox.scrollHeight;
+    }
+}
+
+function updateTtsText(text) {
+    if (elements.ttsText) {
+        elements.ttsText.textContent = text ? `Настаўнік: ${text}` : 'Настаўнік: —';
+    }
     if (elements.transcriptBox) {
         elements.transcriptBox.scrollTop = elements.transcriptBox.scrollHeight;
     }

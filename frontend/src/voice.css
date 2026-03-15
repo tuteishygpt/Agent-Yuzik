@@ -523,6 +523,12 @@ body {
     scrollbar-color: var(--primary) transparent;
 }
 
+.transcript-section + .transcript-section {
+    margin-top: 1.1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--glass-border);
+}
+
 .transcript-box::-webkit-scrollbar {
     width: 6px;
 }
@@ -543,8 +549,6 @@ body {
     color: var(--text-secondary);
     margin-bottom: 1rem;
     display: block;
-    border-bottom: 1px solid var(--glass-border);
-    padding-bottom: 0.5rem;
 }
 
 .transcript-text {
@@ -553,6 +557,14 @@ body {
     line-height: 1.6;
     font-weight: 400;
     word-wrap: break-word;
+}
+
+.transcript-text-user {
+    color: #f4f7ff;
+}
+
+.transcript-text-bot {
+    color: #9ce7c0;
 }
 
 .voice-controls {

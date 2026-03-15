@@ -7,11 +7,11 @@
     <title>Галасавы Агент - Юзік</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <script type="module" crossorigin src="/assets/voice-BXhXGXaz.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script type="module" crossorigin src="/assets/voice-DQRuJlOM.js"></script>
   <link rel="modulepreload" crossorigin href="/assets/styles-C9UiR0sO.js">
   <link rel="stylesheet" crossorigin href="/assets/styles-BRW-3hpf.css">
-  <link rel="stylesheet" crossorigin href="/assets/voice-tygOSL-Z.css">
+  <link rel="stylesheet" crossorigin href="/assets/voice-z00xQ_5i.css">
 </head>
 
 <body>
@@ -23,7 +23,7 @@
 
         <h1 class="voice-title">🎙️ Галасавы Агент - Юзік</h1>
 
-                <section class="teacher-panel" id="teacher-panel">
+        <section class="teacher-panel" id="teacher-panel">
             <div class="teacher-panel-row">
                 <span class="teacher-panel-label">Настаўнік</span>
                 <select class="teacher-select" id="teacher-lesson-select" disabled>
@@ -40,7 +40,6 @@
 
         <div class="mic-wrapper">
             <div class="mic-container" id="mic-btn">
-                <!-- Ідле / слухае — мікрафон -->
                 <svg class="state-icon icon-listen" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
                     <rect x="22" y="6" width="20" height="32" rx="10" fill="currentColor" opacity="0.95" />
                     <path d="M12 32c0 11 9 20 20 20s20-9 20-20" stroke="currentColor" stroke-width="4"
@@ -51,23 +50,18 @@
                         stroke-linecap="round" />
                 </svg>
 
-                <!-- Думае — Беларуская Валошка -->
                 <svg class="state-icon icon-think" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <!-- Цэнтр кветкі -->
                     <circle cx="32" cy="32" r="6" fill="currentColor" />
-                    <!-- Пялёсткі (геаметрычныя, у стылі арнаменту) -->
                     <path d="M32 4 L38 20 L32 26 L26 20 Z" fill="currentColor" opacity="0.9" />
                     <path d="M32 60 L38 44 L32 38 L26 44 Z" fill="currentColor" opacity="0.9" />
                     <path d="M4 32 L20 26 L26 32 L20 38 Z" fill="currentColor" opacity="0.9" />
                     <path d="M60 32 L44 26 L38 32 L44 38 Z" fill="currentColor" opacity="0.9" />
-                    <!-- Дыяганальныя пялёсткі -->
                     <path d="M12 12 L24 22 L18 28 L8 18 Z" fill="currentColor" opacity="0.7" />
                     <path d="M52 52 L40 42 L46 36 L56 46 Z" fill="currentColor" opacity="0.7" />
                     <path d="M12 52 L22 40 L28 46 L18 56 Z" fill="currentColor" opacity="0.7" />
                     <path d="M52 12 L42 22 L36 16 L46 6 Z" fill="currentColor" opacity="0.7" />
                 </svg>
 
-                <!-- Гаворыць — гучнамоўца з хвалямі -->
                 <svg class="state-icon icon-speak" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
                     <polygon points="10,22 26,22 38,10 38,54 26,42 10,42" fill="currentColor" opacity="0.95" />
                     <path d="M44 22 Q52 32 44 42" stroke="currentColor" stroke-width="4" stroke-linecap="round"
@@ -86,8 +80,14 @@
         </div>
 
         <div class="transcript-box">
-            <p class="transcript-label">📝 Транскрыпцыя:</p>
-            <p class="transcript-text" id="transcript">Тут будзе паказаны тэкст размовы...</p>
+            <div class="transcript-section">
+                <p class="transcript-label">📝 Транскрыпцыя:</p>
+                <p class="transcript-text transcript-text-user" id="transcript">Вучань: —</p>
+            </div>
+            <div class="transcript-section">
+                <p class="transcript-label">🔊 Тэкст для TTS:</p>
+                <p class="transcript-text transcript-text-bot" id="tts-text">Настаўнік: —</p>
+            </div>
         </div>
 
         <div class="voice-controls">
@@ -96,7 +96,6 @@
         </div>
     </div>
 
-    <!-- Performance Log Panel -->
     <button class="perf-toggle-btn" id="perf-toggle" title="Логі прадукцыйнасці">
         📊
     </button>
@@ -117,18 +116,15 @@
         </div>
     </div>
 
-    <!-- ONNX Runtime for VAD - use bundled version to avoid CORS issues -->
     <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.14.0/dist/ort.min.js"></script>
     <script>
-        // Configure ONNX Runtime WASM paths - use v1.14.0 which is more compatible
         if (window.ort) {
             ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.14.0/dist/';
             ort.env.wasm.numThreads = 1;
             ort.env.wasm.simd = true;
         }
     </script>
-    <!-- Silero VAD Library - use v0.0.18 which works with onnxruntime-web 1.14 -->
-    <script src="https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.18/dist/bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.18/dist/bundle.min.js"></script>
 </body>
 
 </html>

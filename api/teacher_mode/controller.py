@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 
 from api.teacher_mode.analytics import log_teacher_turn
@@ -81,7 +82,16 @@ class TeacherController:
 
             next_step_id = result.pedagogical_action.next_step_id or state.current_step_id
             allowed = lesson.allowed_transitions.get(state.current_step_id, [])
-            if next_step_id != state.current_step_id and next_step_id not in allowed:
+            deterministic_step_id = self._matched_next_step_id(
+                lesson=lesson,
+                step_id=state.current_step_id,
+                normalized_transcript=resolved_normalized,
+            )
+            if deterministic_step_id:
+                next_step_id = deterministic_step_id
+                teacher_action = TeacherAction.praise_and_advance
+                reply_text = self._success_reply(lesson=lesson, step_id=next_step_id)
+            elif next_step_id != state.current_step_id and next_step_id not in allowed:
                 fallback_reason = "invalid_transition"
                 next_step_id = state.current_step_id
                 teacher_action = TeacherAction.repeat_question
@@ -91,6 +101,15 @@ class TeacherController:
                 reply_text = self._limit_reply_text(
                     result.tts_output.reply_text or self._fallback_reply(state.current_step_id, lesson)
                 )
+
+            if teacher_action == TeacherAction.finish_lesson and state.current_step_id != "summary":
+                fallback_reason = fallback_reason or "premature_finish_blocked"
+                teacher_action = TeacherAction.praise_and_advance if next_step_id in allowed else TeacherAction.repeat_question
+                if teacher_action == TeacherAction.praise_and_advance and next_step_id != state.current_step_id:
+                    reply_text = self._success_reply(lesson=lesson, step_id=next_step_id)
+                else:
+                    next_step_id = state.current_step_id
+                    reply_text = self._fallback_reply(state.current_step_id, lesson)
 
             state.current_step_id = next_step_id
             if teacher_action in {
@@ -159,6 +178,64 @@ class TeacherController:
     def _fallback_reply(self, step_id: str, lesson) -> str:
         hint = lesson.hints.get(step_id) or self._step_hint(lesson, step_id)
         return self._limit_reply_text(f"Дрэнна пачуў адказ. Паўтарым крок. {hint}")
+
+    @staticmethod
+    def _success_reply(*, lesson, step_id: str) -> str:
+        for step in lesson.steps:
+            if step.step_id == step_id:
+                return TeacherController._limit_reply_text(
+                    f"\u0412\u044b\u0434\u0430\u0442\u043d\u0430. {step.prompt}"
+                )
+        return "\u0412\u044b\u0434\u0430\u0442\u043d\u0430. \u0406\u0434\u0437\u0435\u043c \u0434\u0430\u043b\u0435\u0439."
+
+    @staticmethod
+    def _matched_next_step_id(*, lesson, step_id: str, normalized_transcript: str) -> str | None:
+        normalized_transcript = TeacherController._normalize_text(normalized_transcript)
+        if not normalized_transcript:
+            return None
+
+        current_step = None
+        for step in lesson.steps:
+            if step.step_id == step_id:
+                current_step = step
+                break
+        if current_step is None:
+            return None
+
+        for candidate in TeacherController._step_expected_candidates(current_step):
+            if candidate in normalized_transcript:
+                next_steps = lesson.allowed_transitions.get(step_id, [])
+                return next_steps[0] if next_steps else step_id
+        return None
+
+    @staticmethod
+    def _step_expected_candidates(step) -> list[str]:
+        candidates: list[str] = []
+        for raw in (step.expected_answer, step.hint, step.prompt):
+            if not raw:
+                continue
+
+            normalized = TeacherController._normalize_text(raw)
+            if normalized:
+                candidates.append(normalized)
+
+            if ":" in raw:
+                _, suffix = raw.split(":", 1)
+                normalized_suffix = TeacherController._normalize_text(suffix)
+                if normalized_suffix:
+                    candidates.append(normalized_suffix)
+
+        unique_candidates: list[str] = []
+        for candidate in candidates:
+            if candidate not in unique_candidates:
+                unique_candidates.append(candidate)
+        return unique_candidates
+
+    @staticmethod
+    def _normalize_text(text: str) -> str:
+        lowered = text.lower().replace("\u0451", "\u0435")
+        cleaned = re.sub(r"[^\w\s]", " ", lowered, flags=re.UNICODE)
+        return " ".join(cleaned.split())
 
     @staticmethod
     def _step_hint(lesson, step_id: str) -> str:
