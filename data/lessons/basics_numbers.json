@@ -1,0 +1,25 @@
+{
+  "lesson_id": "basics_numbers",
+  "title": "Лічбы ад аднаго да пяці",
+  "level": "A1",
+  "lesson_goal": "Навучыцца называць лічбы 1-5",
+  "steps": [
+    {"step_id": "intro", "type": "intro", "prompt": "Сёння лічбы. Паўтары: адзін, два, тры.", "hint": "Скажы: адзін, два, тры."},
+    {"step_id": "ask_four", "type": "ask", "prompt": "Якая беларуская лічба для four?", "expected_answer": "чатыры", "hint": "Гэта слова пачынаецца на ча-."},
+    {"step_id": "sentence", "type": "sentence", "prompt": "Складзі сказ са словам пяць.", "expected_answer": "пяць", "hint": "Напрыклад: У мяне пяць кніг."},
+    {"step_id": "summary", "type": "summary", "prompt": "Назаві лічбы ад аднаго да пяці.", "hint": "адзін, два, тры, чатыры, пяць"}
+  ],
+  "allowed_transitions": {
+    "intro": ["ask_four"],
+    "ask_four": ["sentence"],
+    "sentence": ["summary"],
+    "summary": ["summary"]
+  },
+  "retry_limits": {"ask_four": 2, "sentence": 2, "summary": 2},
+  "hints": {
+    "ask_four": "Правільна: чатыры.",
+    "sentence": "Скажы кароткі сказ з словам пяць.",
+    "summary": "Назаві ўсе пяць лікаў без спешкі."
+  },
+  "finish_condition": "student_counts_1_to_5"
+}
