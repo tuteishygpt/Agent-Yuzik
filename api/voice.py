@@ -32,6 +32,7 @@ from api.voice_utils import (
 from api.voice_perf import PerfLogger
 from api.voice_simple import handle_simple_voice
 from api.voice_adk import handle_adk_voice
+from api.teacher_mode.service import controller as teacher_controller
 from tools.text_to_speech_tool import register_voice_user, unregister_voice_user
 
 log = logging.getLogger("app.voice")
@@ -129,7 +130,7 @@ async def _process_voice_message(
 
         # ── Step 2: Dispatch to handler ──
         if config.SIMPLE_VOICE_AGENT:
-            await handle_simple_voice(audio_data, websocket, audio_queue, perf, user_id)
+            await handle_simple_voice(audio_data, websocket, audio_queue, perf, user_id, ws_session_id=session_id)
         else:
             await handle_adk_voice(audio_data, websocket, session_id, user_id, perf)
 
@@ -249,6 +250,27 @@ async def voice_websocket(websocket: WebSocket, user_id: str = "voice_user"):
                         active_voice_tasks[ws_session_id].cancel()
                         del active_voice_tasks[ws_session_id]
                     await websocket.send_json({"type": "interruption_handshake"})
+
+                elif msg_type == "teacher_start_lesson":
+                    lesson_id = msg.get("lesson_id")
+                    if not lesson_id:
+                        await websocket.send_json({"type": "error", "message": "lesson_id is required"})
+                        continue
+                    state = teacher_controller.start_lesson(
+                        session_id=session_id,
+                        user_id=user_id,
+                        lesson_id=lesson_id,
+                    )
+                    await websocket.send_json({
+                        "type": "teacher_mode_started",
+                        "lesson_id": state.lesson_id,
+                        "step_id": state.current_step_id,
+                        "mode": "teacher",
+                    })
+
+                elif msg_type == "teacher_stop_lesson":
+                    teacher_controller.stop_lesson(session_id=session_id, user_id=user_id)
+                    await websocket.send_json({"type": "teacher_mode_stopped", "mode": "assistant"})
 
     except WebSocketDisconnect:
         log.info(f"Voice WebSocket disconnected for session {ws_session_id}")

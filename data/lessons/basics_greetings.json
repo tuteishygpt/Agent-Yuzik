@@ -1,0 +1,23 @@
+{
+  "lesson_id": "basics_greetings",
+  "title": "Вітанні па-беларуску",
+  "level": "A1",
+  "lesson_goal": "Навучыцца вітацца і развітвацца",
+  "steps": [
+    {"step_id": "intro", "type": "intro", "prompt": "Прывітанне! Скажы: Добры дзень.", "hint": "Пачні з фразы Добры дзень."},
+    {"step_id": "ask_name", "type": "ask", "prompt": "Як сказаць: Мяне завуць ...?", "expected_answer": "Мяне завуць", "hint": "Выкарыстай словы Мяне завуць."},
+    {"step_id": "summary", "type": "summary", "prompt": "Паўтары два выразы: Добры дзень і Да пабачэння.", "hint": "Скажы абедзве фразы."}
+  ],
+  "allowed_transitions": {
+    "intro": ["ask_name"],
+    "ask_name": ["summary"],
+    "summary": ["summary"]
+  },
+  "retry_limits": {"intro": 2, "ask_name": 2, "summary": 2},
+  "hints": {
+    "intro": "Скажы: Добры дзень.",
+    "ask_name": "Пачні так: Мяне завуць Аня.",
+    "summary": "Скажы абедзве фразы павольна."
+  },
+  "finish_condition": "student_can_say_greeting_and_bye"
+}

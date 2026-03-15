@@ -1,0 +1,25 @@
+{
+  "lesson_id": "basics_family",
+  "title": "Сям'я",
+  "level": "A1",
+  "lesson_goal": "Назваць членаў сям'і па-беларуску",
+  "steps": [
+    {"step_id": "intro", "type": "intro", "prompt": "Паўтары словы: мама, тата.", "hint": "Скажы: мама і тата."},
+    {"step_id": "ask_sister", "type": "ask", "prompt": "Як па-беларуску будзе sister?", "expected_answer": "сястра", "hint": "Слова: сястра."},
+    {"step_id": "sentence", "type": "sentence", "prompt": "Скажы сказ пра сям'ю.", "expected_answer": "мая сям'я", "hint": "Напрыклад: Мая сям'я дружная."},
+    {"step_id": "summary", "type": "summary", "prompt": "Назаві тры словы на тэму сям'і.", "hint": "мама, тата, сястра"}
+  ],
+  "allowed_transitions": {
+    "intro": ["ask_sister"],
+    "ask_sister": ["sentence"],
+    "sentence": ["summary"],
+    "summary": ["summary"]
+  },
+  "retry_limits": {"ask_sister": 2, "sentence": 2},
+  "hints": {
+    "ask_sister": "Скажы: сястра.",
+    "sentence": "Пачні фразай Мая сям'я...",
+    "summary": "Назаві тры простыя словы пра сям'ю."
+  },
+  "finish_condition": "student_names_family_words"
+}

@@ -21,6 +21,7 @@ from google.genai import types
 
 import config
 from api.deps import get_genai_client
+from api.teacher_mode.service import controller as teacher_controller
 from api.voice_history import get_voice_history
 from api.voice_perf import PerfLogger
 from api.voice_utils import LOCAL_SAMPLE_RATE, compress_wav_to_mp3
@@ -258,6 +259,7 @@ async def handle_simple_voice(
     audio_queue: asyncio.Queue,
     perf: PerfLogger,
     user_id: str = "voice_user",
+    ws_session_id: str = "",
 ):
     """Process audio via Simple Voice Agent (direct Gemini → TTS streaming)."""
     start_ts = perf.start_ts
@@ -272,6 +274,44 @@ async def handle_simple_voice(
         detail=f"Мадэль: {config.SIMPLE_VOICE_MODEL} | аўдыё: {len(audio_data)} байт",
         duration_ms=round((time.time() - start_ts) * 1000),
     )
+
+    # ── Teacher mode extension ──
+    teacher_state = teacher_controller.get_state(session_id=ws_session_id, user_id=user_id)
+    if teacher_state:
+        log.info(_step("VOICE·TEACHER", f"📚 Teacher mode active | lesson={teacher_state.lesson_id}", start_ts))
+        await perf(
+            "teacher_mode",
+            "📚 Рэжым настаўніка актыўны",
+            detail=f"lesson_id={teacher_state.lesson_id} | step={teacher_state.current_step_id}",
+            duration_ms=round((time.time() - start_ts) * 1000),
+        )
+
+        tts = TTSWorker(audio_queue, perf, start_ts)
+        tts.start()
+        try:
+            outcome = await teacher_controller.process_audio_turn(
+                session_id=ws_session_id,
+                user_id=user_id,
+                audio_data=audio_data,
+            )
+
+            if outcome.transcript:
+                await websocket.send_json({"type": "transcription", "text": outcome.transcript})
+
+            await websocket.send_json({
+                "type": "response",
+                "text": outcome.reply_text,
+                "mode": "teacher",
+                "teacher_action": outcome.teacher_action.value,
+                "step_id": outcome.step_id,
+                "fallback_reason": outcome.fallback_reason,
+            })
+
+            await tts.dispatch(outcome.reply_text)
+            await tts.stop()
+            return
+        finally:
+            tts.cancel()
 
     client = get_genai_client()
 
