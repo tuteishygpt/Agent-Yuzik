@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import sys
 import wave
 from io import BytesIO
+from types import ModuleType, SimpleNamespace
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -38,17 +40,41 @@ class BrokenAdapter:
 
 
 class StubTeacherAdapter(GeminiTeacherAdapter):
-    def __init__(self, *, transcript_text: str = "", payload: dict | None = None):
-        self.transcript_text = transcript_text
+    def __init__(self, *, audio_payload: dict | None = None, payload: dict | None = None):
+        self.audio_payload = audio_payload
         self.payload = payload
 
-    async def _transcribe_audio_with_model(self, **kwargs) -> str:
-        return self.transcript_text
+    async def _evaluate_audio_with_model(self, **kwargs) -> dict:
+        if self.audio_payload is None:
+            raise ValueError("missing audio payload")
+        return self.audio_payload
 
     async def _evaluate_transcript(self, **kwargs) -> dict:
         if self.payload is None:
             raise ValueError("missing payload")
         return self.payload
+
+
+class RecordingAsyncModels:
+    def __init__(self, response):
+        self.response = response
+        self.calls = []
+
+    async def generate_content(self, **kwargs):
+        self.calls.append(kwargs)
+        return self.response
+
+
+class FakeGenAIClient:
+    def __init__(self, response):
+        self.models = RecordingAsyncModels(response)
+        self.aio = SimpleNamespace(models=self.models)
+
+
+def _install_fake_deps(monkeypatch, client):
+    fake_module = ModuleType("api.deps")
+    fake_module.get_genai_client = lambda: client
+    monkeypatch.setitem(sys.modules, "api.deps", fake_module)
 
 
 def _result(
@@ -273,11 +299,10 @@ def test_teacher_adapter_uses_remote_transcript_when_input_transcript_missing():
         FakeAdapter(_result("intro", TeacherAction.repeat_question)),
     ).start_lesson(session_id="s6", user_id="u6", lesson_id="basics_family")
     adapter = StubTeacherAdapter(
-        transcript_text="mama i tata",
-        payload={
+        audio_payload={
             "input_understanding": {
-                "transcript": "",
-                "normalized_transcript": "",
+                "transcript": "mama i tata",
+                "normalized_transcript": "mama i tata",
                 "detected_language": "be",
                 "audio_quality_status": "ok",
             },
@@ -359,6 +384,86 @@ def test_teacher_adapter_normalizes_simplified_model_payload():
     assert result.evaluation.student_answer_status == StudentAnswerStatus.correct
     assert result.pedagogical_action.teacher_action == TeacherAction.praise_and_advance
     assert result.pedagogical_action.next_step_id == "day_good"
+
+
+def test_teacher_adapter_transcript_uses_structured_output_from_sdk(monkeypatch):
+    lesson = LessonStore().get_lesson("basics_greetings")
+    session = TeacherController(
+        LessonStore(),
+        SessionStateStore(),
+        FakeAdapter(_result("intro", TeacherAction.repeat_question)),
+    ).start_lesson(session_id="s8", user_id="u8", lesson_id="basics_greetings")
+    response = SimpleNamespace(
+        text="not valid json",
+        parsed=_result(
+            "day_good",
+            TeacherAction.praise_and_advance,
+            transcript="Dobry dzien",
+            normalized_transcript="dobry dzien",
+            matched_target="Dobry dzien",
+        ),
+    )
+    client = FakeGenAIClient(response)
+    _install_fake_deps(monkeypatch, client)
+    adapter = GeminiTeacherAdapter()
+
+    result = asyncio.run(
+        adapter.evaluate_student_audio(
+            audio_data=_wav_bytes(),
+            transcript="Dobry dzien",
+            lesson=lesson,
+            session=session,
+        )
+    )
+
+    assert result.evaluation.student_answer_status == StudentAnswerStatus.correct
+    assert result.pedagogical_action.next_step_id == "day_good"
+    schema = client.models.calls[0]["config"].response_schema.model_json_schema()
+    assert "additionalProperties" not in json.dumps(schema)
+    assert client.models.calls[0]["config"].response_mime_type == "application/json"
+
+
+def test_teacher_adapter_audio_uses_structured_output_from_sdk(monkeypatch):
+    lesson = LessonStore().get_lesson("basics_family")
+    session = TeacherController(
+        LessonStore(),
+        SessionStateStore(),
+        FakeAdapter(_result("intro", TeacherAction.repeat_question)),
+    ).start_lesson(session_id="s9", user_id="u9", lesson_id="basics_family")
+    response = SimpleNamespace(
+        text="not valid json",
+        parsed=_result(
+            "ask_sister",
+            TeacherAction.praise_and_advance,
+            transcript="mama i tata",
+            normalized_transcript="mama i tata",
+            matched_target="mama i tata",
+        ),
+    )
+    client = FakeGenAIClient(response)
+    _install_fake_deps(monkeypatch, client)
+    adapter = GeminiTeacherAdapter()
+
+    async def fake_compress(audio_data):
+        return b"mp3"
+
+    monkeypatch.setattr(adapter, "_compress_audio_for_gemini", fake_compress)
+
+    result = asyncio.run(
+        adapter.evaluate_student_audio(
+            audio_data=_wav_bytes(),
+            transcript="",
+            lesson=lesson,
+            session=session,
+        )
+    )
+
+    assert result.input_understanding.transcript == "mama i tata"
+    assert result.input_understanding.normalized_transcript == "mama i tata"
+    assert result.pedagogical_action.next_step_id == "ask_sister"
+    schema = client.models.calls[0]["config"].response_schema.model_json_schema()
+    assert "additionalProperties" not in json.dumps(schema)
+    assert client.models.calls[0]["config"].response_mime_type == "application/json"
 
 
 def test_greetings_lesson_exposes_lesson_words():

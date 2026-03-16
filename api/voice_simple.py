@@ -37,6 +37,8 @@ _SENTENCE_END_RE = re.compile(r'[.!?…\n]+[\s»")\]]+')
 # Max characters to group into a single TTS chunk (after the first segment)
 # Паменшана з 250 да 190, каб TTS хутчэй атрымліваў новыя сказы і не чакаў доўга.
 _GROUP_LIMIT = 190
+_TTS_IDLE_STOP_TIMEOUT_S = 2.0
+_TTS_ACTIVE_STOP_TIMEOUT_S = 30.0
 
 
 # ── Timestamp helper ──────────────────────────────────────────────────
@@ -112,19 +114,36 @@ class TTSWorker:
         self._task = asyncio.create_task(self._run())
         return self._task
 
-    async def stop(self):
-        """Signal the worker to stop and wait for it to finish."""
-        log.info(_step("TTS·WORKER", "⏹ Sending sentinel (None) to sentence_queue", self._start_ts))
-        await self._sentence_queue.put(None)  # Sentinel
-        if self._task:
-            await self._task
-        log.info(_step("TTS·WORKER", "✅ Worker task finished", self._start_ts))
-
     def cancel(self):
         self._cancel_event.set()
         if self._task and not self._task.done():
             log.info(_step("TTS·WORKER", "❌ Worker task cancelled (cancel_event set)", self._start_ts))
             self._task.cancel()
+
+    async def stop(self):
+        """Signal the worker to stop and bound the wait for external TTS backends."""
+        log.info(_step("TTS·WORKER", "⏹ Sending sentinel (None) to sentence_queue", self._start_ts))
+        await self._sentence_queue.put(None)  # Sentinel
+        if self._task:
+            timeout_s = (
+                _TTS_ACTIVE_STOP_TIMEOUT_S
+                if self._first_dispatch_ts is not None
+                else _TTS_IDLE_STOP_TIMEOUT_S
+            )
+            try:
+                await asyncio.wait_for(asyncio.shield(self._task), timeout=timeout_s)
+            except asyncio.TimeoutError:
+                log.warning(_step(
+                    "TTS·WORKER",
+                    f"⚠️ stop() timeout after {timeout_s:.1f}s; cancelling stuck worker",
+                    self._start_ts,
+                ))
+                self.cancel()
+                try:
+                    await self._task
+                except asyncio.CancelledError:
+                    log.info(_step("TTS·WORKER", "🛑 Worker cancelled after stop timeout", self._start_ts))
+        log.info(_step("TTS·WORKER", "✅ Worker task finished", self._start_ts))
 
     async def dispatch(self, text: str):
         """Send text to the TTS queue with logging."""

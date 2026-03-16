@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 
 from google.genai import types
 
 import config
+from api.voice_utils import compress_wav_to_mp3
 from api.teacher_mode.models import (
     EvaluationBlock,
     GeminiTeacherResult,
+    GeminiTeacherStructuredResult,
     InputUnderstanding,
     LessonDefinition,
     LessonSessionState,
@@ -46,36 +49,26 @@ class GeminiTeacherAdapter:
             "finish_condition": lesson.finish_condition,
         }
         session_payload = session.model_dump()
-        step_hint = self._step_hint(lesson=lesson, step_id=session.current_step_id)
-
-        if not transcript_text:
-            transcript_text = await self._transcribe_audio_with_model(
-                audio_data=audio_data,
-                lesson=lesson,
-                session=session,
-                step_hint=step_hint,
-            )
-            log.info(
-                "teacher_adapter_remote_transcript lesson=%s step=%s transcript=%r",
-                lesson.lesson_id,
-                session.current_step_id,
-                transcript_text,
-            )
-
-        if not transcript_text:
-            return self._build_unclear_fallback(
-                transcript="",
-                lesson=lesson,
-                session=session,
-            )
 
         payload: dict | None = None
+
         try:
-            payload = await self._evaluate_transcript(
-                transcript=transcript_text,
-                lesson_payload=lesson_payload,
-                session_payload=session_payload,
-            )
+            if payload is None:
+                if transcript_text:
+                    payload = await self._evaluate_transcript(
+                        transcript=transcript_text,
+                        lesson_payload=lesson_payload,
+                        session_payload=session_payload,
+                    )
+                else:
+                    payload = await self._evaluate_audio_with_model(
+                        audio_data=audio_data,
+                        lesson=lesson,
+                        session=session,
+                        lesson_payload=lesson_payload,
+                        session_payload=session_payload,
+                    )
+
             payload = self._normalize_payload(
                 payload=payload,
                 transcript=transcript_text,
@@ -83,10 +76,18 @@ class GeminiTeacherAdapter:
                 session=session,
             )
             result = GeminiTeacherResult.model_validate(payload)
+            if not transcript_text:
+                transcript_text = result.input_understanding.transcript.strip()
             if not result.input_understanding.transcript.strip():
                 result.input_understanding.transcript = transcript_text
             if not result.input_understanding.normalized_transcript.strip():
                 result.input_understanding.normalized_transcript = transcript_text.lower()
+            if not transcript_text:
+                return self._build_unclear_fallback(
+                    transcript="",
+                    lesson=lesson,
+                    session=session,
+                )
             log.info(
                 "teacher_adapter_eval_result lesson=%s step=%s status=%s action=%s next_step=%s transcript=%r",
                 lesson.lesson_id,
@@ -112,48 +113,51 @@ class GeminiTeacherAdapter:
                 session=session,
             )
 
-    async def _transcribe_audio_with_model(
+    async def _evaluate_audio_with_model(
         self,
         *,
         audio_data: bytes,
         lesson: LessonDefinition,
         session: LessonSessionState,
-        step_hint: str,
-    ) -> str:
+        lesson_payload: dict,
+        session_payload: dict,
+    ) -> dict:
         from api.deps import get_genai_client
 
         client = get_genai_client()
-        prompt = (
-            f"{TEACHER_PHRASES['transcribe_instruction']}"
-            f"{TEACHER_PHRASES['transcribe_lesson_prefix']} {lesson.title}\n"
-            f"{TEACHER_PHRASES['transcribe_current_step_prefix']} {session.current_step_id}\n"
-            f"{TEACHER_PHRASES['transcribe_expected_hint_prefix']} {step_hint}"
-        )
+        mp3_data = await self._compress_audio_for_gemini(audio_data)
         response = await client.aio.models.generate_content(
             model=config.SIMPLE_VOICE_MODEL,
             contents=[
                 types.Content(
                     role="user",
                     parts=[
-                        types.Part(text=prompt),
-                        types.Part(inline_data=types.Blob(mime_type="audio/wav", data=audio_data)),
+                        types.Part(
+                            text=f"{TEACHER_PHRASES['lesson_context_prefix']}{json.dumps(lesson_payload, ensure_ascii=False)}"
+                        ),
+                        types.Part(
+                            text=f"{TEACHER_PHRASES['session_state_prefix']}{json.dumps(session_payload, ensure_ascii=False)}"
+                        ),
+                        types.Part(text=TEACHER_PHRASES["evaluate_audio_instruction"]),
+                        types.Part(inline_data=types.Blob(mime_type="audio/mp3", data=mp3_data)),
                     ],
                 )
             ],
             config=types.GenerateContentConfig(
-                temperature=0.0,
+                system_instruction=TEACHER_PHRASES["evaluate_instruction"],
+                temperature=0.2,
+                response_mime_type="application/json",
+                response_schema=GeminiTeacherStructuredResult,
             ),
         )
         raw_text = (response.text or "").strip()
-        cleaned = self._clean_transcript_text(raw_text)
         log.info(
-            "teacher_adapter_remote_transcript_raw lesson=%s step=%s raw=%r cleaned=%r",
+            "teacher_adapter_eval_audio_raw lesson=%s step=%s raw=%r",
             lesson.lesson_id,
             session.current_step_id,
             raw_text[:300],
-            cleaned,
         )
-        return cleaned
+        return self._extract_structured_payload(response)
 
     async def _evaluate_transcript(
         self,
@@ -187,32 +191,24 @@ class GeminiTeacherAdapter:
                 system_instruction=instruction,
                 temperature=0.2,
                 response_mime_type="application/json",
+                response_schema=GeminiTeacherStructuredResult,
             ),
         )
         raw_text = (response.text or "").strip()
         log.info("teacher_adapter_eval_raw raw=%r", raw_text[:500])
-        return self._parse_json_payload(raw_text)
+        return self._extract_structured_payload(response)
+
+    async def _compress_audio_for_gemini(self, audio_data: bytes) -> bytes:
+        return await asyncio.to_thread(compress_wav_to_mp3, audio_data)
 
     @staticmethod
-    def _parse_json_payload(text: str) -> dict:
-        cleaned = text.strip()
-        if cleaned.startswith("```"):
-            lines = cleaned.splitlines()
-            if lines and lines[0].startswith("```"):
-                lines = lines[1:]
-            if lines and lines[-1].strip() == "```":
-                lines = lines[:-1]
-            cleaned = "\n".join(lines).strip()
-
-        if cleaned.startswith("{") and cleaned.endswith("}"):
-            return json.loads(cleaned)
-
-        start = cleaned.find("{")
-        end = cleaned.rfind("}")
-        if start != -1 and end != -1 and end > start:
-            return json.loads(cleaned[start : end + 1])
-
-        raise ValueError("Model did not return valid JSON object")
+    def _extract_structured_payload(response: types.GenerateContentResponse) -> dict:
+        parsed = getattr(response, "parsed", None)
+        if isinstance(parsed, dict):
+            return dict(parsed)
+        if hasattr(parsed, "model_dump"):
+            return parsed.model_dump(mode="json")
+        raise ValueError("Model did not return structured payload")
 
     @staticmethod
     def _normalize_payload(
@@ -273,19 +269,6 @@ class GeminiTeacherAdapter:
             }
 
         return normalized
-
-    @staticmethod
-    def _clean_transcript_text(text: str) -> str:
-        cleaned = text.strip().strip('"').strip("'")
-        cleaned = cleaned.removeprefix(TEACHER_PHRASES["asr_transcript_prefix"]).strip()
-        lower = cleaned.lower()
-        for prefix in TEACHER_PHRASES["transcript_prefixes"]:
-            if lower.startswith(prefix):
-                cleaned = cleaned[len(prefix) :].strip()
-                break
-        if cleaned.startswith("```") and cleaned.endswith("```"):
-            cleaned = "\n".join(cleaned.splitlines()[1:-1]).strip()
-        return " ".join(cleaned.split())
 
     @staticmethod
     def _step_hint(*, lesson: LessonDefinition, step_id: str) -> str:

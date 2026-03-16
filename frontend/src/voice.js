@@ -742,6 +742,9 @@ function handleServerMessage(data) {
             break;
         case 'perf_log':
             addPerfEntry(data);
+            if (data.event === 'pipeline_complete') {
+                setProcessingState(false);
+            }
             break;
         case 'teacher_mode_started':
             state.teacherMode = true;

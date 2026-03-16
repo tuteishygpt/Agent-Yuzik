@@ -91,6 +91,11 @@ class PedagogicalActionBlock(BaseModel):
     state_patch: Dict[str, str | int | List[str]] = Field(default_factory=dict)
 
 
+class GeminiPedagogicalActionBlock(BaseModel):
+    teacher_action: TeacherAction
+    next_step_id: str
+
+
 class TTSBlock(BaseModel):
     reply_text: str
     reply_style: str = "friendly"
@@ -101,6 +106,13 @@ class GeminiTeacherResult(BaseModel):
     input_understanding: InputUnderstanding
     evaluation: EvaluationBlock
     pedagogical_action: PedagogicalActionBlock
+    tts_output: TTSBlock
+
+
+class GeminiTeacherStructuredResult(BaseModel):
+    input_understanding: InputUnderstanding
+    evaluation: EvaluationBlock
+    pedagogical_action: GeminiPedagogicalActionBlock
     tts_output: TTSBlock
 
 

@@ -24,6 +24,13 @@ TEACHER_PHRASES = {
         "If the transcript is empty or unclear choose repeat_question or hint_and_retry. "
         "Do not output markdown."
     ),
+    "evaluate_audio_instruction": (
+        "Analyze the attached student audio and evaluate the answer in one step. "
+        "First derive the student's Belarusian transcript from the audio, then fill the JSON fields. "
+        "Put the recognized text into input_understanding.transcript and a normalized lowercase variant into "
+        "input_understanding.normalized_transcript. If speech is unclear, leave transcript empty and choose "
+        "repeat_question or hint_and_retry. Do not output markdown."
+    ),
     "lesson_context_prefix": "LESSON_CONTEXT=",
     "session_state_prefix": "SESSION_STATE=",
     "asr_transcript_prefix": "ASR_TRANSCRIPT=",
