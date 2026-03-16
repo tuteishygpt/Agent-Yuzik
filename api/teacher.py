@@ -18,6 +18,14 @@ async def list_lessons():
                 "level": lesson.level,
                 "lesson_goal": lesson.lesson_goal,
                 "steps_count": len(lesson.steps),
+                "steps": [
+                    {
+                        "step_id": step.step_id,
+                        "prompt": step.prompt,
+                        "type": step.type,
+                    }
+                    for step in lesson.steps
+                ],
             }
             for lesson in lessons
         ]

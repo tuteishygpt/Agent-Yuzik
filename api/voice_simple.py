@@ -53,6 +53,32 @@ def _step(tag: str, msg: str, start_ts: float | None = None) -> str:
     return f"[{_ts()}] [{tag}]{elapsed} {msg}"
 
 
+async def _transcribe_audio_with_model(audio_data: bytes) -> str:
+    """Fallback transcription when local ASR is disabled."""
+    client = get_genai_client()
+    prompt = (
+        "Transcribe this short Belarusian user audio. "
+        "Return only the recognized words, no explanations, no quotes, no markdown. "
+        "If speech is unclear, return an empty string."
+    )
+    response = await client.aio.models.generate_content(
+        model=config.SIMPLE_VOICE_MODEL,
+        contents=[
+            types.Content(
+                role="user",
+                parts=[
+                    types.Part(text=prompt),
+                    types.Part(inline_data=types.Blob(mime_type="audio/wav", data=audio_data)),
+                ],
+            )
+        ],
+        config=types.GenerateContentConfig(
+            temperature=0.0,
+        ),
+    )
+    return (response.text or "").strip().strip('"')
+
+
 # ── TTS Worker ────────────────────────────────────────────────────────
 
 class TTSWorker:
@@ -395,6 +421,31 @@ async def handle_simple_voice(
             parts=[types.Part(text=user_transcription)],
         )
     else:
+        log.info(_step("VOICE·ASR", "🎙️ Remote transcription start (fallback)", start_ts))
+        t_remote_asr = time.time()
+        try:
+            user_transcription = await _transcribe_audio_with_model(audio_data)
+        except Exception:
+            log.exception(_step("VOICE·ASR", "❌ Remote transcription failed", start_ts))
+            user_transcription = None
+        remote_asr_ms = (time.time() - t_remote_asr) * 1000
+
+        if user_transcription:
+            log.info(_step(
+                "VOICE·ASR",
+                f"   ✅ Remote transcription: «{user_transcription[:120]}» | {remote_asr_ms:.0f}ms",
+                start_ts,
+            ))
+            await perf(
+                "remote_asr_done",
+                "🎙️ Аддаленае распазнаванне голасу",
+                detail=f"Тэкст: «{user_transcription[:100]}» | Час: {remote_asr_ms:.0f} мс",
+                duration_ms=round(remote_asr_ms),
+            )
+            await websocket.send_json({
+                "type": "transcription",
+                "text": user_transcription,
+            })
         # ── Compress WAV → MP3 (16kHz, 64k) to reduce Gemini upload size ──
         log.info(_step("VOICE·COMPRESS", f"🗜️  Compressing WAV→MP3 | input={len(audio_data)}B", start_ts))
         t_compress = time.time()

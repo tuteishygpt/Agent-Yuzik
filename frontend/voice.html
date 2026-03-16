@@ -21,21 +21,6 @@
 
         <h1 class="voice-title">🎙️ Галасавы Агент - Юзік</h1>
 
-        <section class="teacher-panel" id="teacher-panel">
-            <div class="teacher-panel-row">
-                <span class="teacher-panel-label">Настаўнік</span>
-                <select class="teacher-select" id="teacher-lesson-select" disabled>
-                    <option value="">Загрузка ўрокаў...</option>
-                </select>
-                <label class="teacher-switch" aria-label="Уключыць рэжым настаўніка">
-                    <input type="checkbox" id="teacher-toggle">
-                    <span class="teacher-switch-slider"></span>
-                </label>
-            </div>
-            <p class="teacher-lesson-meta" id="teacher-lesson-meta" hidden></p>
-            <p class="teacher-panel-status" id="teacher-status" hidden></p>
-        </section>
-
         <div class="mic-wrapper">
             <div class="mic-container" id="mic-btn">
                 <svg class="state-icon icon-listen" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -78,13 +63,11 @@
         </div>
 
         <div class="transcript-box">
-            <div class="transcript-section">
-                <p class="transcript-label">📝 Транскрыпцыя:</p>
-                <p class="transcript-text transcript-text-user" id="transcript">Вучань: —</p>
+            <div class="transcript-box-head">
+                <p class="transcript-label">💬 Дыялог</p>
             </div>
-            <div class="transcript-section">
-                <p class="transcript-label">🔊 Тэкст для TTS:</p>
-                <p class="transcript-text transcript-text-bot" id="tts-text">Настаўнік: —</p>
+            <div class="transcript-history" id="transcript-history">
+                <div class="transcript-empty" id="transcript-empty">Размова яшчэ не пачалася</div>
             </div>
         </div>
 
@@ -92,6 +75,37 @@
             <button class="voice-btn primary" id="start-btn">▶ Пачаць</button>
             <button class="voice-btn secondary" id="stop-btn" disabled>■ Спыніць</button>
         </div>
+
+        <section class="teacher-panel" id="teacher-panel">
+            <div class="teacher-panel-head">
+                <div class="teacher-panel-heading">
+                    <span class="teacher-panel-icon">📚</span>
+                    <div class="teacher-panel-copy">
+                        <span class="teacher-panel-label">Настаўнік</span>
+                        <p class="teacher-panel-subtitle">Рэжым урока з жывым дыялогам</p>
+                    </div>
+                </div>
+                <div class="teacher-panel-actions">
+                    <label class="teacher-switch" aria-label="Уключыць рэжым настаўніка">
+                        <input type="checkbox" id="teacher-toggle">
+                        <span class="teacher-switch-slider"></span>
+                    </label>
+                    <span class="teacher-mode-badge" id="teacher-mode-badge">Выкл.</span>
+                    <button class="teacher-panel-toggle" id="teacher-panel-toggle" type="button" hidden aria-label="Згарнуць блок настаўніка">⌃</button>
+                </div>
+            </div>
+            <div class="teacher-panel-summary" id="teacher-panel-summary" hidden></div>
+            <div class="teacher-panel-body" id="teacher-panel-body">
+                <div class="teacher-panel-row">
+                    <label class="teacher-field-label" for="teacher-lesson-select">Тэма занятка</label>
+                    <select class="teacher-select" id="teacher-lesson-select" disabled>
+                        <option value="">Загрузка ўрокаў...</option>
+                    </select>
+                </div>
+                <div class="teacher-lesson-meta" id="teacher-lesson-meta" hidden></div>
+                <p class="teacher-panel-status" id="teacher-status" hidden></p>
+            </div>
+        </section>
     </div>
 
     <button class="perf-toggle-btn" id="perf-toggle" title="Логі прадукцыйнасці">

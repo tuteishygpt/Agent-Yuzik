@@ -20,6 +20,7 @@ from api.teacher_mode.models import (
     TeacherAction,
     TTSBlock,
 )
+from api.teacher_mode.phrases import TEACHER_PRAISE_WORDS, choose_praise_word
 from api.teacher_mode.session_store import SessionStateStore
 
 
@@ -231,6 +232,37 @@ def test_teacher_controller_advances_on_sentence_prefix_match():
     assert state.current_step_id == "ask_feeling"
     assert out.teacher_action == TeacherAction.praise_and_advance
     assert out.step_id == "ask_feeling"
+
+
+def test_teacher_controller_rewrites_fixed_praise_prefix_from_model_reply():
+    lesson_store = LessonStore()
+    session_store = SessionStateStore()
+    adapter = FakeAdapter(
+        _result(
+            "intro",
+            TeacherAction.repeat_question,
+            StudentAnswerStatus.correct,
+            transcript="не ведаю",
+            normalized_transcript="не ведаю",
+            matched_target="",
+        )
+    )
+    adapter._result.tts_output.reply_text = "Выдатна. Паўторым крок."
+    controller = TeacherController(lesson_store, session_store, adapter)
+
+    controller.start_lesson(session_id="s4d", user_id="u4d", lesson_id="basics_greetings")
+    out = asyncio.run(controller.process_audio_turn(session_id="s4d", user_id="u4d", audio_data=b"x"))
+
+    expected_praise = choose_praise_word("intro").capitalize()
+    assert out.reply_text == f"{expected_praise}. Паўторым крок."
+
+
+def test_teacher_controller_success_reply_uses_configured_praise_word():
+    lesson = LessonStore().get_lesson("basics_greetings")
+
+    reply = TeacherController._success_reply(lesson=lesson, step_id="day_good")
+
+    assert any(reply.startswith(f"{word.capitalize()}. ") for word in TEACHER_PRAISE_WORDS)
 
 
 def test_teacher_adapter_uses_remote_transcript_when_input_transcript_missing():

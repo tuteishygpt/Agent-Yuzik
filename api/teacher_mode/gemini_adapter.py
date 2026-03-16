@@ -17,6 +17,7 @@ from api.teacher_mode.models import (
     TeacherAction,
     TTSBlock,
 )
+from api.teacher_mode.phrases import TEACHER_PHRASES
 
 log = logging.getLogger("app.voice.teacher")
 
@@ -123,13 +124,10 @@ class GeminiTeacherAdapter:
 
         client = get_genai_client()
         prompt = (
-            "Transcribe this short student audio in Belarusian. "
-            "Return only the recognized words, no explanations, no quotes, no markdown. "
-            "If the child says only part of the answer, return exactly that partial answer. "
-            "If speech is unclear, return an empty string.\n"
-            f"Lesson: {lesson.title}\n"
-            f"Current step: {session.current_step_id}\n"
-            f"Expected hint: {step_hint}"
+            f"{TEACHER_PHRASES['transcribe_instruction']}"
+            f"{TEACHER_PHRASES['transcribe_lesson_prefix']} {lesson.title}\n"
+            f"{TEACHER_PHRASES['transcribe_current_step_prefix']} {session.current_step_id}\n"
+            f"{TEACHER_PHRASES['transcribe_expected_hint_prefix']} {step_hint}"
         )
         response = await client.aio.models.generate_content(
             model=config.SIMPLE_VOICE_MODEL,
@@ -167,23 +165,21 @@ class GeminiTeacherAdapter:
         from api.deps import get_genai_client
 
         client = get_genai_client()
-        instruction = (
-            "You are a Belarusian language teacher evaluator. Return ONLY strict JSON with fields: "
-            "input_understanding, evaluation, pedagogical_action, tts_output. Keep reply_text short and voice-friendly. "
-            "Give one main correction only. Use the transcript as the primary input. "
-            "If the transcript is empty or unclear choose repeat_question or hint_and_retry. "
-            "Do not output markdown."
-        )
+        instruction = TEACHER_PHRASES["evaluate_instruction"]
         response = await client.aio.models.generate_content(
             model=config.SIMPLE_VOICE_MODEL,
             contents=[
                 types.Content(
                     role="user",
                     parts=[
-                        types.Part(text=f"LESSON_CONTEXT={json.dumps(lesson_payload, ensure_ascii=False)}"),
-                        types.Part(text=f"SESSION_STATE={json.dumps(session_payload, ensure_ascii=False)}"),
-                        types.Part(text=f"ASR_TRANSCRIPT={transcript}"),
-                        types.Part(text="Analyze the student's answer using the transcript."),
+                        types.Part(
+                            text=f"{TEACHER_PHRASES['lesson_context_prefix']}{json.dumps(lesson_payload, ensure_ascii=False)}"
+                        ),
+                        types.Part(
+                            text=f"{TEACHER_PHRASES['session_state_prefix']}{json.dumps(session_payload, ensure_ascii=False)}"
+                        ),
+                        types.Part(text=f"{TEACHER_PHRASES['asr_transcript_prefix']}{transcript}"),
+                        types.Part(text=TEACHER_PHRASES["evaluate_transcript_instruction"]),
                     ],
                 )
             ],
@@ -271,7 +267,7 @@ class GeminiTeacherAdapter:
         if not isinstance(tts_output, dict):
             normalized["tts_output"] = {
                 "reply_text": str(tts_output or "").strip()
-                or f"Добра. {GeminiTeacherAdapter._step_hint(lesson=lesson, step_id=session.current_step_id)}",
+                or f"{TEACHER_PHRASES['generic_acknowledgement']} {GeminiTeacherAdapter._step_hint(lesson=lesson, step_id=session.current_step_id)}",
                 "reply_style": "friendly",
                 "max_tts_length_seconds": 12,
             }
@@ -281,9 +277,9 @@ class GeminiTeacherAdapter:
     @staticmethod
     def _clean_transcript_text(text: str) -> str:
         cleaned = text.strip().strip('"').strip("'")
-        cleaned = cleaned.removeprefix("ASR_TRANSCRIPT=").strip()
+        cleaned = cleaned.removeprefix(TEACHER_PHRASES["asr_transcript_prefix"]).strip()
         lower = cleaned.lower()
-        for prefix in ("transcript:", "recognized:", "response:"):
+        for prefix in TEACHER_PHRASES["transcript_prefixes"]:
             if lower.startswith(prefix):
                 cleaned = cleaned[len(prefix) :].strip()
                 break
@@ -333,7 +329,7 @@ class GeminiTeacherAdapter:
                 state_patch={},
             ),
             tts_output=TTSBlock(
-                reply_text=f"Дрэнна пачуў адказ. Паўтарым крок. {hint}".strip(),
+                reply_text=f"{TEACHER_PHRASES['fallback_reply_prefix']} {hint}".strip(),
                 reply_style="friendly",
                 max_tts_length_seconds=12,
             ),

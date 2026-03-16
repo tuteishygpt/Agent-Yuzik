@@ -13,6 +13,7 @@ from api.teacher_mode.models import (
     TeacherAction,
     TeacherTurnOutcome,
 )
+from api.teacher_mode.phrases import TEACHER_PHRASES, prepend_praise, strip_leading_praise
 from api.teacher_mode.session_store import SessionStateStore
 
 log = logging.getLogger("app.voice.teacher")
@@ -99,7 +100,10 @@ class TeacherController:
             else:
                 teacher_action = result.pedagogical_action.teacher_action
                 reply_text = self._limit_reply_text(
-                    result.tts_output.reply_text or self._fallback_reply(state.current_step_id, lesson)
+                    self._normalize_reply_text(
+                        result.tts_output.reply_text or self._fallback_reply(state.current_step_id, lesson),
+                        step_id=state.current_step_id,
+                    )
                 )
 
             if teacher_action == TeacherAction.finish_lesson and state.current_step_id != "summary":
@@ -127,7 +131,7 @@ class TeacherController:
                 TeacherAction.repeat_question,
             }:
                 hint = lesson.hints.get(state.current_step_id) or self._step_hint(lesson, state.current_step_id)
-                reply_text = self._limit_reply_text(f"Падказка: {hint}")
+                reply_text = self._limit_reply_text(f"{TEACHER_PHRASES['retry_prefix']} {hint}")
                 teacher_action = TeacherAction.hint_and_retry
                 fallback_reason = fallback_reason or "retry_limit_hint"
 
@@ -177,16 +181,24 @@ class TeacherController:
 
     def _fallback_reply(self, step_id: str, lesson) -> str:
         hint = lesson.hints.get(step_id) or self._step_hint(lesson, step_id)
-        return self._limit_reply_text(f"Дрэнна пачуў адказ. Паўтарым крок. {hint}")
+        return self._limit_reply_text(f"{TEACHER_PHRASES['fallback_reply_prefix']} {hint}")
 
     @staticmethod
     def _success_reply(*, lesson, step_id: str) -> str:
         for step in lesson.steps:
             if step.step_id == step_id:
-                return TeacherController._limit_reply_text(
-                    f"\u0412\u044b\u0434\u0430\u0442\u043d\u0430. {step.prompt}"
-                )
-        return "\u0412\u044b\u0434\u0430\u0442\u043d\u0430. \u0406\u0434\u0437\u0435\u043c \u0434\u0430\u043b\u0435\u0439."
+                return TeacherController._limit_reply_text(prepend_praise(step.prompt, seed=step_id))
+        return TeacherController._limit_reply_text(
+            prepend_praise(TEACHER_PHRASES["fallback_success_reply"], seed=step_id)
+        )
+
+    @staticmethod
+    def _normalize_reply_text(text: str, *, step_id: str) -> str:
+        if not text:
+            return ""
+        if strip_leading_praise(text) != text.strip():
+            return prepend_praise(text, seed=step_id)
+        return text
 
     @staticmethod
     def _matched_next_step_id(*, lesson, step_id: str, normalized_transcript: str) -> str | None:
@@ -242,7 +254,7 @@ class TeacherController:
         for step in lesson.steps:
             if step.step_id == step_id:
                 return step.hint or step.prompt
-        return "Скажы кароткі адказ па-беларуску."
+        return TEACHER_PHRASES["generic_short_answer"]
 
     @staticmethod
     def _limit_reply_text(text: str, max_chars: int = 220) -> str:

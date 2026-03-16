@@ -354,6 +354,10 @@ const state = {
     teacherMode: false,
     teacherLessons: [],
     currentLessonId: '',
+    currentLessonStepId: '',
+    teacherPanelCollapsed: false,
+    teacherPanelExpanded: false,
+    dialogEntries: [],
 };
 
 // ===========================
@@ -370,6 +374,9 @@ const elements = {
     startBtn: document.getElementById('start-btn'),
     stopBtn: document.getElementById('stop-btn'),
     transcriptBox: document.querySelector('.transcript-box'),
+    transcriptHistory: document.getElementById('transcript-history'),
+    transcriptEmpty: document.getElementById('transcript-empty'),
+    transcriptCounter: document.getElementById('transcript-counter'),
     // Perf log panel
     perfToggle: document.getElementById('perf-toggle'),
     perfPanel: document.getElementById('perf-panel'),
@@ -381,22 +388,63 @@ const elements = {
     teacherStatus: document.getElementById('teacher-status'),
     teacherLessonSelect: document.getElementById('teacher-lesson-select'),
     teacherLessonMeta: document.getElementById('teacher-lesson-meta'),
+    teacherPanelBody: document.getElementById('teacher-panel-body'),
+    teacherModeBadge: document.getElementById('teacher-mode-badge'),
+    teacherPanelSummary: document.getElementById('teacher-panel-summary'),
+    teacherPanelToggle: document.getElementById('teacher-panel-toggle'),
+    transcriptUserLabel: document.getElementById('transcript-user-label'),
+    transcriptBotLabel: document.getElementById('transcript-bot-label'),
 };
 
 function describeLesson(lesson) {
     if (!lesson) {
         return "";
     }
-    return `${lesson.level} ? ${lesson.steps_count} крокі ? ${lesson.lesson_goal}`;
+    return `
+        <div class="teacher-lesson-grid">
+            <div class="teacher-meta-item">
+                <span class="teacher-meta-label">Узровень</span>
+                <span class="teacher-meta-value">${lesson.level}</span>
+            </div>
+            <div class="teacher-meta-item">
+                <span class="teacher-meta-label">Крокаў</span>
+                <span class="teacher-meta-value">${lesson.steps_count}</span>
+            </div>
+            <div class="teacher-meta-item">
+                <span class="teacher-meta-label">Статус</span>
+                <span class="teacher-meta-value">${state.teacherMode ? 'Ідзе занятак' : 'Гатова да старту'}</span>
+            </div>
+            <div class="teacher-meta-item goal">
+                <span class="teacher-meta-label">Мэта</span>
+                <span class="teacher-meta-value">${lesson.lesson_goal}</span>
+            </div>
+        </div>
+    `;
+}
+
+function getCurrentLessonStep(lesson) {
+    if (!lesson?.steps?.length || !state.currentLessonStepId) {
+        return lesson?.steps?.[0] || null;
+    }
+    return lesson.steps.find(step => step.step_id === state.currentLessonStepId) || lesson.steps[0] || null;
 }
 
 function updateTeacherPanel() {
     const hasLesson = Boolean(state.currentLessonId);
     const active = state.teacherMode;
     const lesson = state.teacherLessons.find(item => item.lesson_id === state.currentLessonId);
+    const currentStep = getCurrentLessonStep(lesson);
+    const canCollapse = active && hasLesson;
+    const collapsed = canCollapse && state.teacherPanelCollapsed;
+    const expanded = active ? !collapsed : state.teacherPanelExpanded;
+    const compact = !active && !state.teacherPanelExpanded;
+    const showPanelToggle = active ? hasLesson : expanded;
 
     if (elements.teacherPanel) {
         elements.teacherPanel.classList.toggle('active', active);
+        elements.teacherPanel.classList.toggle('compact', compact);
+        elements.teacherPanel.classList.toggle('collapsed', collapsed);
+        elements.teacherPanel.classList.toggle('expanded', expanded);
     }
 
     if (elements.teacherToggle) {
@@ -410,8 +458,30 @@ function updateTeacherPanel() {
 
     if (elements.teacherLessonMeta) {
         const meta = describeLesson(lesson);
-        elements.teacherLessonMeta.hidden = !active || !meta;
-        elements.teacherLessonMeta.textContent = meta;
+        elements.teacherLessonMeta.hidden = !meta;
+        elements.teacherLessonMeta.innerHTML = meta;
+    }
+
+    if (elements.teacherModeBadge) {
+        elements.teacherModeBadge.textContent = active ? "Укл." : "Выкл.";
+    }
+
+    if (elements.teacherPanelSummary) {
+        const stepSummary = currentStep?.prompt ? ` · ${currentStep.prompt}` : "";
+        const summary = lesson
+            ? `${lesson.title}${active ? " · занятак ідзе" : " · гатова да старту"}${stepSummary}`
+            : "Абярыце ўрок";
+        elements.teacherPanelSummary.hidden = !collapsed;
+        elements.teacherPanelSummary.textContent = summary;
+    }
+
+    if (elements.teacherPanelToggle) {
+        elements.teacherPanelToggle.hidden = !showPanelToggle;
+        elements.teacherPanelToggle.textContent = collapsed ? "⌄" : "⌃";
+        elements.teacherPanelToggle.setAttribute(
+            "aria-label",
+            collapsed ? "Разгарнуць блок настаўніка" : "Згарнуць блок настаўніка"
+        );
     }
 
     if (elements.teacherStatus) {
@@ -419,13 +489,33 @@ function updateTeacherPanel() {
         if (!state.isConnected) {
             status = "Няма злучэння";
         } else if (active && lesson) {
-            status = `Актыўны ўрок: ${lesson.title}`;
+            status = currentStep?.prompt
+                ? `Актыўны ўрок: ${lesson.title} · крок: ${currentStep.prompt}`
+                : `Актыўны ўрок: ${lesson.title}`;
         }
 
         elements.teacherStatus.hidden = !status;
         elements.teacherStatus.textContent = status;
     }
+
+    if (elements.teacherPanelToggle) {
+        elements.teacherPanelToggle.textContent = collapsed ? "▾" : "▴";
+    }
+
+    updateTranscriptLabels();
 }
+
+updateTranscriptLabels = function() {
+    const teacherModeEnabled = state.teacherMode;
+
+    if (elements.transcriptUserLabel) {
+        elements.transcriptUserLabel.textContent = teacherModeEnabled ? "📝 Апошні сказаў вучань" : "📝 Апошняя фраза";
+    }
+
+    if (elements.transcriptBotLabel) {
+        elements.transcriptBotLabel.textContent = teacherModeEnabled ? "🔊 Апошні сказаў настаўнік" : "🔊 Апошні адказ";
+    }
+};
 
 function renderTeacherLessons() {
     if (!elements.teacherLessonSelect) {
@@ -438,6 +528,7 @@ function renderTeacherLessons() {
     if (!state.teacherLessons.length) {
         select.innerHTML = '<option value="">Урокі недаступныя</option>';
         state.currentLessonId = "";
+        state.currentLessonStepId = "";
         updateTeacherPanel();
         return;
     }
@@ -451,6 +542,9 @@ function renderTeacherLessons() {
 
     if (!state.currentLessonId) {
         state.currentLessonId = state.teacherLessons[0].lesson_id;
+    }
+    if (!state.currentLessonStepId) {
+        state.currentLessonStepId = state.teacherLessons[0].steps?.[0]?.step_id || "";
     }
 
     select.value = state.currentLessonId;
@@ -470,6 +564,7 @@ async function fetchTeacherLessons() {
         console.error('Failed to load teacher lessons:', error);
         state.teacherLessons = [];
         state.currentLessonId = "";
+        state.currentLessonStepId = "";
         if (elements.teacherStatus) {
             elements.teacherStatus.hidden = false;
             elements.teacherStatus.textContent = "Не ўдалося загрузіць ўрокі";
@@ -495,6 +590,10 @@ function startTeacherMode() {
     }
 
     try {
+        state.teacherMode = true;
+        state.teacherPanelExpanded = true;
+        state.teacherPanelCollapsed = false;
+        updateTeacherPanel();
         sendTeacherMessage({ type: 'teacher_start_lesson', lesson_id: state.currentLessonId });
         updateStatus("Уключаю рэжым настаўніка...");
     } catch (error) {
@@ -502,6 +601,9 @@ function startTeacherMode() {
         if (elements.teacherToggle) {
             elements.teacherToggle.checked = false;
         }
+        state.teacherMode = false;
+        state.teacherPanelExpanded = true;
+        state.teacherPanelCollapsed = false;
         updateTeacherPanel();
     }
 }
@@ -513,6 +615,8 @@ function stopTeacherMode() {
         console.error('Failed to stop teacher mode:', error);
     }
     state.teacherMode = false;
+    state.teacherPanelExpanded = true;
+    state.teacherPanelCollapsed = false;
     updateTeacherPanel();
 }
 
@@ -612,8 +716,8 @@ function handleServerMessage(data) {
                 const latency = state.firstProcessingTimestamp - state.lastVadEndTimestamp;
                 addPerfEntry({
                     event: 'processing_start',
-                    label: "?? ?????? ????? ?????????",
-                    detail: `???????? (VAD ? ?????????): ${latency} ??`,
+                    label: "Пачатак апрацоўкі",
+                    detail: `Затрымка (VAD да апрацоўкі): ${latency} мс`,
                     elapsed_ms: latency,
                     duration_ms: latency,
                 });
@@ -624,12 +728,14 @@ function handleServerMessage(data) {
             updateTtsText(data.text);
             if (data.mode === 'teacher') {
                 state.teacherMode = true;
+                state.teacherPanelExpanded = true;
+                state.currentLessonStepId = data.step_id || state.currentLessonStepId;
                 updateTeacherPanel();
             }
             break;
         case 'error':
             setProcessingState(false);
-            updateStatus("???????: " + data.message);
+            updateStatus("Памылка: " + data.message);
             break;
         case 'interruption_handshake':
             console.log('Server acknowledged interruption');
@@ -639,18 +745,24 @@ function handleServerMessage(data) {
             break;
         case 'teacher_mode_started':
             state.teacherMode = true;
+            state.teacherPanelExpanded = true;
+            state.currentLessonStepId = data.step_id || state.currentLessonStepId;
+            state.teacherPanelCollapsed = false;
             state.currentLessonId = data.lesson_id || state.currentLessonId;
             updateTeacherPanel();
             if (data.prompt) {
                 updateTtsText(data.prompt);
             }
-            updateStatus("????? ?????????? ???????.");
+            updateStatus("Рэжым настаўніка ўключаны.");
             break;
         case 'teacher_mode_stopped':
             state.teacherMode = false;
+            state.teacherPanelExpanded = true;
+            state.currentLessonStepId = "";
+            state.teacherPanelCollapsed = false;
             updateTeacherPanel();
             if (!state.isRecording && !state.isProcessing && !state.isSpeaking) {
-                updateStatus("????????? ?? ???????? ??? ???????");
+                updateStatus("Націсніце на мікрафон для пачатку");
             }
             break;
         case 'voice_config':
@@ -1176,29 +1288,110 @@ function updateStatus(text) {
     elements.statusText.textContent = text;
 }
 
+function formatDialogTime(timestamp = Date.now()) {
+    try {
+        return new Date(timestamp).toLocaleTimeString('be-BY', {
+            hour: '2-digit',
+            minute: '2-digit',
+        });
+    } catch {
+        return '';
+    }
+}
+
+function scrollTranscriptToBottom() {
+    if (elements.transcriptHistory) {
+        elements.transcriptHistory.scrollTop = elements.transcriptHistory.scrollHeight;
+    }
+}
+
+renderDialogHistory = function() {
+    if (!elements.transcriptHistory) {
+        return;
+    }
+
+    elements.transcriptHistory.innerHTML = '';
+    const showSpeakerLabels = state.teacherMode;
+
+    if (!state.dialogEntries.length) {
+        if (elements.transcriptEmpty) {
+            elements.transcriptHistory.appendChild(elements.transcriptEmpty);
+        }
+    } else {
+        state.dialogEntries.forEach(entry => {
+            const item = document.createElement('article');
+            item.className = `transcript-turn ${entry.role}`;
+            item.innerHTML = `
+                <div class="transcript-turn-head">
+                    <span class="transcript-speaker">${entry.role === 'teacher' ? 'Настаўнік' : 'Вучань'}</span>
+                    <span class="transcript-turn-time">${formatDialogTime(entry.timestamp)}</span>
+                </div>
+                <p class="transcript-turn-text"></p>
+            `;
+            item.querySelector('.transcript-turn-text').textContent = entry.text;
+            elements.transcriptHistory.appendChild(item);
+        });
+    }
+
+    if (elements.transcriptCounter) {
+        const count = state.dialogEntries.length;
+        elements.transcriptCounter.textContent = `${count} ${count === 1 ? 'рэпліка' : 'рэплік'}`;
+    }
+
+    scrollTranscriptToBottom();
+};
+
+function upsertDialogEntry(role, text) {
+    const value = (text || '').trim();
+    if (!value) {
+        renderDialogHistory();
+        return;
+    }
+
+    const lastEntry = state.dialogEntries[state.dialogEntries.length - 1];
+    if (lastEntry && lastEntry.role === role) {
+        if (!state.teacherMode || lastEntry.text === value) {
+            lastEntry.text = value;
+            lastEntry.timestamp = Date.now();
+        } else {
+            state.dialogEntries.push({
+                role,
+                text: value,
+                timestamp: Date.now(),
+            });
+        }
+    } else {
+        state.dialogEntries.push({
+            role,
+            text: value,
+            timestamp: Date.now(),
+        });
+    }
+
+    renderDialogHistory();
+}
+
 function updateTranscript(text, isResponse = false) {
     const prefix = isResponse ? 'Юзік: ' : '👤 ';
-    elements.transcript.textContent = prefix + text;
-    if (elements.transcriptBox) {
-        elements.transcriptBox.scrollTop = elements.transcriptBox.scrollHeight;
+    if (elements.transcript) {
+        elements.transcript.textContent = prefix + text;
     }
+    scrollTranscriptToBottom();
 }
 
-function updateTranscription(text) {
+updateTranscription = function(text) {
     elements.transcript.textContent = text ? `Вучань: ${text}` : 'Вучань: —';
-    if (elements.transcriptBox) {
-        elements.transcriptBox.scrollTop = elements.transcriptBox.scrollHeight;
-    }
-}
+    upsertDialogEntry('user', text);
+    scrollTranscriptToBottom();
+};
 
-function updateTtsText(text) {
+updateTtsText = function(text) {
     if (elements.ttsText) {
         elements.ttsText.textContent = text ? `Настаўнік: ${text}` : 'Настаўнік: —';
     }
-    if (elements.transcriptBox) {
-        elements.transcriptBox.scrollTop = elements.transcriptBox.scrollHeight;
-    }
-}
+    upsertDialogEntry('teacher', text);
+    scrollTranscriptToBottom();
+};
 
 function createVisualizerBars() {
     const barCount = 32;
@@ -1293,22 +1486,171 @@ function togglePerfPanel() {
     }
 }
 
+function collapseTeacherPanelOnConversationStart() {
+    if (state.teacherMode && state.currentLessonId) {
+        state.teacherPanelExpanded = true;
+        state.teacherPanelCollapsed = true;
+        updateTeacherPanel();
+    }
+}
+
+function updateTranscriptLabels() {
+    const teacherModeEnabled = state.teacherMode;
+
+    if (elements.transcriptUserLabel) {
+        elements.transcriptUserLabel.textContent = teacherModeEnabled ? "📝 Апошні сказаў вучань" : "📝 Апошняя фраза";
+    }
+
+    if (elements.transcriptBotLabel) {
+        elements.transcriptBotLabel.textContent = teacherModeEnabled ? "🔊 Апошні сказаў настаўнік" : "🔊 Апошні адказ";
+    }
+
+    if (elements.transcript) {
+        const currentUserText = elements.transcript.textContent?.replace(/^Вучань:\s*/, "").trim();
+        elements.transcript.textContent = currentUserText && currentUserText !== "—"
+            ? `${teacherModeEnabled ? "Вучань: " : ""}${currentUserText}`
+            : "—";
+    }
+
+    if (elements.ttsText) {
+        const currentTeacherText = elements.ttsText.textContent?.replace(/^Настаўнік:\s*/, "").trim();
+        elements.ttsText.textContent = currentTeacherText && currentTeacherText !== "—"
+            ? `${teacherModeEnabled ? "Настаўнік: " : ""}${currentTeacherText}`
+            : "—";
+    }
+
+    renderDialogHistory();
+}
+
+function renderDialogHistory() {
+    if (!elements.transcriptHistory) {
+        return;
+    }
+
+    elements.transcriptHistory.innerHTML = '';
+    const showSpeakerLabels = state.teacherMode;
+
+    if (!state.dialogEntries.length) {
+        if (elements.transcriptEmpty) {
+            elements.transcriptHistory.appendChild(elements.transcriptEmpty);
+        }
+    } else {
+        state.dialogEntries.forEach(entry => {
+            const item = document.createElement('article');
+            item.className = `transcript-turn ${entry.role}`;
+            item.innerHTML = showSpeakerLabels
+                ? `
+                    <div class="transcript-turn-head">
+                        <span class="transcript-speaker">${entry.role === 'teacher' ? 'Настаўнік' : 'Вучань'}</span>
+                        <span class="transcript-turn-time">${formatDialogTime(entry.timestamp)}</span>
+                    </div>
+                    <p class="transcript-turn-text"></p>
+                `
+                : `
+                    <div class="transcript-turn-head transcript-turn-head-compact">
+                        <span class="transcript-turn-time">${formatDialogTime(entry.timestamp)}</span>
+                    </div>
+                    <p class="transcript-turn-text"></p>
+                `;
+            item.querySelector('.transcript-turn-text').textContent = entry.text;
+            elements.transcriptHistory.appendChild(item);
+        });
+    }
+
+    if (elements.transcriptCounter) {
+        const count = state.dialogEntries.length;
+        elements.transcriptCounter.textContent = `${count} ${count === 1 ? 'рэпліка' : 'рэплік'}`;
+    }
+
+    scrollTranscriptToBottom();
+}
+
+function updateTranscription(text) {
+    elements.transcript.textContent = text
+        ? `${state.teacherMode ? 'Вучань: ' : ''}${text}`
+        : '—';
+    upsertDialogEntry('user', text);
+    scrollTranscriptToBottom();
+}
+
+function updateTtsText(text) {
+    if (elements.ttsText) {
+        elements.ttsText.textContent = text
+            ? `${state.teacherMode ? 'Настаўнік: ' : ''}${text}`
+            : '—';
+    }
+    upsertDialogEntry('teacher', text);
+    scrollTranscriptToBottom();
+}
+
+updateTranscriptLabels = function() {
+    renderDialogHistory();
+};
+
+renderDialogHistory = function() {
+    if (!elements.transcriptHistory) {
+        return;
+    }
+
+    elements.transcriptHistory.innerHTML = '';
+    const showSpeakerLabels = state.teacherMode;
+
+    if (!state.dialogEntries.length) {
+        if (elements.transcriptEmpty) {
+            elements.transcriptHistory.appendChild(elements.transcriptEmpty);
+        }
+    } else {
+        state.dialogEntries.forEach(entry => {
+            const item = document.createElement('article');
+            item.className = `transcript-turn ${entry.role}`;
+
+            const body = document.createElement('p');
+            body.className = 'transcript-turn-text';
+            body.textContent = showSpeakerLabels
+                ? `${entry.role === 'teacher' ? 'Настаўнік' : 'Вучань'}: ${entry.text}`
+                : entry.text;
+
+            item.appendChild(body);
+            elements.transcriptHistory.appendChild(item);
+        });
+    }
+
+    scrollTranscriptToBottom();
+};
+
+updateTranscription = function(text) {
+    upsertDialogEntry('user', text);
+    scrollTranscriptToBottom();
+};
+
+updateTtsText = function(text) {
+    upsertDialogEntry('teacher', text);
+    scrollTranscriptToBottom();
+};
+
 // ===========================
 // Initialize
 // ===========================
 function init() {
     createVisualizerBars();
+    renderDialogHistory();
     fetchTeacherLessons();
     updateTeacherPanel();
     connectWebSocket();
 
     elements.micBtn.addEventListener('click', () => {
-        if (!state.isRecording) startSession();
+        if (!state.isRecording) {
+            collapseTeacherPanelOnConversationStart();
+            startSession();
+        }
         else stopSession();
     });
 
     elements.startBtn.addEventListener('click', () => {
-        if (!state.isRecording) startSession();
+        if (!state.isRecording) {
+            collapseTeacherPanelOnConversationStart();
+            startSession();
+        }
     });
 
     elements.stopBtn.addEventListener('click', () => {
@@ -1334,6 +1676,8 @@ function init() {
     if (elements.teacherLessonSelect) {
         elements.teacherLessonSelect.addEventListener('change', () => {
             state.currentLessonId = elements.teacherLessonSelect.value;
+            const selectedLesson = state.teacherLessons.find(item => item.lesson_id === state.currentLessonId);
+            state.currentLessonStepId = selectedLesson?.steps?.[0]?.step_id || "";
             const shouldRestart = state.teacherMode;
             if (shouldRestart) {
                 stopTeacherMode();
@@ -1344,6 +1688,38 @@ function init() {
             } else {
                 updateTeacherPanel();
             }
+        });
+    }
+
+    if (elements.teacherPanelToggle) {
+        elements.teacherPanelToggle.addEventListener('click', () => {
+            if (state.teacherMode && state.currentLessonId) {
+                state.teacherPanelCollapsed = !state.teacherPanelCollapsed;
+            } else {
+                state.teacherPanelExpanded = !state.teacherPanelExpanded;
+            }
+            updateTeacherPanel();
+        });
+    }
+
+    if (elements.teacherPanel) {
+        elements.teacherPanel.addEventListener('click', (event) => {
+            const interactiveSelector = 'input, select, button, label';
+            if (event.target.closest(interactiveSelector)) {
+                return;
+            }
+            if (state.teacherMode) {
+                if (!state.teacherPanelCollapsed) {
+                    return;
+                }
+                state.teacherPanelCollapsed = false;
+            } else {
+                if (state.teacherPanelExpanded) {
+                    return;
+                }
+                state.teacherPanelExpanded = true;
+            }
+            updateTeacherPanel();
         });
     }
 
