@@ -40,88 +40,90 @@ body {
     margin-bottom: 0.5rem;
 }
 
+/* ── Teacher Panel ─ minimalist outlined design ───────────────── */
+
 .teacher-panel {
-    width: min(100%, 280px);
-    padding: 1rem;
-    border: 1px solid rgba(122, 168, 255, 0.22);
-    border-radius: 22px;
-    background:
-        linear-gradient(135deg, rgba(100, 146, 255, 0.22), rgba(142, 104, 255, 0.1)),
-        linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.04));
-    backdrop-filter: blur(20px);
-    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    width: min(100%, 320px);
+    padding: 1.1rem 1.2rem;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.04);
     margin-top: auto;
-    overflow: hidden;
-    transition: width 0.28s ease, padding 0.28s ease, border-radius 0.28s ease, background 0.28s ease, border-color 0.28s ease, box-shadow 0.28s ease;
+    overflow: visible;
+    transition: width 0.28s ease, padding 0.28s ease, border-radius 0.28s ease,
+                background 0.28s ease, border-color 0.28s ease, box-shadow 0.28s ease;
 }
 
 .teacher-panel.expanded {
-    width: min(100%, 560px);
+    width: min(100%, 520px);
 }
 
 .teacher-panel.compact,
 .teacher-panel.collapsed {
-    width: min(100%, 190px);
-    padding: 0.3rem 0.5rem;
+    width: min(100%, 200px);
+    padding: 0.35rem 0.65rem;
     border-radius: 999px;
 }
+
+/* ── Head ── */
 
 .teacher-panel-head {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
-    align-items: start;
-    column-gap: 1rem;
+    align-items: center;
+    column-gap: 0.75rem;
     margin-bottom: 0;
     transition: margin-bottom 0.28s ease;
 }
 
 .teacher-panel-heading {
     display: flex;
-    align-items: flex-start;
-    gap: 0.85rem;
+    align-items: center;
+    gap: 0.7rem;
     min-width: 0;
 }
 
 .teacher-panel-actions {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.45rem;
     justify-self: end;
-    align-self: start;
-    margin-top: 0;
-    padding-top: 0;
 }
 
 .teacher-panel-icon {
-    width: 44px;
-    height: 44px;
+    width: 36px;
+    height: 36px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border-radius: 14px;
-    background: rgba(255, 255, 255, 0.1);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
-    font-size: 1.25rem;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    background: rgba(255, 255, 255, 0.04);
+    font-size: 1.1rem;
+    flex-shrink: 0;
 }
 
 .teacher-panel-copy {
     min-width: 0;
-    padding-top: 0.05rem;
 }
+
+/* ── Body / fields ── */
 
 .teacher-panel-row {
     display: flex;
     flex-direction: column;
     align-items: stretch;
-    gap: 0.75rem;
+    gap: 0.5rem;
 }
 
 .teacher-field-label {
-    color: rgba(255, 255, 255, 0.68);
-    font-size: 0.78rem;
+    color: rgba(255, 255, 255, 0.55);
+    font-size: 0.7rem;
     font-weight: 600;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.06em;
     text-transform: uppercase;
+    padding-left: 0.5rem;
+    border-left: 2px solid rgba(122, 168, 255, 0.4);
 }
 
 .teacher-panel-body {
@@ -130,7 +132,9 @@ body {
     max-height: 520px;
     overflow-y: auto;
     opacity: 1;
-    margin-top: 0.9rem;
+    margin-top: 0.85rem;
+    padding-top: 0.85rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
     padding-right: 0.15rem;
     transition: opacity 0.24s ease, max-height 0.28s ease, margin 0.28s ease, transform 0.28s ease;
 }
@@ -140,7 +144,7 @@ body {
 }
 
 .teacher-panel-body::-webkit-scrollbar {
-    width: 5px;
+    width: 4px;
 }
 
 .teacher-panel-body::-webkit-scrollbar-track {
@@ -148,32 +152,37 @@ body {
 }
 
 .teacher-panel-body::-webkit-scrollbar-thumb {
-    background: rgba(122, 168, 255, 0.35);
+    background: rgba(255, 255, 255, 0.15);
     border-radius: 999px;
 }
+
+/* ── Labels ── */
 
 .teacher-panel-label {
     display: block;
-    font-size: 1rem;
-    font-weight: 700;
+    font-size: 0.92rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
 }
 
 .teacher-panel-subtitle {
-    margin: 0.2rem 0 0;
-    color: rgba(240, 240, 240, 0.72);
-    font-size: 0.84rem;
-    line-height: 1.45;
+    margin: 0.15rem 0 0;
+    color: rgba(255, 255, 255, 0.45);
+    font-size: 0.78rem;
+    line-height: 1.4;
 }
 
+/* ── Badge ── */
+
 .teacher-mode-badge {
-    padding: 0.35rem 0.75rem;
-    border-radius: 999px;
+    padding: 0.25rem 0.6rem;
+    border-radius: 6px;
     border: 1px solid rgba(255, 255, 255, 0.12);
-    background: rgba(255, 255, 255, 0.07);
+    background: transparent;
     color: var(--text-secondary);
-    font-size: 0.76rem;
-    font-weight: 700;
-    letter-spacing: 0.08em;
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
     text-transform: uppercase;
     white-space: nowrap;
 }
@@ -182,22 +191,28 @@ body {
     display: none;
 }
 
+/* ── Toggle (expand/collapse) ── */
+
 .teacher-panel-toggle {
-    width: 34px;
-    height: 34px;
-    border-radius: 999px;
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    background: rgba(255, 255, 255, 0.07);
-    color: var(--text-primary);
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: transparent;
+    color: var(--text-secondary);
     cursor: pointer;
-    font-size: 1rem;
+    font-size: 0.9rem;
     line-height: 1;
-    transition: transform 0.24s ease, background 0.2s ease, border-color 0.2s ease, opacity 0.2s ease;
+    transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 }
 
 .teacher-panel-toggle:hover {
-    background: rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.2);
+    color: var(--text-primary);
 }
+
+/* ── Status / Meta ── */
 
 .teacher-panel-status,
 .teacher-lesson-meta {
@@ -205,61 +220,77 @@ body {
 }
 
 .teacher-panel-status {
-    margin-top: 0.55rem;
-    font-size: 0.85rem;
+    margin-top: 0.5rem;
+    font-size: 0.8rem;
+    color: rgba(255, 255, 255, 0.45);
 }
 
 .teacher-panel-summary {
     display: none;
-    margin-top: 0.1rem;
-    padding: 0.75rem 0.9rem;
-    border-radius: 14px;
-    background: rgba(255, 255, 255, 0.08);
+    margin-top: 0.15rem;
+    padding: 0.6rem 0.8rem;
+    border-radius: 10px;
     border: 1px solid rgba(255, 255, 255, 0.08);
-    color: #e7eefc;
-    font-size: 0.9rem;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 0.82rem;
     line-height: 1.45;
 }
+
+/* ── Select (lesson picker) ── */
 
 .teacher-select {
     flex: 1;
     min-width: 0;
-    padding: 0.8rem 1rem;
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    border-radius: 14px;
-    background: rgba(15, 17, 26, 0.42);
+    padding: 0.65rem 0.85rem;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    border-radius: 10px;
+    background: #1a1d2e;
     color: var(--text-primary);
     font: inherit;
+    font-size: 0.88rem;
     outline: none;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    transition: border-color 0.2s ease;
+}
+
+.teacher-select option {
+    background: #1a1d2e;
+    color: #f0f0f0;
+    padding: 0.5rem;
+}
+
+.teacher-select:focus {
+    border-color: rgba(122, 168, 255, 0.5);
 }
 
 .teacher-select:disabled {
-    opacity: 0.6;
+    opacity: 0.5;
     cursor: not-allowed;
 }
 
+/* ── Lesson meta grid ── */
+
 .teacher-lesson-meta {
-    margin-top: 0.7rem;
-    padding: 0.75rem 0.9rem;
-    border-radius: 14px;
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    font-size: 0.83rem;
+    margin-top: 0.65rem;
+    padding: 0;
+    border-radius: 10px;
+    background: transparent;
+    border: none;
+    font-size: 0.8rem;
     line-height: 1.45;
 }
 
 .teacher-lesson-grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 0.75rem;
+    gap: 0.5rem;
 }
 
 .teacher-meta-item {
-    padding: 0.75rem;
-    border-radius: 12px;
-    background: rgba(15, 17, 26, 0.32);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    padding: 0.6rem 0.7rem;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.18);
 }
 
 .teacher-meta-item.goal {
@@ -268,46 +299,47 @@ body {
 
 .teacher-meta-label {
     display: block;
-    margin-bottom: 0.3rem;
-    color: rgba(255, 255, 255, 0.62);
-    font-size: 0.72rem;
+    margin-bottom: 0.2rem;
+    color: rgba(255, 255, 255, 0.4);
+    font-size: 0.65rem;
     letter-spacing: 0.08em;
     text-transform: uppercase;
 }
 
 .teacher-meta-value {
-    color: #f2f5ff;
-    font-size: 0.94rem;
-    line-height: 1.45;
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 0.88rem;
+    line-height: 1.4;
 }
 
+/* ── Active state ── */
+
 .teacher-panel.active {
-    border-color: rgba(108, 166, 255, 0.55);
-    box-shadow: 0 0 0 1px rgba(78, 130, 238, 0.16), 0 20px 46px rgba(39, 89, 188, 0.24);
+    border-color: rgba(122, 168, 255, 0.35);
 }
+
+/* ── Compact / collapsed pill ── */
 
 .teacher-panel.compact,
 .teacher-panel.collapsed {
-    padding: 0.3rem 0.5rem;
+    padding: 0.35rem 0.65rem;
     border-radius: 999px;
-    border-color: rgba(123, 171, 255, 0.3);
-    background:
-        linear-gradient(135deg, rgba(82, 124, 235, 0.28), rgba(127, 84, 224, 0.18)),
-        linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.05));
-    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.04);
 }
 
 .teacher-panel.compact .teacher-panel-icon,
 .teacher-panel.collapsed .teacher-panel-icon {
-    width: 28px;
-    height: 28px;
-    border-radius: 999px;
-    font-size: 0.85rem;
+    width: 26px;
+    height: 26px;
+    border-radius: 8px;
+    font-size: 0.8rem;
+    border: none;
 }
 
 .teacher-panel.compact .teacher-panel-label,
 .teacher-panel.collapsed .teacher-panel-label {
-    font-size: 0.84rem;
+    font-size: 0.82rem;
 }
 
 .teacher-panel.compact .teacher-panel-subtitle,
@@ -316,8 +348,8 @@ body {
 }
 
 .teacher-panel.active .teacher-mode-badge {
-    color: #dfffea;
-    background: rgba(68, 255, 170, 0.16);
+    color: #a8f0c8;
+    background: transparent;
     border-color: rgba(68, 255, 170, 0.3);
 }
 
@@ -342,7 +374,7 @@ body {
 
 .teacher-panel.compact .teacher-panel-heading,
 .teacher-panel.collapsed .teacher-panel-heading {
-    gap: 0.55rem;
+    gap: 0.45rem;
 }
 
 .teacher-panel.compact .teacher-panel-actions,
@@ -352,25 +384,25 @@ body {
 }
 
 .teacher-panel.collapsed.active {
-    border-color: rgba(108, 166, 255, 0.48);
-    box-shadow: 0 10px 28px rgba(39, 89, 188, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    border-color: rgba(122, 168, 255, 0.3);
 }
 
 @keyframes teacher-summary-fade {
     from {
         opacity: 0;
-        transform: translateY(-6px);
+        transform: translateY(-4px);
     }
-
     to {
         opacity: 1;
         transform: translateY(0);
     }
 }
 
+/* ── Toggle switch ── */
+
 .teacher-switch {
     position: relative;
-    width: 38px;
+    width: 36px;
     height: 20px;
     display: inline-flex;
     align-items: center;
@@ -387,12 +419,9 @@ body {
     position: absolute;
     inset: 0;
     border-radius: 999px;
-    background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.08)),
-        rgba(15, 17, 26, 0.38);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 6px 18px rgba(0, 0, 0, 0.18);
-    transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    transition: background 0.2s ease, border-color 0.2s ease;
     cursor: pointer;
 }
 
@@ -404,26 +433,22 @@ body {
     width: 14px;
     height: 14px;
     border-radius: 50%;
-    background: linear-gradient(180deg, #ffffff, #dbe7ff);
-    box-shadow: 0 2px 10px rgba(17, 24, 39, 0.28);
+    background: rgba(255, 255, 255, 0.6);
     transition: transform 0.2s ease, background 0.2s ease;
 }
 
 .teacher-switch input:checked + .teacher-switch-slider {
-    background:
-        linear-gradient(135deg, rgba(78, 130, 238, 0.7), rgba(121, 98, 255, 0.48)),
-        rgba(78, 130, 238, 0.28);
+    background: rgba(78, 130, 238, 0.35);
     border-color: rgba(122, 168, 255, 0.5);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 8px 20px rgba(78, 130, 238, 0.24);
 }
 
 .teacher-switch input:checked + .teacher-switch-slider::before {
     transform: translateX(16px);
-    background: linear-gradient(180deg, #ffffff, #f5f8ff);
+    background: #fff;
 }
 
 .teacher-switch:hover .teacher-switch-slider {
-    border-color: rgba(122, 168, 255, 0.34);
+    border-color: rgba(255, 255, 255, 0.25);
 }
 
 .mic-wrapper {
@@ -1355,7 +1380,7 @@ body {
     .teacher-panel {
         width: 100%;
         padding: 0.85rem;
-        border-radius: 20px;
+        border-radius: 14px;
     }
 
     .teacher-panel.expanded {
@@ -1363,17 +1388,16 @@ body {
     }
 
     .teacher-panel-head {
-        grid-template-columns: minmax(0, 1fr);
-        row-gap: 0.75rem;
+        grid-template-columns: minmax(0, 1fr) auto;
     }
 
     .teacher-panel-actions {
-        width: 100%;
         justify-content: flex-end;
     }
 
     .teacher-panel-body {
-        margin-top: 0.75rem;
+        margin-top: 0.65rem;
+        padding-top: 0.65rem;
         max-height: min(36vh, 280px);
         padding-right: 0.1rem;
     }
@@ -1385,12 +1409,12 @@ body {
     }
 
     .teacher-panel-toggle {
-        width: 30px;
-        height: 30px;
+        width: 28px;
+        height: 28px;
     }
 
     .teacher-field-label {
-        font-size: 0.72rem;
+        font-size: 0.68rem;
     }
 
     .teacher-lesson-grid {

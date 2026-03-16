@@ -602,7 +602,7 @@ function startTeacherMode() {
             elements.teacherToggle.checked = false;
         }
         state.teacherMode = false;
-        state.teacherPanelExpanded = true;
+        state.teacherPanelExpanded = false;
         state.teacherPanelCollapsed = false;
         updateTeacherPanel();
     }
@@ -615,7 +615,7 @@ function stopTeacherMode() {
         console.error('Failed to stop teacher mode:', error);
     }
     state.teacherMode = false;
-    state.teacherPanelExpanded = true;
+    state.teacherPanelExpanded = false;
     state.teacherPanelCollapsed = false;
     updateTeacherPanel();
 }
@@ -760,7 +760,7 @@ function handleServerMessage(data) {
             break;
         case 'teacher_mode_stopped':
             state.teacherMode = false;
-            state.teacherPanelExpanded = true;
+            state.teacherPanelExpanded = false;
             state.currentLessonStepId = "";
             state.teacherPanelCollapsed = false;
             updateTeacherPanel();
