@@ -11,6 +11,10 @@ class StepType(str, Enum):
     ask = "ask"
     sentence = "sentence"
     summary = "summary"
+    roleplay = "roleplay"
+    translate = "translate"
+    fill_blank = "fill_blank"
+    choice = "choice"
 
 
 class LessonStep(BaseModel):
@@ -19,6 +23,15 @@ class LessonStep(BaseModel):
     prompt: str
     expected_answer: str | None = None
     hint: str | None = None
+    # roleplay
+    goal_description: str | None = None
+    # translate
+    source_phrase: str | None = None
+    source_language: str | None = None
+    # fill_blank
+    sentence_template: str | None = None
+    # choice
+    choices: List[str] | None = None
 
 
 class LessonDefinition(BaseModel):
@@ -59,6 +72,7 @@ class StudentAnswerStatus(str, Enum):
     incorrect = "incorrect"
     off_topic = "off_topic"
     unclear = "unclear"
+    goal_achieved = "goal_achieved"
 
 
 class TeacherAction(str, Enum):
@@ -69,6 +83,7 @@ class TeacherAction(str, Enum):
     repeat_question = "repeat_question"
     move_to_review = "move_to_review"
     finish_lesson = "finish_lesson"
+    evaluate_freely = "evaluate_freely"
 
 
 class InputUnderstanding(BaseModel):

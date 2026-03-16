@@ -16,6 +16,7 @@ from api.teacher_mode.models import (
     LessonDefinition,
     LessonSessionState,
     PedagogicalActionBlock,
+    StepType,
     StudentAnswerStatus,
     TeacherAction,
     TTSBlock,
@@ -139,6 +140,9 @@ class GeminiTeacherAdapter:
                             text=f"{TEACHER_PHRASES['session_state_prefix']}{json.dumps(session_payload, ensure_ascii=False)}"
                         ),
                         types.Part(text=TEACHER_PHRASES["evaluate_audio_instruction"]),
+                    ]
+                    + self._build_step_type_parts(lesson, session)
+                    + [
                         types.Part(inline_data=types.Blob(mime_type="audio/mp3", data=mp3_data)),
                     ],
                 )
@@ -184,7 +188,8 @@ class GeminiTeacherAdapter:
                         ),
                         types.Part(text=f"{TEACHER_PHRASES['asr_transcript_prefix']}{transcript}"),
                         types.Part(text=TEACHER_PHRASES["evaluate_transcript_instruction"]),
-                    ],
+                    ]
+                    + self._build_step_type_parts_from_payload(lesson_payload, session_payload),
                 )
             ],
             config=types.GenerateContentConfig(
@@ -209,6 +214,85 @@ class GeminiTeacherAdapter:
         if hasattr(parsed, "model_dump"):
             return parsed.model_dump(mode="json")
         raise ValueError("Model did not return structured payload")
+
+    def _build_step_type_parts(
+        self,
+        lesson: LessonDefinition,
+        session: LessonSessionState,
+    ) -> list[types.Part]:
+        """Build extra instruction parts based on the current step type."""
+        current_step = None
+        for step in lesson.steps:
+            if step.step_id == session.current_step_id:
+                current_step = step
+                break
+        if current_step is None:
+            return []
+        return self._parts_for_step(current_step)
+
+    def _build_step_type_parts_from_payload(
+        self,
+        lesson_payload: dict,
+        session_payload: dict,
+    ) -> list[types.Part]:
+        """Build extra instruction parts from raw payloads (used for transcript eval)."""
+        current_step_id = session_payload.get("current_step_id", "")
+        for step_data in lesson_payload.get("steps", []):
+            if step_data.get("step_id") == current_step_id:
+                step_type = step_data.get("type", "")
+                return self._parts_for_step_type(
+                    step_type=step_type,
+                    goal_description=step_data.get("goal_description"),
+                    source_phrase=step_data.get("source_phrase"),
+                    source_language=step_data.get("source_language"),
+                    sentence_template=step_data.get("sentence_template"),
+                    choices=step_data.get("choices"),
+                )
+        return []
+
+    @staticmethod
+    def _parts_for_step(step) -> list[types.Part]:
+        return GeminiTeacherAdapter._parts_for_step_type(
+            step_type=step.type.value if hasattr(step.type, "value") else str(step.type),
+            goal_description=getattr(step, "goal_description", None),
+            source_phrase=getattr(step, "source_phrase", None),
+            source_language=getattr(step, "source_language", None),
+            sentence_template=getattr(step, "sentence_template", None),
+            choices=getattr(step, "choices", None),
+        )
+
+    @staticmethod
+    def _parts_for_step_type(
+        *,
+        step_type: str,
+        goal_description: str | None = None,
+        source_phrase: str | None = None,
+        source_language: str | None = None,
+        sentence_template: str | None = None,
+        choices: list[str] | None = None,
+    ) -> list[types.Part]:
+        parts: list[types.Part] = []
+        if step_type == "roleplay":
+            instruction = TEACHER_PHRASES["roleplay_evaluate_instruction"]
+            if goal_description:
+                instruction += f" Goal: {goal_description}"
+            parts.append(types.Part(text=instruction))
+        elif step_type == "translate":
+            extra = f"This is a TRANSLATION step. The student must translate the phrase from {source_language or 'another language'} to Belarusian."
+            if source_phrase:
+                extra += f" Source phrase: \"{source_phrase}\""
+            parts.append(types.Part(text=extra))
+        elif step_type == "fill_blank":
+            extra = "This is a FILL THE BLANK step. The student must complete the sentence."
+            if sentence_template:
+                extra += f" Template: \"{sentence_template}\""
+            parts.append(types.Part(text=extra))
+        elif step_type == "choice":
+            extra = "This is a MULTIPLE CHOICE step. The student must choose the correct option."
+            if choices:
+                extra += f" Choices: {', '.join(choices)}"
+            parts.append(types.Part(text=extra))
+        return parts
 
     @staticmethod
     def _normalize_payload(

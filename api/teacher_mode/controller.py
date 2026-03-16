@@ -10,6 +10,8 @@ from api.teacher_mode.lesson_store import LessonStore
 from api.teacher_mode.models import (
     LessonSessionState,
     LessonStatus,
+    StepType,
+    StudentAnswerStatus,
     TeacherAction,
     TeacherTurnOutcome,
 )
@@ -98,13 +100,37 @@ class TeacherController:
                 teacher_action = TeacherAction.repeat_question
                 reply_text = self._fallback_reply(state.current_step_id, lesson)
             else:
-                teacher_action = result.pedagogical_action.teacher_action
-                reply_text = self._limit_reply_text(
-                    self._normalize_reply_text(
-                        result.tts_output.reply_text or self._fallback_reply(state.current_step_id, lesson),
-                        step_id=state.current_step_id,
+                # For roleplay: if Gemini says goal_achieved or evaluate_freely, treat as advance
+                if (
+                    result.evaluation.student_answer_status == StudentAnswerStatus.goal_achieved
+                    or teacher_action == TeacherAction.evaluate_freely
+                ):
+                    next_steps = lesson.allowed_transitions.get(state.current_step_id, [])
+                    if next_steps:
+                        next_step_id = next_steps[0]
+                        teacher_action = TeacherAction.praise_and_advance
+                        reply_text = self._limit_reply_text(
+                            self._normalize_reply_text(
+                                result.tts_output.reply_text or self._success_reply(lesson=lesson, step_id=next_step_id),
+                                step_id=state.current_step_id,
+                            )
+                        )
+                    else:
+                        teacher_action = result.pedagogical_action.teacher_action
+                        reply_text = self._limit_reply_text(
+                            self._normalize_reply_text(
+                                result.tts_output.reply_text or self._fallback_reply(state.current_step_id, lesson),
+                                step_id=state.current_step_id,
+                            )
+                        )
+                else:
+                    teacher_action = result.pedagogical_action.teacher_action
+                    reply_text = self._limit_reply_text(
+                        self._normalize_reply_text(
+                            result.tts_output.reply_text or self._fallback_reply(state.current_step_id, lesson),
+                            step_id=state.current_step_id,
+                        )
                     )
-                )
 
             if teacher_action == TeacherAction.finish_lesson and state.current_step_id != "summary":
                 fallback_reason = fallback_reason or "premature_finish_blocked"
@@ -214,6 +240,10 @@ class TeacherController:
         if current_step is None:
             return None
 
+        # Roleplay steps: never do deterministic matching — Gemini decides
+        if current_step.type == StepType.roleplay:
+            return None
+
         for candidate in TeacherController._step_expected_candidates(current_step):
             if candidate in normalized_transcript:
                 next_steps = lesson.allowed_transitions.get(step_id, [])
@@ -223,19 +253,43 @@ class TeacherController:
     @staticmethod
     def _step_expected_candidates(step) -> list[str]:
         candidates: list[str] = []
-        for raw in (step.expected_answer, step.hint, step.prompt):
-            if not raw:
-                continue
 
-            normalized = TeacherController._normalize_text(raw)
-            if normalized:
-                candidates.append(normalized)
+        # Type-specific sources
+        if step.type == StepType.translate:
+            # For translate: expected_answer is the primary match target
+            for raw in (step.expected_answer, step.hint):
+                if not raw:
+                    continue
+                normalized = TeacherController._normalize_text(raw)
+                if normalized:
+                    candidates.append(normalized)
+        elif step.type == StepType.fill_blank:
+            # For fill_blank: expected_answer is what fills the ___
+            if step.expected_answer:
+                normalized = TeacherController._normalize_text(step.expected_answer)
+                if normalized:
+                    candidates.append(normalized)
+        elif step.type == StepType.choice:
+            # For choice: expected_answer is the correct choice
+            if step.expected_answer:
+                normalized = TeacherController._normalize_text(step.expected_answer)
+                if normalized:
+                    candidates.append(normalized)
+        else:
+            # Original logic for intro/ask/sentence/summary
+            for raw in (step.expected_answer, step.hint, step.prompt):
+                if not raw:
+                    continue
 
-            if ":" in raw:
-                _, suffix = raw.split(":", 1)
-                normalized_suffix = TeacherController._normalize_text(suffix)
-                if normalized_suffix:
-                    candidates.append(normalized_suffix)
+                normalized = TeacherController._normalize_text(raw)
+                if normalized:
+                    candidates.append(normalized)
+
+                if ":" in raw:
+                    _, suffix = raw.split(":", 1)
+                    normalized_suffix = TeacherController._normalize_text(suffix)
+                    if normalized_suffix:
+                        candidates.append(normalized_suffix)
 
         unique_candidates: list[str] = []
         for candidate in candidates:

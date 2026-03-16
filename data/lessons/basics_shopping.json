@@ -1,0 +1,134 @@
+{
+  "lesson_id": "basics_shopping",
+  "title": "У краме: купляем прадукты",
+  "level": "A2",
+  "lesson_goal": "Навучыцца рабіць пакупкі па-беларуску: назваць прадукты, спытаць цану, ветліва папрасіць і падзякаваць",
+  "lesson_words": [
+    "хлеб",
+    "малако",
+    "масла",
+    "бульба",
+    "цана",
+    "кошт",
+    "колькі каштуе",
+    "калі ласка",
+    "дзякуй",
+    "здачу",
+    "пакет"
+  ],
+  "steps": [
+    {
+      "step_id": "intro",
+      "type": "intro",
+      "prompt": "Сёння мы навучымся рабіць пакупкі ў краме. Паўтары: Добры дзень, мне трэба хлеб.",
+      "hint": "Скажы: Добры дзень, мне трэба хлеб."
+    },
+    {
+      "step_id": "translate_milk",
+      "type": "translate",
+      "prompt": "Як сказаць па-беларуску: Мне нужно молоко?",
+      "source_phrase": "Мне нужно молоко",
+      "source_language": "русская",
+      "expected_answer": "Мне трэба малако",
+      "hint": "Скажы: Мне трэба малако."
+    },
+    {
+      "step_id": "translate_butter",
+      "type": "translate",
+      "prompt": "Пераклады на беларускую: Сколько стоит масло?",
+      "source_phrase": "Сколько стоит масло?",
+      "source_language": "русская",
+      "expected_answer": "Колькі каштуе масла",
+      "hint": "Скажы: Колькі каштуе масла?"
+    },
+    {
+      "step_id": "fill_bread",
+      "type": "fill_blank",
+      "prompt": "Скончы сказ: Каб купіць хлеб, трэба ісці ў...",
+      "sentence_template": "Каб купіць хлеб, трэба ісці ў ___",
+      "expected_answer": "краму",
+      "hint": "Патрэбнае слова: краму."
+    },
+    {
+      "step_id": "fill_price",
+      "type": "fill_blank",
+      "prompt": "Скончы сказ: Малако каштуе два...",
+      "sentence_template": "Малако каштуе два ___",
+      "expected_answer": "рублі",
+      "hint": "Патрэбнае слова: рублі."
+    },
+    {
+      "step_id": "choice_pashol",
+      "type": "choice",
+      "prompt": "Што правільна: я пайшоў ці я пайшла? Калі ты хлопец.",
+      "choices": ["я пайшоў", "я пайшла"],
+      "expected_answer": "я пайшоў",
+      "hint": "Для хлопца правільна: я пайшоў."
+    },
+    {
+      "step_id": "choice_polite",
+      "type": "choice",
+      "prompt": "Якая форма больш ветлівая: дайце мне хлеб ці дайце, калі ласка, хлеб?",
+      "choices": ["дайце мне хлеб", "дайце калі ласка хлеб"],
+      "expected_answer": "дайце калі ласка хлеб",
+      "hint": "Больш ветліва: дайце, калі ласка, хлеб."
+    },
+    {
+      "step_id": "roleplay_buy",
+      "type": "roleplay",
+      "prompt": "Уяві, што ты ў краме. Ветліва спытай у прадаўца цану хлеба і папрасі яго.",
+      "goal_description": "Студэнт павінен ветліва спытаць цану і папрасіць тавар, выкарыстоўваючы беларускія словы калі ласка, колькі каштуе",
+      "hint": "Паспрабуй: Добры дзень, колькі каштуе хлеб? Дайце, калі ласка, адну булку."
+    },
+    {
+      "step_id": "roleplay_pay",
+      "type": "roleplay",
+      "prompt": "Цяпер разлічыся з прадаўцом: скажы пра аплату і папрасі здачу.",
+      "goal_description": "Студэнт павінен адэкватна выказаць жаданне заплаціць і папрасіць здачу ці чэк",
+      "hint": "Паспрабуй: Вось, калі ласка. Ці будзе здача?"
+    },
+    {
+      "step_id": "summary",
+      "type": "summary",
+      "prompt": "Паўтары кароткі дыялог: Добры дзень. Колькі каштуе хлеб? Дайце, калі ласка. Дзякуй. Да пабачэння.",
+      "hint": "Скажы ўвесь дыялог павольна і выразна."
+    }
+  ],
+  "allowed_transitions": {
+    "intro": ["translate_milk"],
+    "translate_milk": ["translate_butter"],
+    "translate_butter": ["fill_bread"],
+    "fill_bread": ["fill_price"],
+    "fill_price": ["choice_pashol"],
+    "choice_pashol": ["choice_polite"],
+    "choice_polite": ["roleplay_buy"],
+    "roleplay_buy": ["roleplay_pay"],
+    "roleplay_pay": ["summary"],
+    "summary": ["summary"]
+  },
+  "retry_limits": {
+    "intro": 2,
+    "translate_milk": 3,
+    "translate_butter": 3,
+    "fill_bread": 2,
+    "fill_price": 2,
+    "choice_pashol": 2,
+    "choice_polite": 2,
+    "roleplay_buy": 3,
+    "roleplay_pay": 3,
+    "summary": 3
+  },
+  "hints": {
+    "intro": "Скажы: Добры дзень, мне трэба хлеб.",
+    "translate_milk": "Пераклад: Мне трэба малако.",
+    "translate_butter": "Пераклад: Колькі каштуе масла?",
+    "fill_bread": "Патрэбнае слова: краму.",
+    "fill_price": "Патрэбнае слова: рублі.",
+    "choice_pashol": "Для хлопца правільна: я пайшоў.",
+    "choice_polite": "Больш ветліва: дайце, калі ласка, хлеб.",
+    "roleplay_buy": "Паспрабуй ветліва спытаць цану і папрасіць тавар.",
+    "roleplay_pay": "Скажы пра аплату і здачу.",
+    "summary": "Паўтары ўвесь дыялог пра пакупкі."
+  },
+  "finish_condition": "student_can_do_basic_shopping_dialogue_in_belarusian"
+}

@@ -36,6 +36,17 @@ TEACHER_PHRASES = {
     "asr_transcript_prefix": "ASR_TRANSCRIPT=",
     "evaluate_transcript_instruction": "Analyze the student's answer using the transcript.",
     "transcript_prefixes": ("transcript:", "recognized:", "response:"),
+    # ---- new step-type phrases ----
+    "roleplay_evaluate_instruction": (
+        "This step is a ROLEPLAY exercise. There is no single correct answer. "
+        "The student must achieve the communicative goal described in goal_description. "
+        "Evaluate whether the student's response is meaningful, polite, and achieves the goal. "
+        "Use student_answer_status=goal_achieved if the goal is met, or partially_correct / incorrect otherwise. "
+        "Provide encouraging feedback in reply_text."
+    ),
+    "translate_hint_prefix": "Перакладзі на беларускую:",
+    "fill_blank_hint_prefix": "Скончы сказ:",
+    "choice_hint_prefix": "Абяры правільны варыянт:",
 }
 
 TEACHER_PRAISE_WORDS = (
