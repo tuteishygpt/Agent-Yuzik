@@ -20,7 +20,7 @@ def guard_one_call(tool: BaseTool, args: dict, tool_context: ToolContext, **kwar
 # ───────── галоўны агент Юзік ─────────
 router_agent = LlmAgent(
     name="router_agent",
-    model="gemini-2.5-flash",           # абноўленая мадэль
+    model="gemini-flash-latest",
     description="Беларускі агент Юзік — твой беларускамоўны сябар.",
     instruction=r"""
         Ты — беларускі агент **Юзік**. 

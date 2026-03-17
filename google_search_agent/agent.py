@@ -3,7 +3,7 @@ from google.adk.tools import google_search
 
 search_agent = LlmAgent(
     name="search_agent",
-    model="gemini-2.0-flash",              # ↟ мадэль без preview
+    model="gemini-flash-latest",
     description="Агент-пошукавік Google Search.",
     instruction="""
         Ты спецыялізуешся на пошуку ў інтэрнэце.
