@@ -3,6 +3,8 @@
  * Uses ScriptProcessor-based PCM player for minimal latency (inspired by Colab streaming).
  */
 
+import { armTeacherPromptReveal, queueTeacherPrompt } from "./teacher-prompt.js";
+
 // Import VAD from CDN
 const VAD_SCRIPT_URL = "https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.18/dist/bundle.min.js";
 
@@ -358,6 +360,8 @@ const state = {
     teacherPanelCollapsed: false,
     teacherPanelExpanded: false,
     dialogEntries: [],
+    pendingTeacherPrompt: '',
+    revealTeacherPromptOnStart: false,
 };
 
 // ===========================
@@ -617,6 +621,8 @@ function stopTeacherMode() {
     state.teacherMode = false;
     state.teacherPanelExpanded = false;
     state.teacherPanelCollapsed = false;
+    state.pendingTeacherPrompt = '';
+    state.revealTeacherPromptOnStart = false;
     updateTeacherPanel();
 }
 
@@ -753,8 +759,11 @@ function handleServerMessage(data) {
             state.teacherPanelCollapsed = false;
             state.currentLessonId = data.lesson_id || state.currentLessonId;
             updateTeacherPanel();
-            if (data.prompt) {
-                updateTtsText(data.prompt);
+            {
+                const promptToShow = queueTeacherPrompt(state, data.prompt);
+                if (promptToShow) {
+                    updateTtsText(promptToShow);
+                }
             }
             updateStatus("Рэжым настаўніка ўключаны.");
             break;
@@ -763,6 +772,8 @@ function handleServerMessage(data) {
             state.teacherPanelExpanded = false;
             state.currentLessonStepId = "";
             state.teacherPanelCollapsed = false;
+            state.pendingTeacherPrompt = '';
+            state.revealTeacherPromptOnStart = false;
             updateTeacherPanel();
             if (!state.isRecording && !state.isProcessing && !state.isSpeaking) {
                 updateStatus("Націсніце на мікрафон для пачатку");
@@ -1166,6 +1177,12 @@ async function startSession() {
         await state.vad.start();
         state.isRecording = true;
         setListeningState(true);
+        if (state.teacherMode && state.currentLessonId) {
+            const promptToShow = armTeacherPromptReveal(state);
+            if (promptToShow) {
+                updateTtsText(promptToShow);
+            }
+        }
         updateStatus("Слухаю... Можаце гаварыць.");
     } catch (e) {
         console.error("Start session failed", e);
@@ -1188,6 +1205,7 @@ async function stopSession() {
     state.isSpeaking = false;
     state.isStreaming = false;
     state._vadPaused = false;
+    state.revealTeacherPromptOnStart = false;
 
     // Restore audio session to default
     audioSessionHelper.setAuto();

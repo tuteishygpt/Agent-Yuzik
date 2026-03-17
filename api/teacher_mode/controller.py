@@ -68,6 +68,7 @@ class TeacherController:
         lesson = self.lesson_store.get_lesson(state.lesson_id)
         fallback_reason = None
         error_tags: list[str] = []
+        current_step_id = state.current_step_id
         resolved_transcript = transcript.strip()
         resolved_normalized = resolved_transcript.lower()
 
@@ -83,63 +84,70 @@ class TeacherController:
                 result.input_understanding.normalized_transcript or resolved_transcript.lower()
             ).strip()
 
-            next_step_id = result.pedagogical_action.next_step_id or state.current_step_id
-            allowed = lesson.allowed_transitions.get(state.current_step_id, [])
+            next_step_id = result.pedagogical_action.next_step_id or current_step_id
+            teacher_action = result.pedagogical_action.teacher_action
+            allowed = lesson.allowed_transitions.get(current_step_id, [])
             deterministic_step_id = self._matched_next_step_id(
                 lesson=lesson,
-                step_id=state.current_step_id,
+                step_id=current_step_id,
                 normalized_transcript=resolved_normalized,
             )
             if deterministic_step_id:
                 next_step_id = deterministic_step_id
                 teacher_action = TeacherAction.praise_and_advance
                 reply_text = self._success_reply(lesson=lesson, step_id=next_step_id)
-            elif next_step_id != state.current_step_id and next_step_id not in allowed:
+            elif next_step_id != current_step_id and next_step_id not in allowed:
                 fallback_reason = "invalid_transition"
-                next_step_id = state.current_step_id
+                next_step_id = current_step_id
                 teacher_action = TeacherAction.repeat_question
-                reply_text = self._fallback_reply(state.current_step_id, lesson)
+                reply_text = self._fallback_reply(current_step_id, lesson)
             else:
                 # For roleplay: if Gemini says goal_achieved or evaluate_freely, treat as advance
                 if (
                     result.evaluation.student_answer_status == StudentAnswerStatus.goal_achieved
                     or teacher_action == TeacherAction.evaluate_freely
                 ):
-                    next_steps = lesson.allowed_transitions.get(state.current_step_id, [])
+                    next_steps = lesson.allowed_transitions.get(current_step_id, [])
                     if next_steps:
                         next_step_id = next_steps[0]
                         teacher_action = TeacherAction.praise_and_advance
                         reply_text = self._limit_reply_text(
                             self._normalize_reply_text(
                                 result.tts_output.reply_text or self._success_reply(lesson=lesson, step_id=next_step_id),
-                                step_id=state.current_step_id,
+                                step_id=current_step_id,
                             )
                         )
                     else:
-                        teacher_action = result.pedagogical_action.teacher_action
                         reply_text = self._limit_reply_text(
                             self._normalize_reply_text(
-                                result.tts_output.reply_text or self._fallback_reply(state.current_step_id, lesson),
-                                step_id=state.current_step_id,
+                                result.tts_output.reply_text or self._fallback_reply(current_step_id, lesson),
+                                step_id=current_step_id,
                             )
                         )
+                elif result.evaluation.student_answer_status in {
+                    StudentAnswerStatus.incorrect,
+                    StudentAnswerStatus.partially_correct,
+                    StudentAnswerStatus.off_topic,
+                }:
+                    next_step_id = current_step_id
+                    teacher_action = TeacherAction.correct_and_retry
+                    reply_text = self._wrong_answer_reply(lesson=lesson, step_id=current_step_id)
                 else:
-                    teacher_action = result.pedagogical_action.teacher_action
                     reply_text = self._limit_reply_text(
                         self._normalize_reply_text(
-                            result.tts_output.reply_text or self._fallback_reply(state.current_step_id, lesson),
-                            step_id=state.current_step_id,
+                            result.tts_output.reply_text or self._fallback_reply(current_step_id, lesson),
+                            step_id=current_step_id,
                         )
                     )
 
-            if teacher_action == TeacherAction.finish_lesson and state.current_step_id != "summary":
+            if teacher_action == TeacherAction.finish_lesson and current_step_id != "summary":
                 fallback_reason = fallback_reason or "premature_finish_blocked"
                 teacher_action = TeacherAction.praise_and_advance if next_step_id in allowed else TeacherAction.repeat_question
-                if teacher_action == TeacherAction.praise_and_advance and next_step_id != state.current_step_id:
+                if teacher_action == TeacherAction.praise_and_advance and next_step_id != current_step_id:
                     reply_text = self._success_reply(lesson=lesson, step_id=next_step_id)
                 else:
-                    next_step_id = state.current_step_id
-                    reply_text = self._fallback_reply(state.current_step_id, lesson)
+                    next_step_id = current_step_id
+                    reply_text = self._fallback_reply(current_step_id, lesson)
 
             state.current_step_id = next_step_id
             if teacher_action in {
@@ -151,8 +159,25 @@ class TeacherController:
             else:
                 state.attempt_count = 0
 
-            retry_limit = lesson.retry_limits.get(state.current_step_id, 2)
-            if state.attempt_count >= retry_limit and teacher_action in {
+            retry_limit = lesson.retry_limits.get(current_step_id, 2)
+            if (
+                state.attempt_count >= retry_limit
+                and teacher_action == TeacherAction.correct_and_retry
+                and result.evaluation.student_answer_status
+                in {
+                    StudentAnswerStatus.incorrect,
+                    StudentAnswerStatus.partially_correct,
+                    StudentAnswerStatus.off_topic,
+                }
+            ):
+                advance_step_id = self._next_allowed_step_id(lesson=lesson, step_id=current_step_id)
+                if advance_step_id:
+                    state.current_step_id = advance_step_id
+                    state.attempt_count = 0
+                    teacher_action = TeacherAction.praise_and_advance
+                    reply_text = self._wrong_answer_reply(lesson=lesson, step_id=current_step_id, advance=True)
+                    fallback_reason = fallback_reason or "retry_limit_advance"
+            elif state.attempt_count >= retry_limit and teacher_action in {
                 TeacherAction.correct_and_retry,
                 TeacherAction.repeat_question,
             }:
@@ -210,6 +235,16 @@ class TeacherController:
         return self._limit_reply_text(f"{TEACHER_PHRASES['fallback_reply_prefix']} {hint}")
 
     @staticmethod
+    def _wrong_answer_reply(*, lesson, step_id: str, advance: bool = False) -> str:
+        correct_answer = TeacherController._spoken_correct_answer(lesson=lesson, step_id=step_id)
+        reply = f"{TEACHER_PHRASES['correction_prefix']} {correct_answer}".strip()
+        if reply[-1:] not in ".!?":
+            reply = f"{reply}."
+        if advance:
+            reply = f"{reply} {TEACHER_PHRASES['advance_after_correction']}"
+        return TeacherController._limit_reply_text(reply)
+
+    @staticmethod
     def _success_reply(*, lesson, step_id: str) -> str:
         for step in lesson.steps:
             if step.step_id == step_id:
@@ -225,6 +260,39 @@ class TeacherController:
         if strip_leading_praise(text) != text.strip():
             return prepend_praise(text, seed=step_id)
         return text
+
+    @staticmethod
+    def _next_allowed_step_id(*, lesson, step_id: str) -> str | None:
+        next_steps = lesson.allowed_transitions.get(step_id, [])
+        if not next_steps:
+            return None
+        next_step_id = next_steps[0]
+        return next_step_id if next_step_id != step_id else None
+
+    @staticmethod
+    def _spoken_correct_answer(*, lesson, step_id: str) -> str:
+        step = TeacherController._lesson_step(lesson, step_id)
+        if step is None:
+            return TEACHER_PHRASES["generic_short_answer"]
+
+        if step.expected_answer:
+            return step.expected_answer.split("|", 1)[0].strip()
+
+        source = step.hint or step.prompt or TEACHER_PHRASES["generic_short_answer"]
+        for separator in (":", "—"):
+            if separator in source:
+                _, suffix = source.split(separator, 1)
+                candidate = suffix.strip()
+                if candidate:
+                    return candidate
+        return source.strip()
+
+    @staticmethod
+    def _lesson_step(lesson, step_id: str):
+        for step in lesson.steps:
+            if step.step_id == step_id:
+                return step
+        return None
 
     @staticmethod
     def _matched_next_step_id(*, lesson, step_id: str, normalized_transcript: str) -> str | None:

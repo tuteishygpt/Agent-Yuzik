@@ -172,19 +172,64 @@ def test_teacher_controller_blocks_premature_finish_and_advances_normally():
     assert out.fallback_reason == "premature_finish_blocked"
 
 
-def test_teacher_controller_retry_limit_turns_into_hint():
+def test_teacher_controller_retry_limit_turns_unclear_repeat_into_hint():
     lesson_store = LessonStore()
     session_store = SessionStateStore()
-    adapter = FakeAdapter(_result("intro", TeacherAction.correct_and_retry, StudentAnswerStatus.incorrect))
+    adapter = FakeAdapter(_result("intro", TeacherAction.repeat_question, StudentAnswerStatus.unclear))
+    adapter._result.tts_output.reply_text = ""
     controller = TeacherController(lesson_store, session_store, adapter)
 
     controller.start_lesson(session_id="s3", user_id="u3", lesson_id="basics_greetings")
     out1 = asyncio.run(controller.process_audio_turn(session_id="s3", user_id="u3", audio_data=b"x"))
     out2 = asyncio.run(controller.process_audio_turn(session_id="s3", user_id="u3", audio_data=b"x"))
 
-    assert out1.teacher_action in {TeacherAction.correct_and_retry, TeacherAction.hint_and_retry}
+    assert out1.teacher_action in {TeacherAction.repeat_question, TeacherAction.hint_and_retry}
     assert out2.teacher_action == TeacherAction.hint_and_retry
     assert out2.fallback_reason == "retry_limit_hint"
+
+
+def test_teacher_controller_wrong_answer_uses_corrective_reply_on_first_attempt():
+    lesson_store = LessonStore()
+    session_store = SessionStateStore()
+    adapter = FakeAdapter(_result("day_good", TeacherAction.correct_and_retry, StudentAnswerStatus.incorrect))
+    adapter._result.tts_output.reply_text = ""
+    controller = TeacherController(lesson_store, session_store, adapter)
+
+    state = controller.start_lesson(session_id="s3a", user_id="u3a", lesson_id="basics_greetings")
+    state.current_step_id = "day_good"
+    controller.session_store.save(state)
+
+    out = asyncio.run(controller.process_audio_turn(session_id="s3a", user_id="u3a", audio_data=b"x"))
+
+    state = controller.get_state(session_id="s3a", user_id="u3a")
+    assert state is not None
+    assert state.current_step_id == "day_good"
+    assert out.teacher_action == TeacherAction.correct_and_retry
+    assert out.reply_text.startswith("Амаль. Правільна будзе: Вітаю")
+    assert "Дрэнна пачуў адказ" not in out.reply_text
+
+
+def test_teacher_controller_repeated_wrong_answer_advances_after_correction():
+    lesson_store = LessonStore()
+    session_store = SessionStateStore()
+    adapter = FakeAdapter(_result("day_good", TeacherAction.correct_and_retry, StudentAnswerStatus.incorrect))
+    adapter._result.tts_output.reply_text = ""
+    controller = TeacherController(lesson_store, session_store, adapter)
+
+    state = controller.start_lesson(session_id="s3b", user_id="u3b", lesson_id="basics_greetings")
+    state.current_step_id = "day_good"
+    controller.session_store.save(state)
+
+    out1 = asyncio.run(controller.process_audio_turn(session_id="s3b", user_id="u3b", audio_data=b"x"))
+    out2 = asyncio.run(controller.process_audio_turn(session_id="s3b", user_id="u3b", audio_data=b"x"))
+
+    state = controller.get_state(session_id="s3b", user_id="u3b")
+    assert out1.teacher_action == TeacherAction.correct_and_retry
+    assert state is not None
+    assert state.current_step_id == "good_evening"
+    assert out2.teacher_action == TeacherAction.praise_and_advance
+    assert out2.reply_text.startswith("Амаль. Правільна будзе: Вітаю")
+    assert "Ідзем далей" in out2.reply_text
 
 
 def test_teacher_controller_preserves_transcript_on_fallback():

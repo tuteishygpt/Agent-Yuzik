@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 
 TEACHER_PHRASES = {
+    "correction_prefix": "Амаль. Правільна будзе:",
+    "advance_after_correction": "Ідзем далей.",
     "retry_prefix": "Падказка:",
     "fallback_reply_prefix": "Дрэнна пачуў адказ. Паўтарым крок.",
     "fallback_success_reply": "Ідзем далей.",
@@ -36,7 +38,6 @@ TEACHER_PHRASES = {
     "asr_transcript_prefix": "ASR_TRANSCRIPT=",
     "evaluate_transcript_instruction": "Analyze the student's answer using the transcript.",
     "transcript_prefixes": ("transcript:", "recognized:", "response:"),
-    # ---- new step-type phrases ----
     "roleplay_evaluate_instruction": (
         "This step is a ROLEPLAY exercise. There is no single correct answer. "
         "The student must achieve the communicative goal described in goal_description. "

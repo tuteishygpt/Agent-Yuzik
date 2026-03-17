@@ -1,0 +1,1 @@
+{"lesson_id": "basics_months", "title": "Months", "level": "A1", "lesson_goal": "Learn months", "lesson_words": ["studen"], "steps": [{"step_id": "intro", "type": "intro", "prompt": "Say studzen", "hint": "Say studzen"}], "allowed_transitions": {"intro": ["intro"]}, "retry_limits": {"intro": 2}, "hints": {"intro": "Say studzen"}, "finish_condition": "done"}
