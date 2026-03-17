@@ -88,6 +88,86 @@ def test_stream_speech_api_reads_audio_from_filedata_url(monkeypatch):
     assert requested["url"] == "https://fake.space/gradio_api/file=/tmp/gradio/tts.wav"
 
 
+def test_api_mode_uses_hf_token_keyword_for_gradio_client(monkeypatch):
+    monkeypatch.setenv("TTS_MODE", "api")
+    monkeypatch.setenv("HF_TOKEN", "secret-token")
+    monkeypatch.delenv("HUGGINGFACE_API_TOKEN", raising=False)
+
+    sys.modules.pop("config", None)
+    sys.modules.pop("tools.text_to_speech_tool", None)
+
+    captured = []
+    fake_gradio_client = ModuleType("gradio_client")
+
+    class DummyClient:
+        def __init__(self, src, hf_token=None, **kwargs):
+            if "token" in kwargs:
+                raise TypeError("unexpected keyword argument 'token'")
+            captured.append((src, hf_token))
+            self.src = "https://fake.space/"
+            self.headers = {}
+            self.cookies = {}
+            self.ssl_verify = True
+            self.httpx_kwargs = {}
+
+        def predict(self, *args, **kwargs):
+            return None
+
+    fake_gradio_client.Client = DummyClient
+    fake_gradio_client.handle_file = lambda path: {
+        "path": path,
+        "meta": {"_type": "gradio.FileData"},
+    }
+    monkeypatch.setitem(sys.modules, "gradio_client", fake_gradio_client)
+
+    importlib.import_module("tools.text_to_speech_tool")
+
+    assert captured == [
+        ("archivartaunik/Bextts", "secret-token"),
+        ("archivartaunik/BexttsAssist", "secret-token"),
+    ]
+
+
+def test_api_mode_falls_back_to_token_keyword_for_newer_gradio_client(monkeypatch):
+    monkeypatch.setenv("TTS_MODE", "api")
+    monkeypatch.setenv("HF_TOKEN", "secret-token")
+    monkeypatch.delenv("HUGGINGFACE_API_TOKEN", raising=False)
+
+    sys.modules.pop("config", None)
+    sys.modules.pop("tools.text_to_speech_tool", None)
+
+    captured = []
+    fake_gradio_client = ModuleType("gradio_client")
+
+    class DummyClient:
+        def __init__(self, src, token=None, **kwargs):
+            if "hf_token" in kwargs:
+                raise TypeError("unexpected keyword argument 'hf_token'")
+            captured.append((src, token))
+            self.src = "https://fake.space/"
+            self.headers = {}
+            self.cookies = {}
+            self.ssl_verify = True
+            self.httpx_kwargs = {}
+
+        def predict(self, *args, **kwargs):
+            return None
+
+    fake_gradio_client.Client = DummyClient
+    fake_gradio_client.handle_file = lambda path: {
+        "path": path,
+        "meta": {"_type": "gradio.FileData"},
+    }
+    monkeypatch.setitem(sys.modules, "gradio_client", fake_gradio_client)
+
+    importlib.import_module("tools.text_to_speech_tool")
+
+    assert captured == [
+        ("archivartaunik/Bextts", "secret-token"),
+        ("archivartaunik/BexttsAssist", "secret-token"),
+    ]
+
+
 def test_synthesize_api_uses_available_named_endpoint(monkeypatch):
     tts = _load_tts_module(monkeypatch)
     observed = {}

@@ -12,7 +12,7 @@ google-adk>=1.21.0
 
 # Bot & Tools
 python-telegram-bot[webhooks]
-gradio_client==1.8.0
+gradio_client==2.3.0
 fal-client
 requests
 aiohttp>=3.12

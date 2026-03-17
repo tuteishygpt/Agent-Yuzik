@@ -11,6 +11,7 @@
 
 
 import os
+import inspect
 import traceback
 from typing import Optional, AsyncGenerator, Dict, Any, Tuple
 import asyncio
@@ -43,13 +44,27 @@ if TTS_MODE == "api":
     HUGGINGFACE_API_TOKEN = config.HF_TOKEN or os.getenv("HF_TOKEN")
     voice_client = None
 
+    def _make_gradio_client(src: str, token: Optional[str] = None) -> Client:
+        """Create gradio_client.Client across versions with token/hf_token drift."""
+        if not token:
+            return Client(src)
+
+        try:
+            params = inspect.signature(Client.__init__).parameters
+        except (TypeError, ValueError):
+            params = {}
+
+        if "hf_token" in params:
+            return Client(src, hf_token=token)
+        return Client(src, token=token)
+
     if HUGGINGFACE_API_TOKEN:
-        gradio_client = Client(
-            "archivartaunik/Bextts", token=HUGGINGFACE_API_TOKEN
+        gradio_client = _make_gradio_client(
+            "archivartaunik/Bextts", HUGGINGFACE_API_TOKEN
         )
         try:
-            voice_client = Client(
-                "archivartaunik/BexttsAssist", token=HUGGINGFACE_API_TOKEN
+            voice_client = _make_gradio_client(
+                "archivartaunik/BexttsAssist", HUGGINGFACE_API_TOKEN
             )
             log.info("BexttsAssist client initialized successfully.")
         except Exception as e:
@@ -58,9 +73,9 @@ if TTS_MODE == "api":
         log.warning(
             "HF_TOKEN не зададзены — выкарыстоўваю ананімны доступ."
         )
-        gradio_client = Client("archivartaunik/BeTTSNaciski")
+        gradio_client = _make_gradio_client("archivartaunik/BeTTSNaciski")
         try:
-            voice_client = Client("archivartaunik/BexttsAssist")
+            voice_client = _make_gradio_client("archivartaunik/BexttsAssist")
             log.info("BexttsAssist client initialized (anon).")
         except Exception as e:
             log.warning(f"Failed to initialize BexttsAssist (anon): {e}")
@@ -170,6 +185,13 @@ def _download_audio_bytes(url: str) -> Optional[bytes]:
     if not isinstance(url, str) or not url:
         return None
 
+    if not (
+        url.startswith(("http://", "https://"))
+        or url.startswith("/gradio_api/")
+        or url.startswith("/file=")
+    ):
+        return None
+
     resolved_url = url
     if "://" not in url and voice_client and getattr(voice_client, "src", None):
         resolved_url = urljoin(voice_client.src, url)
@@ -188,6 +210,26 @@ def _download_audio_bytes(url: str) -> Optional[bytes]:
     except Exception as exc:
         log.warning(f"Failed to download TTS audio from {resolved_url}: {exc}")
         return None
+
+
+def _summarize_tts_item(item: Any) -> str:
+    """Compact log-friendly summary of a raw Gradio item."""
+    if isinstance(item, str):
+        preview = item[:80].replace("\n", "\\n")
+        return f"str(len={len(item)}, preview={preview!r})"
+    if isinstance(item, dict):
+        return f"dict(keys={sorted(item.keys())})"
+    if isinstance(item, tuple):
+        return (
+            f"tuple(len={len(item)}, "
+            f"item_types={[type(part).__name__ for part in item]})"
+        )
+    if isinstance(item, list):
+        return (
+            f"list(len={len(item)}, "
+            f"item_types={[type(part).__name__ for part in item]})"
+        )
+    return type(item).__name__
 
 
 def _get_named_tts_endpoint(client) -> Any:
@@ -408,11 +450,19 @@ async def _stream_speech_api(
             break
 
         items = result if isinstance(result, (list, tuple)) else [result]
+        recognized_audio = False
         for item in items:
             audio_chunk = _process_item(item)
             if audio_chunk:
+                recognized_audio = True
                 log.info(f"Yielding API audio chunk ({len(audio_chunk)} bytes)")
                 yield audio_chunk
+        if not recognized_audio:
+            log.warning(
+                "Unrecognized TTS result from Gradio | result=%s | items=%s",
+                _summarize_tts_item(result),
+                [_summarize_tts_item(item) for item in items[:3]],
+            )
 
     log.info("Finished API streaming TTS.")
 
