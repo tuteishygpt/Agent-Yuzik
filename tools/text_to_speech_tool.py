@@ -35,7 +35,9 @@ if TTS_MODE == "api":
     import base64
     import re
     import struct
+    from urllib.parse import urljoin
 
+    import httpx
     from gradio_client import Client, handle_file
 
     HUGGINGFACE_API_TOKEN = config.HF_TOKEN or os.getenv("HF_TOKEN")
@@ -131,6 +133,172 @@ def _add_wav_header_api(
     return header + pcm_data
 
 
+def _read_audio_file_bytes(file_path: str) -> Optional[bytes]:
+    """Read a local audio file and delete the temp copy when possible."""
+    if not isinstance(file_path, str) or not os.path.exists(file_path):
+        return None
+
+    with open(file_path, "rb") as f:
+        content = f.read()
+
+    try:
+        os.remove(file_path)
+    except OSError:
+        pass
+
+    return content
+
+
+def _decode_audio_base64(data: str) -> Optional[bytes]:
+    """Decode a Gradio base64 payload into WAV bytes."""
+    if not isinstance(data, str) or not _looks_like_base64(data):
+        return None
+
+    payload = data.split(",", 1)[1] if data.startswith("data:") else data
+    try:
+        raw = base64.b64decode(payload)
+    except Exception:
+        return None
+
+    if not raw.startswith(b"RIFF"):
+        raw = _add_wav_header_api(raw)
+    return raw
+
+
+def _download_audio_bytes(url: str) -> Optional[bytes]:
+    """Download audio when Gradio returns FileData with a remote URL."""
+    if not isinstance(url, str) or not url:
+        return None
+
+    resolved_url = url
+    if "://" not in url and voice_client and getattr(voice_client, "src", None):
+        resolved_url = urljoin(voice_client.src, url)
+
+    try:
+        response = httpx.get(
+            resolved_url,
+            headers=getattr(voice_client, "headers", None),
+            cookies=getattr(voice_client, "cookies", None),
+            verify=getattr(voice_client, "ssl_verify", True),
+            follow_redirects=True,
+            **getattr(voice_client, "httpx_kwargs", {}),
+        )
+        response.raise_for_status()
+        return response.content
+    except Exception as exc:
+        log.warning(f"Failed to download TTS audio from {resolved_url}: {exc}")
+        return None
+
+
+def _get_named_tts_endpoint(client) -> Any:
+    """Resolve the best available named Gradio endpoint for TTS."""
+    endpoints = getattr(client, "endpoints", {}) or {}
+    valid_endpoints = []
+
+    for endpoint in endpoints.values():
+        api_name = getattr(endpoint, "api_name", None)
+        if not api_name or api_name is False:
+            continue
+        if not getattr(endpoint, "is_valid", True):
+            continue
+        if getattr(endpoint, "backend_fn", None) is None:
+            continue
+        if getattr(endpoint, "show_api", True) is False:
+            continue
+        valid_endpoints.append(endpoint)
+
+    for preferred_name in ("/predict", "/text_to_speech"):
+        for endpoint in valid_endpoints:
+            if getattr(endpoint, "api_name", None) == preferred_name:
+                return endpoint
+
+    if len(valid_endpoints) == 1:
+        return valid_endpoints[0]
+
+    available = sorted(
+        endpoint.api_name
+        for endpoint in valid_endpoints
+        if isinstance(getattr(endpoint, "api_name", None), str)
+    )
+    raise ValueError(
+        "Could not resolve a Gradio TTS endpoint. "
+        f"Available named endpoints: {available or ['<none>']}"
+    )
+
+
+def _select_param_name(
+    parameters_info: list[Dict[str, Any]],
+    aliases: Tuple[str, ...],
+    components: Tuple[str, ...],
+    used_names: set[str],
+) -> Optional[str]:
+    for alias in aliases:
+        if alias in used_names:
+            continue
+        for param in parameters_info:
+            if param.get("parameter_name") == alias:
+                return alias
+
+    for param in parameters_info:
+        name = param.get("parameter_name")
+        if not isinstance(name, str) or name in used_names:
+            continue
+        if param.get("component") in components:
+            return name
+
+    for param in parameters_info:
+        name = param.get("parameter_name")
+        if isinstance(name, str) and name not in used_names:
+            return name
+
+    return None
+
+
+def _build_tts_predict_kwargs(
+    endpoint: Any, text: str, speaker_audio_path: Optional[str]
+) -> Dict[str, Any]:
+    parameters_info = getattr(endpoint, "parameters_info", None) or []
+    audio_input = handle_file(speaker_audio_path) if speaker_audio_path else None
+
+    if not parameters_info:
+        return {
+            "belarusian_story": text,
+            "speaker_audio_file": audio_input,
+        }
+
+    used_names: set[str] = set()
+    kwargs: Dict[str, Any] = {}
+
+    text_param = _select_param_name(
+        parameters_info,
+        aliases=("belarusian_story", "text_input", "text"),
+        components=("textbox", "textarea", "text"),
+        used_names=used_names,
+    )
+    if not text_param:
+        raise ValueError(
+            f"Could not resolve text input parameter for endpoint {endpoint.api_name!r}."
+        )
+    used_names.add(text_param)
+    kwargs[text_param] = text
+
+    audio_param = _select_param_name(
+        parameters_info,
+        aliases=("speaker_audio_file", "speaker_audio", "audio"),
+        components=("audio", "file"),
+        used_names=used_names,
+    )
+    if audio_param:
+        kwargs[audio_param] = audio_input
+    elif speaker_audio_path:
+        log.warning(
+            "Speaker audio provided, but endpoint %s has no detectable audio parameter.",
+            getattr(endpoint, "api_name", None),
+        )
+
+    return kwargs
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # stream_speech — стрымінг аўдыя (абодва рэжымы)
 # ═══════════════════════════════════════════════════════════════════════
@@ -200,22 +368,38 @@ async def _stream_speech_api(
     def _process_item(item):
         """Апрацоўвае адзін элемент з вынікаў Gradio (шлях або base64)."""
         if isinstance(item, str):
-            if os.path.exists(item):
-                with open(item, "rb") as f:
-                    content = f.read()
-                try:
-                    os.remove(item)
-                except OSError:
-                    pass
-                return content
-            elif _looks_like_base64(item):
-                try:
-                    raw = base64.b64decode(item)
-                    if not raw.startswith(b"RIFF"):
-                        raw = _add_wav_header_api(raw)
-                    return raw
-                except Exception:
-                    pass
+            audio_bytes = _read_audio_file_bytes(item)
+            if audio_bytes:
+                return audio_bytes
+
+            audio_bytes = _download_audio_bytes(item)
+            if audio_bytes:
+                return audio_bytes
+
+            audio_bytes = _decode_audio_base64(item)
+            if audio_bytes:
+                return audio_bytes
+        elif isinstance(item, dict):
+            for key in ("path", "name"):
+                audio_bytes = _read_audio_file_bytes(item.get(key))
+                if audio_bytes:
+                    return audio_bytes
+
+            audio_bytes = _decode_audio_base64(item.get("data"))
+            if audio_bytes:
+                return audio_bytes
+
+            for key in ("url", "path", "name"):
+                audio_bytes = _download_audio_bytes(item.get(key))
+                if audio_bytes:
+                    return audio_bytes
+
+            log.warning(
+                "Unsupported Gradio FileData payload: keys=%s",
+                sorted(item.keys()),
+            )
+        else:
+            log.warning("Unsupported TTS item type from Gradio: %s", type(item).__name__)
         return None
 
     while True:
@@ -385,22 +569,19 @@ async def _synthesize_api(
     loop = asyncio.get_running_loop()
 
     def _call():
-        if speaker_audio_path:
-            if not os.path.exists(speaker_audio_path):
-                raise FileNotFoundError(
-                    f"File for cloning not found: {speaker_audio_path}"
-                )
-            return gradio_client.predict(
-                belarusian_story=text,
-                speaker_audio_file=handle_file(speaker_audio_path),
-                api_name="/predict",
+        if speaker_audio_path and not os.path.exists(speaker_audio_path):
+            raise FileNotFoundError(
+                f"File for cloning not found: {speaker_audio_path}"
             )
-        else:
-            return gradio_client.predict(
-                belarusian_story=text,
-                speaker_audio_file=None,
-                api_name="/predict",
-            )
+
+        endpoint = _get_named_tts_endpoint(gradio_client)
+        predict_kwargs = _build_tts_predict_kwargs(
+            endpoint, text, speaker_audio_path
+        )
+        return gradio_client.predict(
+            api_name=endpoint.api_name,
+            **predict_kwargs,
+        )
 
     return await loop.run_in_executor(None, _call)
 
