@@ -14,7 +14,6 @@ venv/
 
 # ── Node / Frontend ──
 node_modules/
-frontend/dist/
 
 # ── Лагі ──
 *.log
