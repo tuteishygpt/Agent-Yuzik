@@ -1,7 +1,7 @@
 from google.adk.agents import LlmAgent
 from google.adk.tools import agent_tool, ToolContext, BaseTool
 from tools.text_to_speech_tool import synthesize_speech_tool
-from tools.flux_generator import generate_image_tool
+from tools.gemini_image_generator import generate_image_tool
 from google_search_agent.agent import search_agent  # ← асобны агент з google_search
 from meme_generator_agent.agent import meme_agent
 
@@ -36,7 +36,7 @@ router_agent = LlmAgent(
         agent_tool.AgentTool(agent=search_agent),  # built-in Google Search абгорнуты
         agent_tool.AgentTool(agent=meme_agent), 
         synthesize_speech_tool,                    # кастамны TTS-інструмент
-        generate_image_tool,                       # FLUX image generation tool
+        generate_image_tool,                       # Gemini image generation tool
     ],
     before_tool_callback=guard_one_call,           # аднаразовы TTS-guard
 )
