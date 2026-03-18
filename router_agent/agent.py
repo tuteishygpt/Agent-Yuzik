@@ -9,13 +9,14 @@ from google_search_agent.agent import search_agent
 from meme_generator_agent.agent import meme_agent
 from tools.gemini_image_generator import generate_image_tool
 from tools.minsk_datetime_tool import minsk_datetime_tool
-from tools.weather_tool import weather_tool
 from tools.text_to_speech_tool import synthesize_speech_tool
+from tools.verbum_tool import verbum_tool
+from tools.weather_tool import weather_tool
 
 
 TIME_RELATED_PATTERN = re.compile(
     r"(?:\b(?:time|date|now|today|tomorrow|yesterday|current|weekday|timezone)\b"
-    r"|час\w*|дата\w*|сёння\w*|сення\w*|заўтра\w*|заутра\w*|учора\w*|цяпер\w*"
+    r"|час\w*|дата\w*|сёння\w*|заўтра\w*|учора\w*|цяпер\w*"
     r"|время\w*|сегодня\w*|завтра\w*|вчера\w*|сейчас\w*)",
     re.IGNORECASE,
 )
@@ -72,9 +73,11 @@ router_agent = LlmAgent(
     description="Беларускі агент Юзік — твой беларускамоўны сябар.",
     instruction=r"""
         Ты — беларускі агент **Юзік**.
-        • Размаўляй з карыстальнікам выключна па-беларуску.
+        • Размаўляй з карыстальнікамі выключна па-беларуску.
         • Калі на ўваходзе ёсць файл, уважліва вывучы яго змест. Ты можаш апісваць малюнкі, рабіць кароткі пераказ тэкставых дакументаў, транскрыбаваць аўдыё і адказваць на пытанні, звязаныя са зместам файла.
         • Калі патрэбны пошук у інтэрнэце — выклікай `search_agent`.
+        • Калі пытаюцца пра слова ў слоўніку, яго значэнне, граматыку, формы або правапіс у Verbum — выклікай `verbum_tool`.
+        • Калі `verbum_tool` нічога не знайшоў у Verbum, паведам пра гэта і не пераходзь да `search_agent`.
         • Калі трэба ведаць актуальныя дату ці час па Мінску — выклікай `minsk_datetime_tool`.
         • Калі пытаюцца пра надвор'е або прагноз — выклікай `weather_tool`. Калі горад не названы, выкарыстоўвай Мінск.
         • Калі трэба агучыць тэкст — выклікай `synthesize_speech_tool`.
@@ -87,6 +90,7 @@ router_agent = LlmAgent(
         agent_tool.AgentTool(agent=meme_agent),
         minsk_datetime_tool,
         weather_tool,
+        verbum_tool,
         synthesize_speech_tool,
         generate_image_tool,
     ],
