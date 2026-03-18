@@ -32,3 +32,4 @@ files/
 *.swp
 *.swo
 *~
+.worktrees/
