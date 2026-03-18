@@ -41,3 +41,12 @@ def test_router_agent_imports_weather_tool_and_mentions_minsk_default():
     assert "`weather_tool`" in text
     assert "Мінск" in text
     assert "weather_tool," in text
+
+
+def test_router_agent_imports_verbum_tool_and_mentions_dictionary_routing():
+    path = REPO_ROOT / "router_agent" / "agent.py"
+    text = path.read_text(encoding="utf-8")
+    assert "from tools.verbum_tool import verbum_tool" in text
+    assert "`verbum_tool`" in text
+    assert "Verbum" in text
+    assert "verbum_tool," in text
