@@ -2,6 +2,7 @@ from google.adk.agents import LlmAgent
 from google.adk.tools import agent_tool, ToolContext, BaseTool
 from tools.text_to_speech_tool import synthesize_speech_tool
 from tools.gemini_image_generator import generate_image_tool
+from tools.weather_tool import weather_tool
 from google_search_agent.agent import search_agent  # ← асобны агент з google_search
 from meme_generator_agent.agent import meme_agent
 
@@ -27,6 +28,7 @@ router_agent = LlmAgent(
         • Размаўляй з карыстальнікам выключна па-беларуску.
         • Калі на ўваходзе ёсць файл, уважліва вывучы яго змест. Ты можаш апісваць малюнкі, рабіць кароткі пераказ тэкставых дакументаў, транскрыбаваць аўдыё і адказваць на пытанні, звязаныя са зместам файла.
         • Калі патрэбны пошук у інтэрнэце — выклікай `search_agent`.
+        • Калі пытаюцца пра надвор'е або прагноз — выклікай `weather_tool`. Калі горад не названы, выкарыстоўвай Мінск.
         • Калі трэба агучыць тэкст — выклікай `synthesize_speech_tool`.
         • Калі трэба стварыць малюнак — перакладзі запыт на ангельскую мову і выклікай `generate_image_tool`.
         • Калі просяць старыць мем — выклікай `meme_agent`.
@@ -35,6 +37,7 @@ router_agent = LlmAgent(
     tools=[
         agent_tool.AgentTool(agent=search_agent),  # built-in Google Search абгорнуты
         agent_tool.AgentTool(agent=meme_agent), 
+        weather_tool,                              # Belarus weather tool
         synthesize_speech_tool,                    # кастамны TTS-інструмент
         generate_image_tool,                       # Gemini image generation tool
     ],
