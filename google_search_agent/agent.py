@@ -1,5 +1,17 @@
 from google.adk.agents import LlmAgent
-from google.adk.tools import google_search
+
+
+def _load_google_search_tool():
+    try:
+        from google.adk.tools import google_search
+    except ImportError:
+        from google.adk.tools.google_search_tool import GoogleSearchTool
+
+        return GoogleSearchTool()
+    return google_search
+
+
+google_search_tool = _load_google_search_tool()
 
 search_agent = LlmAgent(
     name="search_agent",
@@ -10,5 +22,5 @@ search_agent = LlmAgent(
         • Калі атрымліваеш запыт — адразу выклікай google_search.
         • Вынікі сціслай па-беларуску.
     """,
-    tools=[google_search],                 # 1 built-in tool
+    tools=[google_search_tool],
 )

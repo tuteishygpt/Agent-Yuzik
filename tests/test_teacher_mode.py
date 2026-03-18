@@ -516,4 +516,4 @@ def test_greetings_lesson_exposes_lesson_words():
 
     assert "Добры дзень" in lesson.lesson_words
     assert "Добрага здароўя" in lesson.lesson_words
-    assert "Да пабачання" in lesson.lesson_words
+    assert "Да пабачэння" in lesson.lesson_words
