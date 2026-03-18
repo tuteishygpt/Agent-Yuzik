@@ -15,14 +15,15 @@ WEATHER_CODE_LABELS = {
     1: "пераважна ясна",
     2: "пераменная воблачнасць",
     3: "пахмурна",
+    61: "дождж",
 }
 CITY_NAME_LABELS = {
-    "Minsk": ("Мінск", "Мінску"),
-    "Минск": ("Мінск", "Мінску"),
-    "Мінск": ("Мінск", "Мінску"),
-    "Brest": ("Брэст", "Брэсьце"),
-    "Брест": ("Брэст", "Брэсьце"),
-    "Брэст": ("Брэст", "Брэсьце"),
+    "Minsk": ("Мінск", "Мінску", "Мінска"),
+    "Минск": ("Мінск", "Мінску", "Мінска"),
+    "Мінск": ("Мінск", "Мінску", "Мінска"),
+    "Brest": ("Брэст", "Брэсьце", "Брэста"),
+    "Брест": ("Брэст", "Брэсьце", "Брэста"),
+    "Брэст": ("Брэст", "Брэсьце", "Брэста"),
 }
 
 
@@ -36,11 +37,11 @@ def _format_number(value: Any) -> str:
     return str(value)
 
 
-def _normalize_city_name(city_name: str) -> tuple[str, str]:
+def _normalize_city_name(city_name: str) -> tuple[str, str, str]:
     if city_name in CITY_NAME_LABELS:
         return CITY_NAME_LABELS[city_name]
     cleaned = city_name.strip()
-    return cleaned, cleaned
+    return cleaned, cleaned, cleaned
 
 
 def _weather_label(code: Any) -> str:
@@ -55,7 +56,7 @@ def _day_label(value: str) -> str:
 
 
 def _format_weather_reply(city_name: str, forecast: dict[str, Any], forecast_days: int) -> str:
-    display_name, locative_name = _normalize_city_name(city_name)
+    display_name, locative_name, genitive_name = _normalize_city_name(city_name)
     current = forecast.get("current") or {}
     daily = forecast.get("daily") or {}
 
@@ -89,7 +90,7 @@ def _format_weather_reply(city_name: str, forecast: dict[str, Any], forecast_day
     if not forecast_parts:
         return current_text
 
-    return f"{current_text} Прагноз для {display_name} на найбліжэйшыя {forecast_days} дні: " + "; ".join(forecast_parts) + "."
+    return f"{current_text} Прагноз для {genitive_name} на найбліжэйшыя {forecast_days} дні: " + "; ".join(forecast_parts) + "."
 
 
 async def _fetch_json(url: str, *, params: dict[str, Any]) -> dict[str, Any]:

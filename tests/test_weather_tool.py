@@ -75,3 +75,36 @@ def test_get_weather_returns_service_error_message(monkeypatch):
     result = asyncio.run(module.get_weather(city="Brest", forecast_days=2))
 
     assert "Не ўдалося атрымаць" in result.text
+
+
+def test_get_weather_formats_belarusian_forecast_text(monkeypatch):
+    module = _load_module()
+
+    async def fake_resolve_city(city_query):
+        return {"name": "Minsk", "latitude": 53.9, "longitude": 27.56}
+
+    async def fake_fetch_forecast(*, latitude, longitude, forecast_days):
+        return {
+            "current": {
+                "temperature_2m": 6.0,
+                "apparent_temperature": 3.0,
+                "wind_speed_10m": 4.0,
+                "weather_code": 61,
+            },
+            "daily": {
+                "time": ["2026-03-18", "2026-03-19"],
+                "temperature_2m_max": [8.0, 9.0],
+                "temperature_2m_min": [2.0, 3.0],
+                "weather_code": [61, 3],
+            },
+        }
+
+    monkeypatch.setattr(module, "_resolve_belarus_city", fake_resolve_city)
+    monkeypatch.setattr(module, "_fetch_weather_forecast", fake_fetch_forecast)
+
+    result = asyncio.run(module.get_weather(city="Minsk", forecast_days=2))
+
+    assert "адчуваецца як 3°" in result.text
+    assert "вецер 4 м/с" in result.text
+    assert "дождж" in result.text
+    assert "Прагноз для Мінска" in result.text
