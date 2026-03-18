@@ -14,6 +14,24 @@ BASE_URL = "https://verbum.by"
 GRAMMAR_URL = f"{BASE_URL}/grammardb/"
 SESSION = requests.Session()
 SESSION.headers.update({"User-Agent": "Mozilla/5.0 (compatible; VerbumADKTool/1.0)"})
+GRAMMAR_MARKERS = (
+    "дзеяслоў",
+    "назоўнік",
+    "прыметнік",
+    "займеннік",
+    "прыслоўе",
+    "лічэбнік",
+    "мужчынскі род",
+    "жаночы род",
+    "ніякі род",
+    "адзіночны лік",
+    "множны лік",
+    "загадны лад",
+    "прошлы час",
+    "цяперашні час",
+    "будучы час",
+)
+NOISY_LINK_PARTS = ("/?q=", "/search", "/login", "/register", "/tag/", "/category/", "/feed")
 
 
 def normalize_text(text: str) -> str:
@@ -50,7 +68,10 @@ def try_grammardb_full_text(word: str) -> list[str]:
     except Exception:
         return []
     full_text = extract_best_text_block(soup)
-    return [full_text] if full_text else []
+    lowered = full_text.lower()
+    if full_text and any(marker in lowered for marker in GRAMMAR_MARKERS):
+        return [full_text]
+    return []
 
 
 def search_all_result_urls(word: str, limit: int = 20) -> list[str]:
@@ -66,6 +87,8 @@ def search_all_result_urls(word: str, limit: int = 20) -> list[str]:
         href = (anchor.get("href") or "").strip()
         title = clean_spaces(anchor.get_text(" ", strip=True))
         if not href or not title or href.startswith("#"):
+            continue
+        if any(part in href for part in NOISY_LINK_PARTS):
             continue
         full_url = href if href.startswith("http") else urljoin(BASE_URL, href)
         haystack = strip_accents(title).lower()
@@ -90,7 +113,14 @@ def fetch_article_full_text(url: str) -> str | None:
 
 
 def _summarize_texts(word: str, texts: list[str]) -> str:
-    cleaned = [clean_spaces(text) for text in texts if clean_spaces(text)]
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for text in texts:
+        normalized = clean_spaces(text)
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        cleaned.append(normalized)
     joined = " ".join(cleaned[:2])
     return f"У Verbum для «{word}»: {joined}" if joined else f"У Verbum нічога не знойдзена для: {word}."
 
