@@ -10,6 +10,7 @@ from google.genai import errors as genai_errors
 
 from bot import helpers
 from services.adk_service import ADKService
+from services.dialogue_logging import log_adk_turn
 try:
     from chat_dataset_logger import save_message
 except ImportError:
@@ -141,6 +142,7 @@ async def _process_message_task(update: Update, context: ContextTypes.DEFAULT_TY
             except asyncio.TimeoutError:
                 log.warning(f"Agent timed out for user {user_id}")
                 await helpers._safe_call(context.bot.send_message(chat_id, config.DEFAULT_NO_ANSWER), action="send_message:timeout")
+                log_adk_turn(log, user_text=user_text, assistant_text=config.DEFAULT_NO_ANSWER)
                 save_message(session_id=session_id, speaker="Агент", text=config.DEFAULT_NO_ANSWER)
                 return
             except genai_errors.ClientError as e:
@@ -163,6 +165,9 @@ async def _process_message_task(update: Update, context: ContextTypes.DEFAULT_TY
         elif not responded_with_media:
             await helpers._safe_call(context.bot.send_message(chat_id, config.DEFAULT_NO_ANSWER), action="send_message:no_answer")
 
+        assistant_log_text = clean_reply or (config.DEFAULT_NO_ANSWER if not responded_with_media else None)
+        log_adk_turn(log, user_text=user_text, assistant_text=assistant_log_text)
+
         save_message(
             session_id=session_id,
             speaker="Агент",
@@ -173,4 +178,5 @@ async def _process_message_task(update: Update, context: ContextTypes.DEFAULT_TY
 
     except Exception as exc:
         log.exception(f"Unhandled error in message processing task for user {user_id}: {exc}")
+        log_adk_turn(log, user_text=user_text, assistant_text=config.DEFAULT_ERROR)
         await helpers._safe_call(context.bot.send_message(chat_id, config.DEFAULT_ERROR), action="send_message:error")

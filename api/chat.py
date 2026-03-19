@@ -20,6 +20,7 @@ from api.deps import (
     guess_mime,
     FILES_DIR,
 )
+from services.dialogue_logging import log_adk_turn
 
 log = logging.getLogger("app")
 
@@ -37,6 +38,7 @@ async def api_chat(
     files: List[UploadFile] = File(default=[]),
 ):
     """Handle chat messages from the frontend."""
+    original_text = text
     session_id = await adk_service.get_or_create_session(user_id)
 
     if user_id not in chat_histories:
@@ -104,6 +106,12 @@ async def api_chat(
         append_to_history(user_id, {"role": "user", "content": text})
     if response["text"]:
         append_to_history(user_id, {"role": "assistant", "content": response["text"]})
+    if original_text or files:
+        log_adk_turn(
+            log,
+            user_text=original_text,
+            assistant_text=response["text"],
+        )
 
     return response
 

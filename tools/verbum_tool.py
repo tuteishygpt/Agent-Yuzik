@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from typing import Any
 from urllib.parse import quote, urljoin
 
 import requests
-from bs4 import BeautifulSoup
 from google.adk.tools import FunctionTool
 from google.genai import types
 
@@ -34,6 +34,10 @@ GRAMMAR_MARKERS = (
 NOISY_LINK_PARTS = ("/?q=", "/search", "/login", "/register", "/tag/", "/category/", "/feed")
 
 
+class VerbumDependencyError(RuntimeError):
+    """Raised when an optional runtime dependency for the Verbum tool is missing."""
+
+
 def normalize_text(text: str) -> str:
     return unicodedata.normalize("NFC", text.strip())
 
@@ -47,13 +51,25 @@ def clean_spaces(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def fetch_html(url: str) -> BeautifulSoup:
+def _get_beautifulsoup():
+    try:
+        from bs4 import BeautifulSoup  # type: ignore
+    except ModuleNotFoundError as exc:
+        raise VerbumDependencyError("beautifulsoup4 is not installed") from exc
+    return BeautifulSoup
+
+
+def parse_html(text: str):
+    return _get_beautifulsoup()(text, "html.parser")
+
+
+def fetch_html(url: str):
     response = SESSION.get(url, timeout=20)
     response.raise_for_status()
-    return BeautifulSoup(response.text, "html.parser")
+    return parse_html(response.text)
 
 
-def extract_best_text_block(soup: BeautifulSoup) -> str:
+def extract_best_text_block(soup: Any) -> str:
     for selector in ("main", "article", ".content", ".article", ".entry-content", ".post-content"):
         for node in soup.select(selector):
             text = clean_spaces(node.get_text(" ", strip=True))
@@ -65,6 +81,8 @@ def extract_best_text_block(soup: BeautifulSoup) -> str:
 def try_grammardb_full_text(word: str) -> list[str]:
     try:
         soup = fetch_html(GRAMMAR_URL + quote(word, safe=""))
+    except VerbumDependencyError:
+        raise
     except Exception:
         return []
     full_text = extract_best_text_block(soup)
@@ -78,6 +96,8 @@ def search_all_result_urls(word: str, limit: int = 20) -> list[str]:
     query = strip_accents(word).lower()
     try:
         soup = fetch_html(f"{BASE_URL}/?q={quote(query, safe='')}")
+    except VerbumDependencyError:
+        raise
     except Exception:
         return []
 
@@ -106,6 +126,8 @@ def search_all_result_urls(word: str, limit: int = 20) -> list[str]:
 def fetch_article_full_text(url: str) -> str | None:
     try:
         soup = fetch_html(url)
+    except VerbumDependencyError:
+        raise
     except Exception:
         return None
     full_text = extract_best_text_block(soup)
@@ -122,7 +144,9 @@ def _summarize_texts(word: str, texts: list[str]) -> str:
         seen.add(normalized)
         cleaned.append(normalized)
     joined = " ".join(cleaned[:2])
-    return f"У Verbum для «{word}»: {joined}" if joined else f"У Verbum нічога не знойдзена для: {word}."
+    if joined:
+        return f"У Verbum для «{word}»: {joined}"
+    return f"У Verbum нічога не знойдзена для: {word}."
 
 
 async def lookup_verbum(word: str):
@@ -142,10 +166,12 @@ async def lookup_verbum(word: str):
             return types.Part(text=f"У Verbum нічога не знойдзена для: {query}.")
 
         return types.Part(text=_summarize_texts(query, article_texts))
+    except VerbumDependencyError:
+        return types.Part(text="Інструмент Verbum недаступны: не ўсталяваны пакет beautifulsoup4.")
     except Exception:
         return types.Part(text="Не ўдалося атрымаць даныя з Verbum. Паспрабуй крыху пазней.")
 
 
 verbum_tool = FunctionTool(lookup_verbum)
 
-__all__ = ["BeautifulSoup", "lookup_verbum", "verbum_tool"]
+__all__ = ["VerbumDependencyError", "lookup_verbum", "parse_html", "verbum_tool"]

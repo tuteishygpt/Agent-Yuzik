@@ -16,6 +16,7 @@ gradio_client==2.3.0
 fal-client
 requests
 aiohttp>=3.12
+beautifulsoup4
 
 # Helpers & Data
 python-dotenv
