@@ -24,6 +24,8 @@ from api.teacher_mode.models import (
 )
 from api.teacher_mode.phrases import TEACHER_PRAISE_WORDS, choose_praise_word
 from api.teacher_mode.session_store import SessionStateStore
+from services.supabase.backend import InMemorySupabaseBackend
+from services.supabase.teacher_session_store import TeacherSessionStore
 
 
 class FakeAdapter:
@@ -517,3 +519,36 @@ def test_greetings_lesson_exposes_lesson_words():
     assert "Добры дзень" in lesson.lesson_words
     assert "Добрага здароўя" in lesson.lesson_words
     assert "Да пабачэння" in lesson.lesson_words
+def test_teacher_session_store_survives_restart_for_authenticated_user():
+    backend = InMemorySupabaseBackend()
+    first_store = TeacherSessionStore(backend)
+    lesson_store = LessonStore()
+    adapter = FakeAdapter(_result("day_good", TeacherAction.praise_and_advance))
+    controller = TeacherController(lesson_store, first_store, adapter)
+
+    controller.start_lesson(session_id="session-1", user_id="user-1", lesson_id="basics_greetings")
+
+    reloaded_store = TeacherSessionStore(backend)
+    reloaded_controller = TeacherController(lesson_store, reloaded_store, adapter)
+    state = reloaded_controller.get_state(session_id="session-1", user_id="user-1")
+
+    assert state is not None
+    assert state.lesson_id == "basics_greetings"
+    assert state.current_step_id == "intro"
+    assert state.attempt_count == 0
+
+
+def test_teacher_session_store_deletes_only_target_session():
+    backend = InMemorySupabaseBackend()
+    store = TeacherSessionStore(backend)
+    lesson_store = LessonStore()
+    adapter = FakeAdapter(_result("day_good", TeacherAction.praise_and_advance))
+    controller = TeacherController(lesson_store, store, adapter)
+
+    controller.start_lesson(session_id="session-1", user_id="user-1", lesson_id="basics_greetings")
+    controller.start_lesson(session_id="session-2", user_id="user-2", lesson_id="basics_family")
+
+    store.delete("session-1", "user-1")
+
+    assert controller.get_state(session_id="session-1", user_id="user-1") is None
+    assert controller.get_state(session_id="session-2", user_id="user-2") is not None

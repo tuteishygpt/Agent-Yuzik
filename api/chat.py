@@ -1,8 +1,3 @@
-# api/chat.py
-"""
-REST API endpoints для тэкставага чату.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -10,15 +5,17 @@ import logging
 from pathlib import Path
 from typing import Dict, List
 
-from fastapi import APIRouter, File, Form, UploadFile
+from fastapi import APIRouter, Depends, File, Form, UploadFile
 
+from api.auth import AuthenticatedUser, get_current_user
 from api.deps import (
     adk_service,
-    append_to_history,
+    artifact_store,
     chat_histories,
+    chat_message_store,
     collect_artifacts,
+    conversation_store,
     guess_mime,
-    FILES_DIR,
 )
 from services.dialogue_logging import log_adk_turn
 
@@ -27,42 +24,54 @@ log = logging.getLogger("app")
 router = APIRouter(prefix="/api", tags=["chat"])
 
 
-# ---------------------------------------------------------------------
-# POST /api/chat
-# ---------------------------------------------------------------------
+def _append_history_message(user_id: str, conversation_id: str, role: str, content: str) -> None:
+    chat_message_store.append_message(conversation_id, user_id, role, content)
+
+
+def _append_turn(user_id: str, conversation_id: str, user_text: str, assistant_text: str | None) -> None:
+    if user_text:
+        _append_history_message(user_id, conversation_id, "user", user_text)
+    if assistant_text:
+        _append_history_message(user_id, conversation_id, "assistant", assistant_text)
+
 
 @router.post("/chat")
 async def api_chat(
     text: str = Form(""),
-    user_id: str = Form("default"),
+    user_id: str | None = Form(default=None),
     files: List[UploadFile] = File(default=[]),
+    current_user: AuthenticatedUser = Depends(get_current_user),
 ):
-    """Handle chat messages from the frontend."""
+    _ = user_id
+    resolved_user_id = current_user.user_id
     original_text = text
-    session_id = await adk_service.get_or_create_session(user_id)
-
-    if user_id not in chat_histories:
-        chat_histories[user_id] = []
+    conversation = conversation_store.get_or_create_active_conversation(resolved_user_id)
+    conversation_id = conversation["id"]
+    session_id = await adk_service.get_or_create_session(
+        resolved_user_id,
+        conversation_id=conversation_id,
+    )
 
     response: Dict = {"text": None, "audio": None, "image": None}
 
-    # Process files if any
     for uploaded_file in files:
         try:
             file_bytes = await uploaded_file.read()
-            mime = uploaded_file.content_type or guess_mime(
-                Path(uploaded_file.filename)
-            )
+            mime = uploaded_file.content_type or guess_mime(Path(uploaded_file.filename))
 
-            # Save file
-            file_path = FILES_DIR / uploaded_file.filename
-            with open(file_path, "wb") as f:
-                f.write(file_bytes)
+            artifact_store.store_user_upload(
+                user_id=resolved_user_id,
+                conversation_id=conversation_id,
+                filename=uploaded_file.filename or "upload.bin",
+                mime_type=mime,
+                data=file_bytes,
+                metadata={"source": "chat_upload"},
+            )
 
             text_reply, delta, parts = await asyncio.to_thread(
                 adk_service.run_agent,
                 session_id=session_id,
-                user_id=user_id,
+                user_id=resolved_user_id,
                 text=text if text else None,
                 file_data=file_bytes,
                 mime_type=mime,
@@ -71,21 +80,24 @@ async def api_chat(
             if text_reply:
                 response["text"] = text_reply
 
-            # Handle artifacts (audio/image) — выкарыстоўваем агульны хелпер
-            await collect_artifacts(adk_service, user_id, session_id, delta, response)
+            await collect_artifacts(
+                adk_service,
+                resolved_user_id,
+                session_id,
+                conversation_id,
+                delta,
+                response,
+            )
+            text = ""
+        except Exception as exc:
+            log.exception("Error processing file: %s", exc)
 
-            text = ""  # Clear text after first file
-
-        except Exception as e:
-            log.exception(f"Error processing file: {e}")
-
-    # Process text-only message
     if text and not files:
         try:
             text_reply, delta, parts = await asyncio.to_thread(
                 adk_service.run_agent,
                 session_id=session_id,
-                user_id=user_id,
+                user_id=resolved_user_id,
                 text=text,
                 file_data=None,
                 mime_type=None,
@@ -94,19 +106,22 @@ async def api_chat(
             if text_reply:
                 response["text"] = text_reply
 
-            # Handle artifacts — выкарыстоўваем агульны хелпер
-            await collect_artifacts(adk_service, user_id, session_id, delta, response)
-
-        except Exception as e:
-            log.exception(f"Error running agent: {e}")
+            await collect_artifacts(
+                adk_service,
+                resolved_user_id,
+                session_id,
+                conversation_id,
+                delta,
+                response,
+            )
+        except Exception as exc:
+            log.exception("Error running agent: %s", exc)
             response["text"] = "Прабачце, адбылася памылка. Паспрабуйце яшчэ раз."
 
-    # Store in history
-    if text:
-        append_to_history(user_id, {"role": "user", "content": text})
-    if response["text"]:
-        append_to_history(user_id, {"role": "assistant", "content": response["text"]})
     if original_text or files:
+        history_text = original_text or ", ".join(file.filename for file in files)
+        _append_turn(resolved_user_id, conversation_id, history_text, response["text"])
+        conversation_store.touch(conversation_id)
         log_adk_turn(
             log,
             user_text=original_text,
@@ -116,23 +131,24 @@ async def api_chat(
     return response
 
 
-# ---------------------------------------------------------------------
-# GET /api/chat/history
-# ---------------------------------------------------------------------
-
 @router.get("/chat/history")
-async def get_chat_history(user_id: str = "default"):
-    """Get chat history for a user."""
-    return {"history": chat_histories.get(user_id, [])}
+async def get_chat_history(
+    user_id: str | None = None,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+):
+    _ = user_id
+    conversation = conversation_store.get_active_conversation(current_user.user_id)
+    if conversation:
+        return {"history": chat_message_store.list_messages(conversation["id"])}
+    return {"history": []}
 
-
-# ---------------------------------------------------------------------
-# DELETE /api/chat/history
-# ---------------------------------------------------------------------
 
 @router.delete("/chat/history")
-async def clear_chat_history(user_id: str = "default"):
-    """Clear chat history for a user."""
-    if user_id in chat_histories:
-        chat_histories[user_id] = []
+async def clear_chat_history(
+    user_id: str | None = None,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+):
+    _ = user_id
+    conversation_store.clear_active_conversation(current_user.user_id)
+    chat_histories[current_user.user_id] = []
     return {"status": "ok"}

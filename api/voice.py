@@ -21,6 +21,11 @@ from typing import Dict
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 import config
+from api.auth import (
+    AuthenticatedUser,
+    WebSocketAuthenticationError,
+    authenticate_websocket_message,
+)
 from api.deps import adk_service
 from api.voice_utils import (
     LOCAL_SAMPLE_RATE,
@@ -41,6 +46,23 @@ router = APIRouter(tags=["voice"])
 
 # Global dictionary to track active voice tasks for interruption
 active_voice_tasks: Dict[str, asyncio.Task] = {}
+
+
+async def _receive_authenticated_user(websocket: WebSocket) -> AuthenticatedUser:
+    initial_message = await websocket.receive()
+
+    if initial_message.get("type") == "websocket.disconnect":
+        raise WebSocketDisconnect()
+
+    if "text" not in initial_message:
+        raise WebSocketAuthenticationError("authentication required before voice messages")
+
+    try:
+        payload = json.loads(initial_message["text"])
+    except json.JSONDecodeError as exc:
+        raise WebSocketAuthenticationError("authentication required before voice messages") from exc
+
+    return authenticate_websocket_message(payload)
 
 
 # ─── Audio sender (queue → WebSocket) ───────────────────────────────
@@ -156,54 +178,53 @@ async def _process_voice_message(
 # ─── WebSocket endpoint ─────────────────────────────────────────────
 
 @router.websocket("/api/voice")
-async def voice_websocket(websocket: WebSocket, user_id: str = "voice_user"):
+async def voice_websocket(websocket: WebSocket):
     """Real-time voice conversation with the agent."""
     await websocket.accept()
     ws_session_id = str(uuid.uuid4())
-    log.info(f"Voice WebSocket connected for user {user_id}, session {ws_session_id}")
+    sender_task: asyncio.Task | None = None
+    user_id: str | None = None
 
-    # Send streaming config to client
-    await websocket.send_json({
-        "type": "voice_config",
-        "tts_mode": config.TTS_MODE,
-        "sample_rate": LOCAL_SAMPLE_RATE,
-        "script_buffer_size": config.TTS_SCRIPT_BUFFER_SIZE,
-        "playback_min_buffer_ms": config.TTS_PLAYBACK_MIN_BUFFER_MS,
-        "playback_empty_grace_ms": config.TTS_PLAYBACK_EMPTY_GRACE_MS,
-    })
-
-    session_id = await adk_service.get_or_create_session(user_id)
-
-    # Create queue for streaming audio and register user
-    audio_queue: asyncio.Queue = asyncio.Queue(maxsize=100)
-    loop = asyncio.get_running_loop()
-    register_voice_user(ws_session_id, audio_queue, loop)
-
-    # Audio accumulator for legacy chunk protocol
-    audio_accumulator = bytearray()
-
-    sender_task = asyncio.create_task(_audio_sender(audio_queue, websocket))
-
-    def _start_processing(audio_bytes: bytes):
-        """Start voice processing task from audio bytes."""
-        nonlocal audio_accumulator
-        full_wav = ensure_wav(audio_bytes)
-        request_id = str(uuid.uuid4())
-
-        # Cancel previous task if still running
-        if ws_session_id in active_voice_tasks and not active_voice_tasks[ws_session_id].done():
-            log.info(f"Cancelling previous task for session {ws_session_id}")
-            active_voice_tasks[ws_session_id].cancel()
-
-        log.info(f"Starting request {request_id} for session {ws_session_id}")
-        task = asyncio.create_task(
-            _process_voice_message(full_wav, websocket, audio_queue, session_id, user_id)
-        )
-        active_voice_tasks[ws_session_id] = task
-        audio_accumulator = bytearray()
-
-    # ── Main receive loop ──
     try:
+        authenticated_user = await _receive_authenticated_user(websocket)
+        user_id = authenticated_user.user_id
+        log.info(f"Voice WebSocket authenticated for user {user_id}, session {ws_session_id}")
+
+        await websocket.send_json(
+            {
+                "type": "voice_config",
+                "tts_mode": config.TTS_MODE,
+                "sample_rate": LOCAL_SAMPLE_RATE,
+                "script_buffer_size": config.TTS_SCRIPT_BUFFER_SIZE,
+                "playback_min_buffer_ms": config.TTS_PLAYBACK_MIN_BUFFER_MS,
+                "playback_empty_grace_ms": config.TTS_PLAYBACK_EMPTY_GRACE_MS,
+            }
+        )
+
+        session_id = await adk_service.get_or_create_session(user_id)
+        audio_queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+        loop = asyncio.get_running_loop()
+        register_voice_user(ws_session_id, audio_queue, loop)
+        audio_accumulator = bytearray()
+        sender_task = asyncio.create_task(_audio_sender(audio_queue, websocket))
+
+        def _start_processing(audio_bytes: bytes):
+            """Start voice processing task from audio bytes."""
+            nonlocal audio_accumulator
+            full_wav = ensure_wav(audio_bytes)
+            request_id = str(uuid.uuid4())
+
+            if ws_session_id in active_voice_tasks and not active_voice_tasks[ws_session_id].done():
+                log.info(f"Cancelling previous task for session {ws_session_id}")
+                active_voice_tasks[ws_session_id].cancel()
+
+            log.info(f"Starting request {request_id} for session {ws_session_id}")
+            task = asyncio.create_task(
+                _process_voice_message(full_wav, websocket, audio_queue, session_id, user_id)
+            )
+            active_voice_tasks[ws_session_id] = task
+            audio_accumulator = bytearray()
+
         while True:
             data = await websocket.receive()
 
@@ -213,7 +234,6 @@ async def voice_websocket(websocket: WebSocket, user_id: str = "voice_user"):
 
             if "bytes" in data:
                 raw = data["bytes"]
-                # New protocol: WAV + END\0 trailer in single binary message
                 audio_data, client_ts = extract_end_marker(raw)
                 if audio_data is not None:
                     log.info(
@@ -222,7 +242,6 @@ async def voice_websocket(websocket: WebSocket, user_id: str = "voice_user"):
                     )
                     _start_processing(audio_data)
                 else:
-                    # Old protocol: accumulate chunks, wait for end_audio JSON
                     audio_accumulator.extend(raw)
 
             elif "text" in data:
@@ -262,20 +281,26 @@ async def voice_websocket(websocket: WebSocket, user_id: str = "voice_user"):
                         lesson_id=lesson_id,
                     )
                     lesson = teacher_controller.lesson_store.get_lesson(lesson_id)
-                    await websocket.send_json({
-                        "type": "teacher_mode_started",
-                        "lesson_id": state.lesson_id,
-                        "step_id": state.current_step_id,
-                        "prompt": lesson.steps[0].prompt if lesson.steps else "",
-                        "mode": "teacher",
-                    })
+                    await websocket.send_json(
+                        {
+                            "type": "teacher_mode_started",
+                            "lesson_id": state.lesson_id,
+                            "step_id": state.current_step_id,
+                            "prompt": lesson.steps[0].prompt if lesson.steps else "",
+                            "mode": "teacher",
+                        }
+                    )
 
                 elif msg_type == "teacher_stop_lesson":
                     teacher_controller.stop_lesson(session_id=session_id, user_id=user_id)
                     await websocket.send_json({"type": "teacher_mode_stopped", "mode": "assistant"})
 
+    except WebSocketAuthenticationError as exc:
+        await websocket.send_json({"type": "error", "message": exc.message})
+        await websocket.close(code=exc.close_code)
     except WebSocketDisconnect:
-        log.info(f"Voice WebSocket disconnected for session {ws_session_id}")
+        if user_id:
+            log.info(f"Voice WebSocket disconnected for session {ws_session_id}")
     except Exception as e:
         log.exception(f"Voice WebSocket error for session {ws_session_id}: {e}")
     finally:

@@ -31,6 +31,8 @@ PORT: int = int(os.getenv("PORT", "7860"))
 # ---------------------------------------------------------------------
 # FastAPI App ---------------------------------------------------------
 app = FastAPI()
+app.state.auth_provider = "supabase"
+app.state.websocket_auth_mode = "first-message"
 
 app.add_middleware(
     CORSMiddleware,
@@ -65,6 +67,7 @@ async def _load_local_asr():
         import asyncio
         log.info("[STARTUP] LOCAL_ASR=True → loading ASR model in background…")
         asyncio.create_task(asyncio.to_thread(load_asr_model))
+    log.info("[AUTH] REST expects bearer Supabase JWTs; /api/voice expects first-message auth.")
 
 # ---------------------------------------------------------------------
 # Падрубанне інтэрфейсу (Static Files) --------------------------------

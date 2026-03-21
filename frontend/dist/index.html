@@ -8,9 +8,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <script type="module" crossorigin src="/assets/main-DQV2q0nf.js"></script>
-  <link rel="modulepreload" crossorigin href="/assets/styles-C9UiR0sO.js">
-  <link rel="stylesheet" crossorigin href="/assets/styles-BRW-3hpf.css">
+  <script type="module" crossorigin src="/assets/main-BwGUh3CL.js"></script>
+  <link rel="modulepreload" crossorigin href="/assets/supabase-A0RCM2zY.js">
+  <link rel="stylesheet" crossorigin href="/assets/styles--WTUa0Fq.css">
 </head>
 <body>
   <div class="app-container">
@@ -21,6 +21,8 @@
         <h1>Юзік</h1>
       </div>
       <div class="header-actions">
+        <span class="auth-badge" id="auth-badge">Госць</span>
+        <button class="upgrade-btn hidden" id="btn-upgrade" type="button">Прывязаць email</button>
         <button class="icon-btn" id="btn-voice" title="Галасавы агент">🎤</button>
         <button class="icon-btn" id="btn-clear" title="Ачысціць чат">🗑️</button>
         <button class="icon-btn" id="btn-theme" title="Змяніць тэму">🌗</button>
@@ -93,6 +95,32 @@
       </div>
     </div>
   </div>
-
+
+  <div class="modal hidden" id="upgrade-modal">
+    <div class="modal-overlay" id="upgrade-overlay"></div>
+    <div class="modal-content modal-content-card">
+      <button class="modal-close" id="upgrade-close">✕</button>
+      <div class="auth-card">
+        <p class="auth-eyebrow">Supabase Account</p>
+        <h2 class="auth-title">Захаваць гасцявы профіль</h2>
+        <p class="auth-copy">
+          Прывяжыце email і пароль, каб пакінуць той жа `user_id`, гісторыю і файлы пасля апгрэйду ўліковага запісу.
+        </p>
+        <form class="upgrade-form" id="upgrade-form">
+          <label class="auth-field">
+            <span>Email</span>
+            <input id="upgrade-email" type="email" autocomplete="email" placeholder="you@example.com" required>
+          </label>
+          <label class="auth-field">
+            <span>Пароль</span>
+            <input id="upgrade-password" type="password" autocomplete="new-password" minlength="8" placeholder="Не менш за 8 сімвалаў" required>
+          </label>
+          <button class="auth-submit" id="upgrade-submit" type="submit">Прывязаць email</button>
+          <p class="auth-feedback" id="upgrade-feedback">Пасля адпраўкі прыйдзе ліст для пацверджання і вяртання ў праграму.</p>
+        </form>
+      </div>
+    </div>
+  </div>
+
 </body>
 </html>

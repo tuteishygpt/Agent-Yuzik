@@ -385,6 +385,7 @@ async def handle_simple_voice(
 
     # ── Build multi-turn contents with voice history ──
     log.info(_step("VOICE·HISTORY", "📜 Loading voice history…", start_ts))
+    # Voice history is backed by Supabase now; this helper returns the persisted view.
     voice_history = get_voice_history(user_id)
     history_contents = voice_history.to_gemini_contents()
     log.info(_step(

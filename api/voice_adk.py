@@ -15,7 +15,7 @@ import time
 from fastapi import WebSocket
 
 import config
-from api.deps import adk_service
+from api.deps import adk_service, adk_session_store, artifact_store
 from api.voice_perf import PerfLogger
 from api.voice_utils import send_audio_chunk, compress_wav_to_mp3
 from tools.text_to_speech_tool import stream_speech
@@ -68,10 +68,24 @@ async def handle_adk_voice(
                         version=version,
                     )
                     if part and getattr(part, "inline_data", None):
-                        if getattr(part.inline_data, "mime_type", "").startswith("audio"):
+                        mime_type = getattr(part.inline_data, "mime_type", "") or "application/octet-stream"
+                        active_session = adk_session_store.get_active_session(
+                            user_id,
+                            adk_service.app_name,
+                        )
+                        artifact_store.store_assistant_artifact(
+                            user_id=user_id,
+                            conversation_id=active_session.get("conversation_id") if active_session else None,
+                            filename=filename,
+                            mime_type=mime_type,
+                            data=part.inline_data.data,
+                            adk_session_row_id=active_session["id"] if active_session else None,
+                            metadata={"version": version, "session_id": session_id, "source": "voice_adk"},
+                        )
+                        if mime_type.startswith("audio"):
                             await websocket.send_bytes(part.inline_data.data)
-                except Exception as e:
-                    log.error(f"Error loading audio artifact: {e}")
+                except Exception as exc:
+                    log.error("Error loading audio artifact: %s", exc)
 
     # Stream TTS for collected text (ADK path)
     if collected_text:

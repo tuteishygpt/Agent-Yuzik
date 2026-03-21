@@ -1,20 +1,24 @@
-# services/adk_service.py
+from __future__ import annotations
 
+import asyncio
 import logging
-from typing import List, Dict, Tuple
+from concurrent.futures import ThreadPoolExecutor
+from typing import Dict, List, Tuple
 
+from google.adk.artifacts import InMemoryArtifactService
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
-from google.adk.artifacts import InMemoryArtifactService
 from google.genai import types
-# Імпарт genai_errors больш не патрэбны тут
-from router_agent.agent import router_agent 
-from bot import helpers                    
+
+from bot import helpers
+from router_agent.agent import router_agent
+from services.supabase.adk_session_store import ADKSessionStore
 
 log = logging.getLogger(__name__)
 
+
 class ADKService:
-    def __init__(self):
+    def __init__(self, session_store: ADKSessionStore | None = None):
         log.info("Initializing ADKService with REAL components...")
         self.artifact_service = InMemoryArtifactService()
         self.session_service = InMemorySessionService()
@@ -25,23 +29,63 @@ class ADKService:
             artifact_service=self.artifact_service,
         )
         self.app_name = router_agent.name
-        self.user_sessions: Dict[str, str] = {}
+        self.session_store = session_store or ADKSessionStore()
 
-    async def get_or_create_session(self, user_id: str) -> str:
-        # (без змен)
-        if user_id not in self.user_sessions:
-            log.info(f"Creating new session for user {user_id}")
-            session = await self.session_service.create_session(
-                app_name=self.app_name, user_id=user_id
+    async def get_or_create_session(
+        self,
+        user_id: str,
+        conversation_id: str | None = None,
+    ) -> str:
+        active_session = self.session_store.get_active_session(user_id, self.app_name)
+        if active_session:
+            session_id = active_session["adk_session_id"]
+            session = await self.session_service.get_session(
+                app_name=self.app_name,
+                user_id=user_id,
+                session_id=session_id,
             )
-            self.user_sessions[user_id] = session.id
-        return self.user_sessions[user_id]
+            if session is None:
+                log.info(
+                    "Restoring ADK runtime session %s for user %s",
+                    session_id,
+                    user_id,
+                )
+                await self.session_service.create_session(
+                    app_name=self.app_name,
+                    user_id=user_id,
+                    session_id=session_id,
+                )
+
+            if conversation_id and active_session.get("conversation_id") != conversation_id:
+                self.session_store.set_active_session(
+                    user_id=user_id,
+                    app_name=self.app_name,
+                    adk_session_id=session_id,
+                    conversation_id=conversation_id,
+                )
+
+            return session_id
+
+        log.info("Creating new session for user %s", user_id)
+        session = await self.session_service.create_session(
+            app_name=self.app_name, user_id=user_id
+        )
+        self.session_store.set_active_session(
+            user_id=user_id,
+            app_name=self.app_name,
+            adk_session_id=session.id,
+            conversation_id=conversation_id,
+        )
+        return session.id
 
     def run_agent(
-        self, session_id: str, user_id: str, text: str | None, file_data: bytes | None = None, mime_type: str | None = None
+        self,
+        session_id: str,
+        user_id: str,
+        text: str | None,
+        file_data: bytes | None = None,
+        mime_type: str | None = None,
     ) -> Tuple[str, Dict, List[types.Part]]:
-        """Запускае агент з тэкстам і/або дадзенымі файла (сінхронна)."""
-        
         parts = []
         if text:
             parts.append(types.Part(text=text))
@@ -51,11 +95,13 @@ class ADKService:
 
         if not parts:
             return "", {}, []
-        
+
         content = types.Content(role="user", parts=parts)
         final_parts, delta = [], {}
-        
-        for ev in self.runner.run(user_id=user_id, session_id=session_id, new_message=content):
+
+        for ev in self.runner.run(
+            user_id=user_id, session_id=session_id, new_message=content
+        ):
             if ev.is_final_response() and ev.content:
                 final_parts = ev.content.parts or []
             if ev.actions and ev.actions.artifact_delta:
@@ -65,15 +111,20 @@ class ADKService:
         return reply, delta, final_parts
 
     async def run_agent_stream(
-        self, session_id: str, user_id: str, text: str | None, file_data: bytes | None = None, mime_type: str | None = None
+        self,
+        session_id: str,
+        user_id: str,
+        text: str | None,
+        file_data: bytes | None = None,
+        mime_type: str | None = None,
     ):
-        """Запускае агент і вяртае генератар падзей."""
         parts = []
         if text:
             parts.append(types.Part(text=text))
         if file_data and mime_type:
-            # Check if it is already WAV from our new VAD
-            if mime_type == "audio/wav" or (file_data.startswith(b'RIFF') and file_data[8:12] == b'WAVE'):
+            if mime_type == "audio/wav" or (
+                file_data.startswith(b"RIFF") and file_data[8:12] == b"WAVE"
+            ):
                 blob = types.Blob(data=file_data, mime_type="audio/wav")
             else:
                 blob = types.Blob(data=file_data, mime_type=mime_type)
@@ -83,26 +134,21 @@ class ADKService:
             return
 
         content = types.Content(role="user", parts=parts)
-        
-        
-        # True streaming using a queue to bridge sync runner and async generator
-        import asyncio
-        from concurrent.futures import ThreadPoolExecutor
-        
-        loop = asyncio.get_running_loop()
-        event_queue = asyncio.Queue()
-        
-        def sync_run_and_push():
-            try:
-                for ev in self.runner.run(user_id=user_id, session_id=session_id, new_message=content):
-                    loop.call_soon_threadsafe(event_queue.put_nowait, ev)
-            except Exception as e:
-                log.error(f"Error in sync runner: {e}")
-                # Optionally push error to queue or handle it
-            finally:
-                loop.call_soon_threadsafe(event_queue.put_nowait, None) # Sentinel
 
-        # Fire and forget the thread (or keep ref to verify completion)
+        loop = asyncio.get_running_loop()
+        event_queue: asyncio.Queue = asyncio.Queue()
+
+        def sync_run_and_push() -> None:
+            try:
+                for ev in self.runner.run(
+                    user_id=user_id, session_id=session_id, new_message=content
+                ):
+                    loop.call_soon_threadsafe(event_queue.put_nowait, ev)
+            except Exception as exc:
+                log.error("Error in sync runner: %s", exc)
+            finally:
+                loop.call_soon_threadsafe(event_queue.put_nowait, None)
+
         executor = ThreadPoolExecutor(max_workers=1)
         loop.run_in_executor(executor, sync_run_and_push)
 
@@ -115,7 +161,6 @@ class ADKService:
     async def send_media_from_parts(
         self, chat_id: int, context, parts: List[types.Part]
     ) -> Tuple[bool, bytes | None, bytes | None]:
-        # (без змен)
         wavs, imgs = [], []
         for p in parts:
             if p.inline_data and p.inline_data.data and p.inline_data.mime_type:
@@ -134,13 +179,15 @@ class ADKService:
     async def send_media_from_artifacts(
         self, chat_id: int, context, user_id: str, session_id: str, delta: Dict
     ) -> Tuple[bool, bytes | None, bytes | None]:
-        # (без змен)
         wavs, imgs = [], []
         for fname, ver in delta.items():
             try:
                 part = await self.artifact_service.load_artifact(
-                    app_name=self.app_name, user_id=user_id, session_id=session_id,
-                    filename=fname, version=ver
+                    app_name=self.app_name,
+                    user_id=user_id,
+                    session_id=session_id,
+                    filename=fname,
+                    version=ver,
                 )
                 if part and part.inline_data and part.inline_data.data and part.inline_data.mime_type:
                     mime = part.inline_data.mime_type
@@ -149,7 +196,7 @@ class ADKService:
                     elif mime.startswith("image"):
                         imgs.append(part.inline_data.data)
             except Exception as exc:
-                log.error(f"Failed to load artifact {fname} v{ver}: {exc}")
+                log.error("Failed to load artifact %s v%s: %s", fname, ver, exc)
         sent = False
         if wavs:
             sent |= await helpers.send_wavs(chat_id, context, wavs)

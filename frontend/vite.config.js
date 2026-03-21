@@ -1,4 +1,49 @@
+import fs from 'node:fs';
+import path from 'node:path';
+
 import { defineConfig } from 'vite';
+
+function authCallbackRoutePlugin() {
+  const callbackHtml = '/auth-callback.html';
+  const callbackRoute = '/auth/callback';
+
+  const rewriteRequest = (req) => {
+    if (!req.url) {
+      return;
+    }
+
+    const url = new URL(req.url, 'http://localhost');
+    if (url.pathname === callbackRoute) {
+      req.url = `${callbackHtml}${url.search}`;
+    }
+  };
+
+  return {
+    name: 'auth-callback-route',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        rewriteRequest(req);
+        next();
+      });
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use((req, res, next) => {
+        rewriteRequest(req);
+        next();
+      });
+    },
+    closeBundle() {
+      const sourcePath = path.resolve(process.cwd(), 'dist', 'auth-callback.html');
+      const nestedDir = path.resolve(process.cwd(), 'dist', 'auth', 'callback');
+      const nestedIndexPath = path.join(nestedDir, 'index.html');
+
+      if (fs.existsSync(sourcePath)) {
+        fs.mkdirSync(nestedDir, { recursive: true });
+        fs.copyFileSync(sourcePath, nestedIndexPath);
+      }
+    },
+  };
+}
 
 export default defineConfig({
   // Ensure wasm and onnx files are treated as assets (not processed)
@@ -36,12 +81,14 @@ export default defineConfig({
       input: {
         main: 'index.html',
         voice: 'voice.html',
+        authCallback: 'auth-callback.html',
       },
     },
   },
 
   // Plugin to set correct MIME types for .wasm files
   plugins: [
+    authCallbackRoutePlugin(),
     {
       name: 'wasm-mime-type',
       configureServer(server) {

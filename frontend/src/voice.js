@@ -4,6 +4,10 @@
  */
 
 import { armTeacherPromptReveal, queueTeacherPrompt } from "./teacher-prompt.js";
+import {
+    bootstrapAnonymousSession,
+    getSupabaseAccessToken,
+} from './supabase.js';
 
 // Import VAD from CDN
 const VAD_SCRIPT_URL = "https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.18/dist/bundle.min.js";
@@ -335,7 +339,8 @@ const state = {
     websocket: null,
     vad: null,
     _vadPaused: false,  // true when VAD is paused during bot response
-    userId: 'voice-user-' + Math.random().toString(36).substring(7),
+    userId: null,
+    accessToken: null,
     audioQueue: [],
     currentAudio: null,
     interruptRequested: false,
@@ -557,7 +562,10 @@ function renderTeacherLessons() {
 
 async function fetchTeacherLessons() {
     try {
-        const response = await fetch('/api/teacher/lessons');
+        const accessToken = await getSupabaseAccessToken();
+        const response = await fetch('/api/teacher/lessons', {
+            headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+        });
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
         }
@@ -582,6 +590,13 @@ function sendTeacherMessage(payload) {
         throw new Error('WebSocket is not connected');
     }
     state.websocket.send(JSON.stringify(payload));
+}
+
+async function ensureVoiceSession() {
+    const session = await bootstrapAnonymousSession();
+    state.userId = session?.user?.id ?? null;
+    state.accessToken = session?.access_token ?? null;
+    return session;
 }
 
 function startTeacherMode() {
@@ -629,7 +644,9 @@ function stopTeacherMode() {
 // ===========================
 // WebSocket Connection
 // ===========================
-function connectWebSocket() {
+async function connectWebSocket() {
+    await ensureVoiceSession();
+
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     let host = window.location.host;
 
@@ -637,26 +654,34 @@ function connectWebSocket() {
         host = `${window.location.hostname}:7861`;
     }
 
-    const wsUrl = `${protocol}//${host}/api/voice?user_id=${state.userId}`;
+    const wsUrl = `${protocol}//${host}/api/voice`;
     state.websocket = new WebSocket(wsUrl);
 
     state.websocket.onopen = () => {
         state.isConnected = true;
         updateConnectionStatus(true);
         updateTeacherPanel();
+        if (state.accessToken) {
+            state.websocket.send(JSON.stringify({
+                type: 'auth',
+                access_token: state.accessToken,
+            }));
+        }
         if (elements.teacherToggle?.checked && state.currentLessonId) {
             startTeacherMode();
         }
         console.log('WebSocket connected');
     };
 
-    state.websocket.onclose = () => {
+    state.websocket.onclose = (event) => {
         state.isConnected = false;
         state.teacherMode = false;
         updateConnectionStatus(false);
         updateTeacherPanel();
         console.log('WebSocket disconnected');
-        setTimeout(() => { if (!state.isConnected) connectWebSocket(); }, 3000);
+        if (event.code !== 4401) {
+            setTimeout(() => { if (!state.isConnected) void connectWebSocket(); }, 3000);
+        }
     };
 
     state.websocket.onerror = (error) => {
@@ -1652,12 +1677,18 @@ updateTtsText = function(text) {
 // ===========================
 // Initialize
 // ===========================
-function init() {
+async function init() {
+    try {
+        await ensureVoiceSession();
+    } catch (error) {
+        console.error('Failed to bootstrap Supabase session:', error);
+    }
+
     createVisualizerBars();
     renderDialogHistory();
     fetchTeacherLessons();
     updateTeacherPanel();
-    connectWebSocket();
+    void connectWebSocket();
 
     elements.micBtn.addEventListener('click', () => {
         if (!state.isRecording) {
@@ -1758,4 +1789,4 @@ function init() {
     }
 }
 
-init();
+void init();

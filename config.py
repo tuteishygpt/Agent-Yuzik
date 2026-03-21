@@ -69,3 +69,27 @@ LOCAL_ASR_MODEL = os.getenv("LOCAL_ASR_MODEL", "nvidia/stt_be_fastconformer_hybr
 # Default Bot Replies
 DEFAULT_NO_ANSWER = "🌀 Прабачце, не атрымалася сфарміраваць адказ. Паспрабуйце яшчэ раз."
 DEFAULT_ERROR = "Упс, Юзік страціў гузік ці інакш адбылася памылка! Паспрабуйце пазней."
+
+SUPABASE_REQUIRED_ENV_VARS = (
+    "SUPABASE_URL",
+    "SUPABASE_ANON_KEY",
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "SUPABASE_JWT_ISSUER",
+    "SUPABASE_JWT_AUDIENCE",
+    "SUPABASE_UPLOAD_BUCKET",
+    "SUPABASE_ARTIFACT_BUCKET",
+    "SUPABASE_WEB_CALLBACK_DEV",
+    "SUPABASE_WEB_CALLBACK_PROD",
+    "SUPABASE_MOBILE_CALLBACK_DEV",
+    "SUPABASE_MOBILE_CALLBACK_PROD",
+)
+
+
+def has_supabase_config() -> bool:
+    return all(os.getenv(name) for name in SUPABASE_REQUIRED_ENV_VARS)
+
+
+def load_supabase_settings():
+    from services.supabase.config import load_supabase_settings as _load_supabase_settings
+
+    return _load_supabase_settings()

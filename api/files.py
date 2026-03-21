@@ -7,22 +7,32 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, HTTPException, Response
 
-from api.deps import FILES_DIR, guess_mime
+from api.auth import AuthenticatedUser, get_current_user
+from api.deps import artifact_store
 
 log = logging.getLogger("app")
 
 router = APIRouter(prefix="/api", tags=["files"])
 
 
-@router.get("/files/{filename}")
-async def get_file(filename: str):
-    """Serve files (audio, images, etc.)."""
-    file_path = FILES_DIR / filename
-    if not file_path.exists():
-        return {"error": "File not found"}, 404
+@router.get("/files/{artifact_id}")
+async def get_file(
+    artifact_id: str,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+):
+    artifact = artifact_store.get_artifact(artifact_id)
+    if artifact is None:
+        raise HTTPException(status_code=404, detail="File not found")
+    if artifact["user_id"] != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
 
-    mime = guess_mime(file_path)
-    return FileResponse(file_path, media_type=mime)
+    _, data = artifact_store.get_download_bytes(artifact_id)
+    return Response(
+        content=data,
+        media_type=artifact["mime_type"],
+        headers={
+            "Content-Disposition": f'inline; filename="{artifact["filename"]}"',
+        },
+    )

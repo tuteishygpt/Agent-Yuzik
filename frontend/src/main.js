@@ -2,6 +2,14 @@
  * Yuzik Frontend - Main Chat Application
  */
 
+import {
+    bootstrapAnonymousSession,
+    getSupabaseSession,
+    getSupabaseAccessToken,
+    linkAnonymousAccountWithEmail,
+    onSupabaseAuthStateChange,
+} from './supabase.js';
+
 // ===========================
 // State Management
 // ===========================
@@ -9,8 +17,10 @@ const state = {
     messages: [],
     isTyping: false,
     sessionId: null,
-    userId: 'web-user-' + Math.random().toString(36).substring(7),
+    userId: null,
+    isAnonymous: true,
     pendingFiles: [],
+    assetUrls: [],
     theme: localStorage.getItem('theme') || 'dark',
 };
 
@@ -36,15 +46,26 @@ const elements = {
     zoomIn: document.getElementById('zoom-in'),
     zoomOut: document.getElementById('zoom-out'),
     downloadImage: document.getElementById('download-image'),
+    authBadge: document.getElementById('auth-badge'),
+    btnUpgrade: document.getElementById('btn-upgrade'),
+    upgradeModal: document.getElementById('upgrade-modal'),
+    upgradeOverlay: document.getElementById('upgrade-overlay'),
+    upgradeClose: document.getElementById('upgrade-close'),
+    upgradeForm: document.getElementById('upgrade-form'),
+    upgradeEmail: document.getElementById('upgrade-email'),
+    upgradePassword: document.getElementById('upgrade-password'),
+    upgradeSubmit: document.getElementById('upgrade-submit'),
+    upgradeFeedback: document.getElementById('upgrade-feedback'),
 };
 
 // ===========================
 // API Functions
 // ===========================
 async function sendMessage(text, files = []) {
+    const accessToken = await getSupabaseAccessToken();
+
     const formData = new FormData();
     formData.append('text', text);
-    formData.append('user_id', state.userId);
 
     for (const file of files) {
         formData.append('files', file);
@@ -53,6 +74,7 @@ async function sendMessage(text, files = []) {
     try {
         const response = await fetch('/api/chat', {
             method: 'POST',
+            headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
             body: formData,
         });
 
@@ -68,15 +90,51 @@ async function sendMessage(text, files = []) {
 }
 
 async function clearHistory() {
+    const accessToken = await getSupabaseAccessToken();
     try {
         await fetch('/api/chat/history', {
             method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user_id: state.userId }),
+            headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
         });
     } catch (error) {
         console.error('Error clearing history:', error);
     }
+}
+
+async function fetchHistory() {
+    const accessToken = await getSupabaseAccessToken();
+    const response = await fetch('/api/chat/history', {
+        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+    });
+
+    if (!response.ok) {
+        throw new Error(`History request failed with status ${response.status}`);
+    }
+
+    const payload = await response.json();
+    return Array.isArray(payload.history) ? payload.history : [];
+}
+
+async function resolveProtectedAssetUrl(src) {
+    if (!src || !src.startsWith('/api/files/')) {
+        return src;
+    }
+
+    const accessToken = await getSupabaseAccessToken();
+    if (!accessToken) {
+        return src;
+    }
+
+    const response = await fetch(src, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!response.ok) {
+        throw new Error(`Artifact request failed with status ${response.status}`);
+    }
+
+    const objectUrl = URL.createObjectURL(await response.blob());
+    state.assetUrls.push(objectUrl);
+    return objectUrl;
 }
 
 // ===========================
@@ -192,10 +250,97 @@ function scrollToBottom() {
 }
 
 function clearChat() {
+    state.assetUrls.forEach((url) => URL.revokeObjectURL(url));
+    state.assetUrls = [];
     state.messages = [];
     elements.messagesContainer.innerHTML = '';
     showEmptyState();
     clearHistory();
+}
+
+function hydrateHistory(history) {
+    state.messages = [];
+    elements.messagesContainer.innerHTML = '';
+
+    if (!history.length) {
+        showEmptyState();
+        return;
+    }
+
+    showChatView();
+    history.forEach((entry) => {
+        const role = entry.role === 'assistant' || entry.role === 'system' ? 'bot' : 'user';
+        addMessage(role, entry.content, 'text');
+    });
+}
+
+function setUpgradeFeedback(message, tone = '') {
+    if (!elements.upgradeFeedback) {
+        return;
+    }
+
+    elements.upgradeFeedback.textContent = message;
+    elements.upgradeFeedback.classList.remove('success', 'error');
+    if (tone) {
+        elements.upgradeFeedback.classList.add(tone);
+    }
+}
+
+function openUpgradeModal() {
+    if (!state.isAnonymous) {
+        return;
+    }
+
+    setUpgradeFeedback('Пасля адпраўкі прыйдзе ліст для пацверджання і вяртання ў праграму.');
+    elements.upgradeModal.classList.remove('hidden');
+    elements.upgradeEmail.focus();
+}
+
+function closeUpgradeModal() {
+    elements.upgradeModal.classList.add('hidden');
+}
+
+async function refreshAuthState() {
+    const session = await getSupabaseSession();
+    const user = session?.user ?? null;
+
+    state.userId = user?.id ?? null;
+    state.isAnonymous = Boolean(user?.is_anonymous);
+
+    if (elements.authBadge) {
+        elements.authBadge.textContent = state.isAnonymous ? 'Госць' : 'Email';
+        elements.authBadge.title = user?.email || (state.isAnonymous ? 'Anonymous session' : 'Linked account');
+    }
+
+    if (elements.btnUpgrade) {
+        elements.btnUpgrade.classList.toggle('hidden', !state.isAnonymous);
+    }
+}
+
+async function handleUpgradeSubmit(event) {
+    event.preventDefault();
+
+    const email = elements.upgradeEmail.value.trim();
+    const password = elements.upgradePassword.value;
+    if (!email || password.length < 8) {
+        setUpgradeFeedback('Укажыце карэктны email і пароль не карацейшы за 8 сімвалаў.', 'error');
+        return;
+    }
+
+    elements.upgradeSubmit.disabled = true;
+    setUpgradeFeedback('Адпраўляем запыт на прывязку email…');
+
+    try {
+        await linkAnonymousAccountWithEmail({ email, password });
+        await refreshAuthState();
+        setUpgradeFeedback('Ліст адпраўлены. Адкрыйце email, пацвердзіце адрас і вярніцеся ў праграму.', 'success');
+        elements.upgradeForm.reset();
+    } catch (error) {
+        console.error('Email link failed:', error);
+        setUpgradeFeedback(error.message || 'Не атрымалася прывязаць email.', 'error');
+    } finally {
+        elements.upgradeSubmit.disabled = false;
+    }
 }
 
 // ===========================
@@ -424,7 +569,7 @@ async function handleSendMessage() {
         }
 
         if (response.audio) {
-            addMessage('bot', response.audio, 'audio');
+            addMessage('bot', await resolveProtectedAssetUrl(response.audio), 'audio');
             // Initialize audio player after DOM update
             setTimeout(() => {
                 const audioMessages = document.querySelectorAll('.audio-message:not([data-initialized])');
@@ -436,7 +581,7 @@ async function handleSendMessage() {
         }
 
         if (response.image) {
-            addMessage('bot', response.image, 'image');
+            addMessage('bot', await resolveProtectedAssetUrl(response.image), 'image');
         }
     } catch (error) {
         hideTypingIndicator();
@@ -478,6 +623,21 @@ function initEventListeners() {
     // Voice agent
     elements.btnVoice.addEventListener('click', openVoiceAgent);
 
+    if (elements.btnUpgrade) {
+        elements.btnUpgrade.addEventListener('click', openUpgradeModal);
+    }
+    if (elements.upgradeClose) {
+        elements.upgradeClose.addEventListener('click', closeUpgradeModal);
+    }
+    if (elements.upgradeOverlay) {
+        elements.upgradeOverlay.addEventListener('click', closeUpgradeModal);
+    }
+    if (elements.upgradeForm) {
+        elements.upgradeForm.addEventListener('submit', (event) => {
+            void handleUpgradeSubmit(event);
+        });
+    }
+
     // Image modal
     elements.modalClose.addEventListener('click', closeImageModal);
     elements.imageModal.querySelector('.modal-overlay').addEventListener('click', closeImageModal);
@@ -504,9 +664,28 @@ function initEventListeners() {
 // ===========================
 // Initialize
 // ===========================
-function init() {
+async function init() {
     // Apply saved theme
     document.documentElement.setAttribute('data-theme', state.theme);
+
+    try {
+        await bootstrapAnonymousSession();
+        await refreshAuthState();
+        hydrateHistory(await fetchHistory());
+    } catch (error) {
+        console.error('Failed to bootstrap Supabase session:', error);
+        try {
+            const session = await bootstrapAnonymousSession();
+            state.userId = session?.user?.id ?? null;
+            await refreshAuthState();
+        } catch (bootstrapError) {
+            console.error('Anonymous Supabase bootstrap failed:', bootstrapError);
+        }
+    }
+
+    onSupabaseAuthStateChange(() => {
+        void refreshAuthState();
+    });
 
     // Initialize event listeners
     initEventListeners();
@@ -515,4 +694,4 @@ function init() {
 }
 
 // Start app
-init();
+void init();
