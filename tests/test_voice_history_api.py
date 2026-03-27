@@ -15,15 +15,30 @@ def _current_user(user_id: str = "voice-user") -> AuthenticatedUser:
 def test_voice_turn_store_survives_restart_for_authenticated_user() -> None:
     backend = InMemorySupabaseBackend()
     first_store = VoiceTurnStore(backend)
-    first_store.append_turn(user_id="voice-user", user_text="Dobry den", assistant_text="Vyadatna")
-    first_store.append_turn(user_id="other-user", user_text="hide", assistant_text="hidden")
+    first_store.append_turn(
+        user_id="voice-user",
+        user_text="Dobry den",
+        assistant_text="Vyadatna",
+        timestamp=1.5,
+    )
+    first_store.append_turn(
+        user_id="other-user",
+        user_text="hide",
+        assistant_text="hidden",
+        timestamp=2.5,
+    )
 
     reloaded_store = VoiceTurnStore(backend)
     turns = reloaded_store.list_turns("voice-user")
+    rows = reloaded_store.list_turn_rows("voice-user")
 
     assert len(turns) == 1
     assert turns[0].user_text == "Dobry den"
     assert turns[0].assistant_text == "Vyadatna"
+    assert turns[0].timestamp == 1.5
+    assert rows[0]["user_text"] == "Dobry den"
+    assert rows[0]["assistant_text"] == "Vyadatna"
+    assert rows[0]["timestamp"] == 1.5
 
 
 def test_voice_history_api_returns_only_authenticated_users_rows(monkeypatch) -> None:
@@ -45,6 +60,7 @@ def test_voice_history_api_returns_only_authenticated_users_rows(monkeypatch) ->
     assert response["turn_count"] == 1
     assert response["history"][0]["user_text"] == "hello"
     assert response["history"][0]["assistant_text"] == "reply"
+    assert response["history"][0]["timestamp"] is not None
     assert len(response["history"]) == 1
 
 

@@ -6,6 +6,8 @@ from uuid import uuid4
 
 from services.supabase.backend import SupabaseBackend, get_default_backend, utcnow_iso
 
+TIMESTAMP_COLUMN = "timestamp"
+
 
 @dataclass(frozen=True)
 class VoiceTurnRow:
@@ -44,7 +46,7 @@ class VoiceTurnStore:
         return self.backend.select(
             "voice_turns",
             filters={"user_id": user_id},
-            order_by="timestamp",
+            order_by=TIMESTAMP_COLUMN,
             ascending=True,
         )
 

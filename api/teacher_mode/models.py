@@ -3,7 +3,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Dict, List, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class StepType(str, Enum):
@@ -60,10 +60,17 @@ class LessonSessionState(BaseModel):
     lesson_id: str
     current_step_id: str
     attempt_count: int = 0
-    mistakes_to_review: List[str] = Field(default_factory=list)
-    mode: Literal["assistant", "teacher"] = "teacher"
     lesson_status: LessonStatus = LessonStatus.active
+    mode: Literal["assistant", "teacher"] = "teacher"
+    mistakes_to_review: List[str] = Field(default_factory=list)
     recent_turn_summary: str = ""
+
+    @field_validator("lesson_status", mode="before")
+    @classmethod
+    def _normalize_legacy_lesson_status(cls, value):
+        if value == "errored":
+            return LessonStatus.stopped
+        return value
 
 
 class StudentAnswerStatus(str, Enum):
