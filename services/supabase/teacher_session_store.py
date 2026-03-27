@@ -49,7 +49,6 @@ class TeacherSessionStore:
                 "id": str(uuid4()),
                 **payload,
                 "created_at": now,
-                "last_used_at": now,
             },
         )
         return LessonSessionState.model_validate(created)

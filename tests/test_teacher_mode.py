@@ -17,6 +17,8 @@ from api.teacher_mode.models import (
     EvaluationBlock,
     GeminiTeacherResult,
     InputUnderstanding,
+    LessonSessionState,
+    LessonStatus,
     PedagogicalActionBlock,
     StudentAnswerStatus,
     TeacherAction,
@@ -552,3 +554,61 @@ def test_teacher_session_store_deletes_only_target_session():
 
     assert controller.get_state(session_id="session-1", user_id="user-1") is None
     assert controller.get_state(session_id="session-2", user_id="user-2") is not None
+
+
+def test_teacher_session_store_round_trips_runtime_field_names():
+    backend = InMemorySupabaseBackend()
+    store = TeacherSessionStore(backend)
+    state = LessonSessionState(
+        session_id="session-1",
+        user_id="user-1",
+        lesson_id="basics_greetings",
+        current_step_id="intro",
+        attempt_count=2,
+        mistakes_to_review=["day_good", "ask_feeling"],
+        mode="teacher",
+        lesson_status=LessonStatus.active,
+        recent_turn_summary="correct:dobry dzien",
+    )
+
+    saved = store.save(state)
+    row = backend.tables["teacher_sessions"][0]
+
+    assert saved.session_id == "session-1"
+    assert row["session_id"] == "session-1"
+    assert row["lesson_status"] == "active"
+    assert row["mode"] == "teacher"
+    assert row["mistakes_to_review"] == ["day_good", "ask_feeling"]
+    assert row["recent_turn_summary"] == "correct:dobry dzien"
+    assert "external_session_id" not in row
+    assert "status" not in row
+    assert "last_used_at" not in row
+
+
+def test_teacher_session_store_normalizes_legacy_errored_lesson_status():
+    backend = InMemorySupabaseBackend(
+        {
+            "teacher_sessions": [
+                {
+                    "id": "row-1",
+                    "user_id": "user-1",
+                    "session_id": "session-1",
+                    "lesson_id": "basics_greetings",
+                    "current_step_id": "intro",
+                    "attempt_count": 0,
+                    "lesson_status": "errored",
+                    "mode": "teacher",
+                    "mistakes_to_review": [],
+                    "recent_turn_summary": "",
+                    "created_at": "2026-03-27T00:00:00+00:00",
+                    "updated_at": "2026-03-27T00:00:00+00:00",
+                }
+            ]
+        }
+    )
+    store = TeacherSessionStore(backend)
+
+    state = store.get("session-1", "user-1")
+
+    assert state is not None
+    assert state.lesson_status == LessonStatus.stopped

@@ -28,6 +28,7 @@
 
 - Apply `supabase/migrations/001_canonical_schema.sql`.
 - Apply `supabase/migrations/002_rls_and_storage.sql`.
+- Apply `supabase/migrations/003_mobile_contract_cleanup.sql`.
 - If bucket creation is managed outside SQL in your project, manually create private buckets named `user-uploads` and `assistant-artifacts`.
 - Verify RLS is enabled on all canonical tables and object policies scope access by `auth.uid()`.
 
