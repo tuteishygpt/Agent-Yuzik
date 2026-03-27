@@ -13,6 +13,7 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.100.1",
     "expo": "~55.0.8",
+    "expo-audio": "^55.0.9",
     "expo-constants": "~18.0.9",
     "expo-crypto": "^55.0.10",
     "expo-document-picker": "^55.0.9",
