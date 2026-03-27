@@ -139,6 +139,25 @@ describe("useTeacherMode", () => {
     });
   });
 
+  it("falls back to lesson_id when no active session id is available", async () => {
+    await act(async () => {
+      await teacherModeController.loadLessons({
+        backendUrl: "https://api.yuzik.example",
+        accessToken: "token-123",
+        fetchImpl: createFetchMock(),
+      });
+    });
+
+    act(() => {
+      teacherModeController.selectLesson("intro-greetings");
+      teacherModeController.startLesson();
+    });
+
+    expect(teacherModeController.createStopLessonPayload()).toEqual({
+      lesson_id: "intro-greetings",
+    });
+  });
+
   it("survives a screen remount through shared controller state", async () => {
     let renderer!: TestRenderer.ReactTestRenderer;
 

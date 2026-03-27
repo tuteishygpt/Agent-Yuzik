@@ -235,7 +235,7 @@ function startLesson(options?: { sessionId?: string | null }): TeacherStartLesso
   setState((current) => ({
     ...current,
     activeLessonId: payload.lesson_id,
-    activeSessionId: options?.sessionId ?? payload.lesson_id,
+    activeSessionId: options?.sessionId ?? null,
     isActive: true,
     error: null,
   }));
