@@ -3,10 +3,28 @@ import { ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { DebugInfo } from "@/components/settings/DebugInfo";
 import { getRuntimeEnv } from "@/lib/env";
+import { useAuth } from "@/providers/AuthProvider";
+
+function getAuthStateLabel(input: {
+  status: "loading" | "ready" | "error";
+  isAnonymous: boolean;
+  hasSession: boolean;
+}): string {
+  if (input.status === "loading") {
+    return "Loading auth";
+  }
+
+  if (!input.hasSession) {
+    return "Signed out";
+  }
+
+  return input.isAnonymous ? "Guest session" : "Email account";
+}
 
 export default function SettingsScreen() {
   const expoConfig = Constants.expoConfig;
   const env = getRuntimeEnv();
+  const auth = useAuth();
   const buildProfile =
     String(expoConfig?.extra?.buildProfile ?? "").trim() || "development";
   const appVersion = String(expoConfig?.version ?? "1.0.0");
@@ -23,7 +41,11 @@ export default function SettingsScreen() {
 
       <DebugInfo
         appVersion={appVersion}
-        authState="Signed out"
+        authState={getAuthStateLabel({
+          status: auth.status,
+          isAnonymous: auth.isAnonymous,
+          hasSession: Boolean(auth.session),
+        })}
         buildProfile={buildProfile}
         env={env}
       />
