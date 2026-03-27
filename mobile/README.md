@@ -1,62 +1,83 @@
 # Yuzik Mobile
 
-Bare Expo Router workspace for the mobile client.
+Expo Router workspace for the mobile v1 client.
 
 ## Requirements
 
 - Node `22.17.0`
 - npm `10.9.2`
-- A configured mobile `.env` file based on `.env.example`
 
-## Setup
+## Environment Setup
 
 1. Copy `.env.example` to `.env`.
-2. Fill in the backend, Supabase, scheme, and package identifier values.
-3. Set distinct values for `APP_DEV_PACKAGE_ID`, `APP_PREVIEW_PACKAGE_ID`, and `APP_PROD_PACKAGE_ID` so preview installs do not overwrite development or production builds.
-4. Install dependencies with `npm install`.
-5. Validate the Expo config with `npx expo config --type public`.
+2. Populate these required values:
+   - `EXPO_PUBLIC_BACKEND_URL`
+   - `EXPO_PUBLIC_SUPABASE_URL`
+   - `EXPO_PUBLIC_SUPABASE_ANON_KEY`
+   - `EXPO_PUBLIC_DEV_SCHEME`
+   - `EXPO_PUBLIC_PROD_SCHEME`
+   - `EXPO_PUBLIC_BUILD_CHANNEL`
+   - `APP_DEV_PACKAGE_ID`
+   - `APP_PREVIEW_PACKAGE_ID`
+   - `APP_PROD_PACKAGE_ID`
+3. Use distinct package identifiers for dev, preview, and production installs.
 
-## Scripts
-
-- `npm test`
-- `npx tsc --noEmit`
-- `npm start`
-- `npm run android`
-- `npm run ios`
-- `npx expo config --type public`
-
-## Structure
-
-- `app/` contains the Expo Router shell.
-- `app/(tabs)` owns the current chat and settings tabs.
-- Future routes such as `app/voice.tsx` can live outside `(tabs)` and will mount on the root stack automatically.
-- `src/lib/env.ts` parses public runtime env state and app variants.
-- `src/components/settings/DebugInfo.tsx` renders non-secret build and environment diagnostics.
-- `src/features/chat/` owns the authenticated chat, upload, and protected artifact flows.
-- `src/features/teacher/` owns lesson catalog loading and teacher-mode state.
-- `src/features/voice/` owns push-to-talk voice state, transcript playback, and reconnect handling.
-
-## Build Profiles
-
-- `development` is for local device debugging.
-- `preview` is the internal install target for shared QA and smoke tests.
-- `production` is the store-targeted release profile.
-
-## Verification
-
-Run the automated checks that currently define the mobile baseline:
+## Install
 
 ```bash
-npm test
-npx tsc --noEmit
+npm install
 ```
 
-Run the Expo config sanity check if environment values change:
+## Expo CLI Sanity Check
+
+The Expo config is expected to resolve directly from the CLI.
 
 ```bash
 npx expo config --type public
 ```
 
-## Readiness
+## Scripts
 
-The branch is code-complete for the mobile baseline, but release readiness is still blocked on physical iPhone and Android verification.
+- `npm start`
+- `npm run ios`
+- `npm run android`
+- `npm run web`
+- `npm test`
+
+## App Areas
+
+- `app/(tabs)/chat.tsx`: authenticated chat, uploads, protected artifact handling
+- `app/(tabs)/settings.tsx`: runtime/build diagnostics
+- `app/auth/callback.tsx`: Supabase PKCE callback flow
+- `app/voice.tsx`: push-to-talk voice baseline with reconnect and teacher controls
+
+## Verification
+
+### Mobile
+
+```bash
+npm test
+npx tsc --noEmit
+npx expo config --type public
+```
+
+### Backend contracts used by mobile
+
+Run from repo root:
+
+```bash
+python -m pytest tests/test_supabase_auth.py tests/test_voice_ws_auth.py tests/test_chat_persistence.py tests/test_voice_history_api.py tests/test_teacher_mode.py tests/test_artifact_storage.py -v
+```
+
+## Current Readiness
+
+- Automated mobile suite: passing
+- Automated backend regression suite used by mobile: passing
+- Physical iPhone matrix: pending
+- Physical Android matrix: pending
+
+See:
+
+- `mobile/docs/voice-spike-results.md`
+- `mobile/docs/device-test-matrix.md`
+- `mobile/docs/release-readiness.md`

@@ -1,37 +1,66 @@
 # Device Test Matrix
 
-## Status
+Date opened: 2026-03-27
+Branch: `codex/mobile-v1-baseline`
 
-All physical-device items below are still pending. No iPhone or Android hardware run has been recorded in this branch yet.
+## Status Legend
 
-| Scenario | iPhone | Android | Notes |
-| --- | --- | --- | --- |
-| Clean install | Pending | Pending | Verify first launch and initial bootstrap. |
-| Anonymous bootstrap | Pending | Pending | Confirm guest session creation and persistence. |
-| Guest -> email link flow | Pending | Pending | Validate auth callback return and account linking. |
-| Text chat | Pending | Pending | Confirm bearer auth, history hydration, and send. |
-| Image upload | Pending | Pending | Confirm multipart upload and image artifact handling. |
-| PDF upload | Pending | Pending | Confirm protected file open/share fallback. |
-| TXT upload | Pending | Pending | Confirm protected file open/share fallback. |
-| Audio upload | Pending | Pending | Confirm protected file playback path. |
-| Teacher lesson selection | Pending | Pending | Confirm lesson catalog loading and state retention. |
-| Push-to-talk recording | Pending | Pending | Confirm record/send flow and server auth. |
-| Transcript visibility | Pending | Pending | Confirm transcript updates during voice turns. |
-| Assistant audio playback | Pending | Pending | Confirm speaker playback and cache reuse. |
-| Interrupt under one second | Pending | Pending | Measure stop latency while assistant audio is playing. |
-| App kill/reopen continuity | Pending | Pending | Confirm session and state recovery. |
-| Reconnect after manual network drop | Pending | Pending | Confirm retry state and preserved transcript. |
+- `PASS`: verified on physical hardware
+- `FAIL`: reproduced issue on physical hardware
+- `PENDING`: not yet executed
 
-## Device Matrix Fields
+## iPhone
 
-- Device model
-- OS version
-- Build profile
-- App version
-- Backend environment
-- Result
-- Blockers
+Device: PENDING
+iOS version: PENDING
+Build/profile: PENDING
 
-## Recording Rule
+| Check | Status | Notes |
+| --- | --- | --- |
+| Clean install | PENDING | |
+| Anonymous bootstrap | PENDING | |
+| Guest to email link and callback return | PENDING | |
+| Text chat | PENDING | |
+| Image upload | PENDING | |
+| PDF upload | PENDING | |
+| TXT upload | PENDING | |
+| Audio upload | PENDING | |
+| Teacher lesson selection | PENDING | |
+| Push-to-talk recording | PENDING | |
+| Transcript visibility | PENDING | |
+| Assistant audio playback through speaker | PENDING | |
+| Interrupt under one second | PENDING | |
+| App kill and reopen session continuity | PENDING | |
+| Reconnect after manual network drop | PENDING | |
 
-Do not mark any row as passed until the result has been observed on a physical device.
+## Android
+
+Device: PENDING
+Android version: PENDING
+Build/profile: PENDING
+
+| Check | Status | Notes |
+| --- | --- | --- |
+| Clean install | PENDING | |
+| Anonymous bootstrap | PENDING | |
+| Guest to email link and callback return | PENDING | |
+| Text chat | PENDING | |
+| Image upload | PENDING | |
+| PDF upload | PENDING | |
+| TXT upload | PENDING | |
+| Audio upload | PENDING | |
+| Teacher lesson selection | PENDING | |
+| Push-to-talk recording | PENDING | |
+| Transcript visibility | PENDING | |
+| Assistant audio playback through speaker | PENDING | |
+| Interrupt under one second | PENDING | |
+| App kill and reopen session continuity | PENDING | |
+| Reconnect after manual network drop | PENDING | |
+
+## Automated Evidence Already Available
+
+- `npm test` passed in `mobile/`
+- `npx tsc --noEmit` passed in `mobile/`
+- backend auth/chat/voice/history/teacher/artifact regression suite passed in repo root
+
+These automated results reduce risk but do not replace the physical iPhone and Android checks above.
