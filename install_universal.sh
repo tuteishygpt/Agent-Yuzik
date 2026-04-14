@@ -49,7 +49,10 @@ if [ -z "$GOOGLE_API_KEY" ]; then
     export GOOGLE_API_KEY="$USER_KEY"
 fi
 
-export GEMINI_API_KEY="${GEMINI_API_KEY:-$GOOGLE_API_KEY}"
+unset GEMINI_API_KEY
+unset GOOGLE_CLOUD_PROJECT
+unset GOOGLE_CLOUD_LOCATION
+export GOOGLE_GENAI_USE_VERTEXAI="true"
 export PORT="7861"
 
 echo "✅ Усё гатова! Запуск сервера на порце $PORT..."

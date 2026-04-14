@@ -6,16 +6,20 @@ from google import genai
 load_dotenv()
 
 # Handle API keys. Vertex AI in express mode uses GOOGLE_API_KEY.
-# Keep GEMINI_API_KEY as a backward-compatible alias for older environments.
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+# Keep GEMINI_API_KEY as a backward-compatible input alias, but normalize the
+# process environment to GOOGLE_API_KEY-only so ADK chooses Vertex express mode.
+_legacy_gemini_api_key = os.getenv("GEMINI_API_KEY")
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY") or _legacy_gemini_api_key
+GEMINI_API_KEY = GOOGLE_API_KEY
 
-if GEMINI_API_KEY and not GOOGLE_API_KEY:
-    os.environ["GOOGLE_API_KEY"] = GEMINI_API_KEY
-    GOOGLE_API_KEY = GEMINI_API_KEY
-elif GOOGLE_API_KEY and not GEMINI_API_KEY:
-    os.environ["GEMINI_API_KEY"] = GOOGLE_API_KEY
-    GEMINI_API_KEY = GOOGLE_API_KEY
+if GOOGLE_API_KEY:
+    os.environ["GOOGLE_API_KEY"] = GOOGLE_API_KEY
+    os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "true"
+    # Avoid ADK / google-genai falling back to Gemini API or implicit
+    # project/location-based Vertex auth when we explicitly want express mode.
+    os.environ.pop("GEMINI_API_KEY", None)
+    os.environ.pop("GOOGLE_CLOUD_PROJECT", None)
+    os.environ.pop("GOOGLE_CLOUD_LOCATION", None)
 
 if not GOOGLE_API_KEY:
     print("WARNING: GOOGLE_API_KEY not found in environment variables or .env file.")

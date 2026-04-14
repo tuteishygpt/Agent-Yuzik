@@ -8,6 +8,69 @@ from types import ModuleType, SimpleNamespace
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 
+def _reload_config(monkeypatch, *, google_api_key=None, gemini_api_key=None, use_vertex=None):
+    env_values = {
+        "GOOGLE_API_KEY": "" if google_api_key is None else google_api_key,
+        "GEMINI_API_KEY": "" if gemini_api_key is None else gemini_api_key,
+        "GOOGLE_GENAI_USE_VERTEXAI": "" if use_vertex is None else use_vertex,
+        "GOOGLE_CLOUD_PROJECT": "stale-project",
+        "GOOGLE_CLOUD_LOCATION": "us-central1",
+    }
+    for key, value in env_values.items():
+        monkeypatch.setenv(key, value)
+
+    sys.modules.pop("config", None)
+    return importlib.import_module("config")
+
+
+def test_config_enables_vertex_express_and_clears_legacy_env_alias(monkeypatch):
+    config = _reload_config(
+        monkeypatch,
+        google_api_key="vertex-key",
+        gemini_api_key="stale-key",
+        use_vertex="0",
+    )
+
+    assert config.GOOGLE_API_KEY == "vertex-key"
+    assert config.GEMINI_API_KEY == "vertex-key"
+    assert os.environ["GOOGLE_GENAI_USE_VERTEXAI"].lower() == "true"
+    assert os.environ["GOOGLE_API_KEY"] == "vertex-key"
+    assert "GEMINI_API_KEY" not in os.environ
+    assert "GOOGLE_CLOUD_PROJECT" not in os.environ
+    assert "GOOGLE_CLOUD_LOCATION" not in os.environ
+
+
+def test_config_promotes_legacy_gemini_key_to_google_api_key_for_vertex_express(monkeypatch):
+    config = _reload_config(
+        monkeypatch,
+        google_api_key=None,
+        gemini_api_key="legacy-key",
+        use_vertex=None,
+    )
+
+    assert config.GOOGLE_API_KEY == "legacy-key"
+    assert config.GEMINI_API_KEY == "legacy-key"
+    assert os.environ["GOOGLE_API_KEY"] == "legacy-key"
+    assert os.environ["GOOGLE_GENAI_USE_VERTEXAI"].lower() == "true"
+    assert "GEMINI_API_KEY" not in os.environ
+
+
+def test_adk_gemini_model_uses_vertex_backend_after_config_setup(monkeypatch):
+    _reload_config(
+        monkeypatch,
+        google_api_key="vertex-key",
+        gemini_api_key="stale-key",
+        use_vertex="0",
+    )
+
+    from google.adk.models.google_llm import Gemini
+
+    model = Gemini(model="gemini-flash-latest")
+
+    assert model.api_client.vertexai is True
+    assert model._api_backend.name == "VERTEX_AI"
+
+
 def test_config_create_genai_client_uses_vertex_ai_express_mode(monkeypatch):
     import config
 
