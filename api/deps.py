@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Dict, List
 
 import config
-from google import genai
 from services.adk_service import ADKService
 
 log = logging.getLogger("app")
@@ -45,14 +44,14 @@ def append_to_history(user_id: str, entry: Dict) -> None:
     if len(chat_histories[user_id]) > MAX_HISTORY_PER_USER:
         chat_histories[user_id] = chat_histories[user_id][-MAX_HISTORY_PER_USER:]
 
-# Global Gemini Client (Lazy init)
+# Global Gen AI Client (Lazy init)
 _genai_client = None
 
 
 def get_genai_client():
     global _genai_client
     if not _genai_client:
-        _genai_client = genai.Client(api_key=config.GEMINI_API_KEY)
+        _genai_client = config.create_genai_client()
     return _genai_client
 
 

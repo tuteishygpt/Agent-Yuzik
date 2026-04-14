@@ -20,10 +20,7 @@ DEFAULT_IMAGE_GENERATION_MODEL = "gemini-2.5-flash-image"
 
 
 def _get_genai_client():
-    api_key = config.GEMINI_API_KEY or config.GOOGLE_API_KEY
-    if not api_key:
-        raise RuntimeError("GEMINI_API_KEY or GOOGLE_API_KEY env var not set")
-    return genai.Client(api_key=api_key)
+    return config.create_genai_client()
 
 
 def _iter_response_parts(response) -> Iterable[types.Part]:
@@ -104,11 +101,14 @@ async def _generate_gemini_parts_via_rest(
     person_generation: str,
     output_mime_type: str,
 ) -> list[types.Part]:
-    api_key = config.GEMINI_API_KEY or config.GOOGLE_API_KEY
+    api_key = config.GOOGLE_API_KEY or config.GEMINI_API_KEY
     if not api_key:
-        raise RuntimeError("GEMINI_API_KEY or GOOGLE_API_KEY env var not set")
+        raise RuntimeError("GOOGLE_API_KEY env var not set")
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    url = (
+        "https://aiplatform.googleapis.com/v1/"
+        f"publishers/google/models/{model}:generateContent?key={api_key}"
+    )
     payload = {
         "contents": [
             {
@@ -129,14 +129,13 @@ async def _generate_gemini_parts_via_rest(
         async with session.post(
             url,
             headers={
-                "x-goog-api-key": api_key,
                 "Content-Type": "application/json",
             },
             json=payload,
         ) as response:
             response_text = await response.text()
             if response.status >= 400:
-                raise RuntimeError(f"Gemini API error {response.status}: {response_text}")
+                raise RuntimeError(f"Vertex AI express API error {response.status}: {response_text}")
             data = json.loads(response_text)
 
     parts: list[types.Part] = []

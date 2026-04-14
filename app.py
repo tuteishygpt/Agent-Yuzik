@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 # Загрузка пераменных асяроддзя
 load_dotenv()
 
-# Пераканацца, што GOOGLE_API_KEY усталяваны
+# Падтрымка старога GEMINI_API_KEY як аліяса да GOOGLE_API_KEY
 if "GEMINI_API_KEY" in os.environ and "GOOGLE_API_KEY" not in os.environ:
     os.environ["GOOGLE_API_KEY"] = os.environ["GEMINI_API_KEY"]
 

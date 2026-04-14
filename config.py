@@ -1,10 +1,12 @@
 import os
 from dotenv import load_dotenv
+from google import genai
 
 # Load environment variables from .env file
 load_dotenv()
 
-# Handle API keys (ensure both GEMINI_API_KEY and GOOGLE_API_KEY are available if one is set)
+# Handle API keys. Vertex AI in express mode uses GOOGLE_API_KEY.
+# Keep GEMINI_API_KEY as a backward-compatible alias for older environments.
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
@@ -15,11 +17,15 @@ elif GOOGLE_API_KEY and not GEMINI_API_KEY:
     os.environ["GEMINI_API_KEY"] = GOOGLE_API_KEY
     GEMINI_API_KEY = GOOGLE_API_KEY
 
-if not GEMINI_API_KEY:
-    # Don't crash immediately, but warn or set a dummy to allow app to start for other features (optional)
-    # However, for this agent, it is critical. Let's provide a clear error message.
-    print("WARNING: GEMINI_API_KEY or GOOGLE_API_KEY not found in environment variables or .env file.")
-    # We allow it to pass as None, but functionality depending on it will fail gracefully or raise errors later.
+if not GOOGLE_API_KEY:
+    print("WARNING: GOOGLE_API_KEY not found in environment variables or .env file.")
+
+
+def create_genai_client(*, api_key: str | None = None):
+    resolved_api_key = api_key or GOOGLE_API_KEY or GEMINI_API_KEY
+    if not resolved_api_key:
+        raise RuntimeError("GOOGLE_API_KEY env var not set")
+    return genai.Client(vertexai=True, api_key=resolved_api_key)
     
 # Telegram Configuration
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")

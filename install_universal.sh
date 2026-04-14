@@ -42,14 +42,14 @@ cd ..
 echo "[6/6] Запуск..."
 echo "-------------------------------------------------------------------"
 
-# Калі GEMINI_API_KEY не зададзены, просім у карыстальніка
-if [ -z "$GEMINI_API_KEY" ]; then
-    echo "⚠️ Ключ GEMINI_API_KEY не знойдзены ў асяроддзі."
-    read -p "Увядзіце ваш ключ Google Gemini: " USER_KEY
-    export GEMINI_API_KEY="$USER_KEY"
+# Калі GOOGLE_API_KEY не зададзены, просім у карыстальніка
+if [ -z "$GOOGLE_API_KEY" ]; then
+    echo "⚠️ Ключ GOOGLE_API_KEY не знойдзены ў асяроддзі."
+    read -p "Увядзіце ваш ключ Vertex AI in express mode: " USER_KEY
+    export GOOGLE_API_KEY="$USER_KEY"
 fi
 
-export GOOGLE_API_KEY=$GEMINI_API_KEY
+export GEMINI_API_KEY="${GEMINI_API_KEY:-$GOOGLE_API_KEY}"
 export PORT="7861"
 
 echo "✅ Усё гатова! Запуск сервера на порце $PORT..."
