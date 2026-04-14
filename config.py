@@ -42,6 +42,10 @@ WEBHOOK_SECRET_TOKEN = os.getenv("WEBHOOK_SECRET_TOKEN")
 # Agent Configuration
 # GEMINI_API_KEY is already set above
 AGENT_TIMEOUT = int(os.getenv("AGENT_TIMEOUT", 60))
+ADK_MODEL = os.getenv("ADK_MODEL", "gemini-2.5-flash")
+ROUTER_AGENT_MODEL = os.getenv("ROUTER_AGENT_MODEL", ADK_MODEL)
+SEARCH_AGENT_MODEL = os.getenv("SEARCH_AGENT_MODEL", ADK_MODEL)
+MEME_AGENT_MODEL = os.getenv("MEME_AGENT_MODEL", ADK_MODEL)
 
 # TTS Configuration
 TTS_MODE = os.getenv("TTS_MODE", "local").lower()  # "local" or "api"

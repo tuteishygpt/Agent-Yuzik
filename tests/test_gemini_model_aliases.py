@@ -1,5 +1,4 @@
 from pathlib import Path
-import re
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -8,15 +7,16 @@ TARGET_FILES = [
     REPO_ROOT / "meme_generator_agent" / "agent.py",
     REPO_ROOT / "router_agent" / "agent.py",
 ]
-VERSIONED_GEMINI_PATTERN = re.compile(r"gemini-\d+(?:\.\d+)?-[a-z0-9-]+")
-
-
-def test_target_files_use_unversioned_gemini_flash_alias():
+def test_target_files_use_config_backed_adk_models():
     for path in TARGET_FILES:
         text = path.read_text(encoding="utf-8")
-        assert "gemini-flash-latest" in text, f"{path.name} should use gemini-flash-latest"
-        assert not VERSIONED_GEMINI_PATTERN.search(text), (
-            f"{path.name} should not contain versioned Gemini model IDs"
+        assert "config." in text, f"{path.name} should read its model from config"
+        assert "_MODEL" in text, f"{path.name} should use a dedicated model setting"
+        assert "gemini-2.5-flash" not in text, (
+            f"{path.name} should not hardcode the default ADK model"
+        )
+        assert "gemini-flash-latest" not in text, (
+            f"{path.name} should not use the Gemini Developer API alias"
         )
 
 

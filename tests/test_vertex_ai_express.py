@@ -65,10 +65,31 @@ def test_adk_gemini_model_uses_vertex_backend_after_config_setup(monkeypatch):
 
     from google.adk.models.google_llm import Gemini
 
-    model = Gemini(model="gemini-flash-latest")
+    model = Gemini(model="gemini-2.5-flash")
 
     assert model.api_client.vertexai is True
     assert model._api_backend.name == "VERTEX_AI"
+
+
+def test_config_exposes_adk_model_overrides(monkeypatch):
+    config = _reload_config(
+        monkeypatch,
+        google_api_key="vertex-key",
+        gemini_api_key=None,
+        use_vertex="1",
+    )
+
+    monkeypatch.setenv("ADK_MODEL", "gemini-2.5-flash-lite")
+    monkeypatch.setenv("ROUTER_AGENT_MODEL", "gemini-2.5-flash")
+    monkeypatch.setenv("SEARCH_AGENT_MODEL", "gemini-2.0-flash-001")
+    monkeypatch.setenv("MEME_AGENT_MODEL", "gemini-2.5-flash-lite")
+    sys.modules.pop("config", None)
+    config = importlib.import_module("config")
+
+    assert config.ADK_MODEL == "gemini-2.5-flash-lite"
+    assert config.ROUTER_AGENT_MODEL == "gemini-2.5-flash"
+    assert config.SEARCH_AGENT_MODEL == "gemini-2.0-flash-001"
+    assert config.MEME_AGENT_MODEL == "gemini-2.5-flash-lite"
 
 
 def test_config_create_genai_client_uses_vertex_ai_express_mode(monkeypatch):
