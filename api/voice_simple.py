@@ -14,20 +14,16 @@ import re
 import threading
 import time
 from datetime import datetime, timezone
-from typing import Callable, Awaitable
-
 from fastapi import WebSocket
+from fastapi.websockets import WebSocketState
 from google.genai import types
 
 import config
 from api.deps import get_genai_client
-from api.teacher_mode.service import controller as teacher_controller
 from api.voice_history import get_voice_history
 from api.voice_perf import PerfLogger
 from api.voice_utils import LOCAL_SAMPLE_RATE, compress_wav_to_mp3
-from tools.text_to_speech_tool import stream_speech, stream_speech_multi
-
-# Local ASR (imported inside handle_simple_voice if needed)
+from tools.text_to_speech_tool import stream_speech_multi
 
 log = logging.getLogger("app.voice")
 
@@ -35,7 +31,6 @@ log = logging.getLogger("app.voice")
 _SENTENCE_END_RE = re.compile(r'[.!?…\n]+[\s»")\]]+')
 
 # Max characters to group into a single TTS chunk (after the first segment)
-# Паменшана з 250 да 190, каб TTS хутчэй атрымліваў новыя сказы і не чакаў доўга.
 _GROUP_LIMIT = 190
 _TTS_IDLE_STOP_TIMEOUT_S = 2.0
 _TTS_ACTIVE_STOP_TIMEOUT_S = 30.0
@@ -103,11 +98,14 @@ class TTSWorker:
         # State
         self.sent_first_audio_chunk = False
         self._first_dispatch_ts: float | None = None
-        self.llm_first_token_ts: float | None = None
+        self._llm_first_token_ts: float | None = None
 
     @property
     def sentence_queue(self) -> asyncio.Queue:
         return self._sentence_queue
+
+    def set_llm_first_token_ts(self, ts: float) -> None:
+        self._llm_first_token_ts = ts
 
     def start(self) -> asyncio.Task:
         log.info(_step("TTS·WORKER", "▶ Worker task created and started", self._start_ts))
@@ -216,8 +214,8 @@ class TTSWorker:
                     pipeline_ms = (time.time() - self._start_ts) * 1000
                     tts_ms = (time.time() - tts_gen_start) * 1000
                     llm_to_tts_ms = (
-                        (tts_gen_start - self.llm_first_token_ts) * 1000
-                        if self.llm_first_token_ts else 0
+                        (tts_gen_start - self._llm_first_token_ts) * 1000
+                        if self._llm_first_token_ts else 0
                     )
                     chunk_info = ""
                     if config.TTS_MODE == "local":
@@ -296,6 +294,69 @@ class TTSWorker:
             log.info(_step("TTS·WORKER", "🏁 _run() finally block done", self._start_ts))
 
 
+# ── Sentence splitter ────────────────────────────────────────────────
+
+class SentenceSplitter:
+    """Accumulates LLM text tokens and yields dispatch-ready text groups.
+
+    Handles the two-phase dispatch strategy:
+      1. First segment: accumulate until TTS_FIRST_SEGMENT_LIMIT chars
+      2. Subsequent segments: group sentences up to _GROUP_LIMIT chars
+    """
+
+    def __init__(self):
+        self._sentence_buf = ""
+        self._group_buf = ""
+        self._first_dispatched = False
+
+    @property
+    def first_dispatched(self) -> bool:
+        return self._first_dispatched
+
+    def add_token(self, text: str) -> list[str]:
+        """Feed a token and return a (possibly empty) list of texts to dispatch."""
+        self._sentence_buf += text
+
+        matches = list(_SENTENCE_END_RE.finditer(self._sentence_buf))
+        if not matches:
+            return []
+
+        split_idx = matches[-1].end()
+        ready = self._sentence_buf[:split_idx].strip()
+        self._sentence_buf = self._sentence_buf[split_idx:]
+
+        if not ready:
+            return []
+
+        if not self._first_dispatched:
+            self._group_buf = f"{self._group_buf} {ready}".strip() if self._group_buf else ready
+            if len(self._group_buf) < config.TTS_FIRST_SEGMENT_LIMIT:
+                return []
+            result = [self._group_buf]
+            self._group_buf = ""
+            self._first_dispatched = True
+            return result
+
+        dispatches: list[str] = []
+        if self._group_buf and len(self._group_buf) + 1 + len(ready) > _GROUP_LIMIT:
+            stripped = self._group_buf.strip()
+            if stripped:
+                dispatches.append(stripped)
+            self._group_buf = ""
+        self._group_buf = f"{self._group_buf} {ready}".strip() if self._group_buf else ready
+        return dispatches
+
+    def flush(self) -> str | None:
+        """Return any remaining text after the LLM stream ends."""
+        leftover = self._sentence_buf.strip()
+        if leftover:
+            self._group_buf = f"{self._group_buf} {leftover}".strip() if self._group_buf else leftover
+            self._sentence_buf = ""
+        final = self._group_buf.strip()
+        self._group_buf = ""
+        return final or None
+
+
 # ── Main handler ─────────────────────────────────────────────────────
 
 async def handle_simple_voice(
@@ -321,184 +382,216 @@ async def handle_simple_voice(
         duration_ms=round((time.time() - start_ts) * 1000),
     )
 
-    # ── Teacher mode extension ──
+    # ── Teacher mode — delegated to voice_teacher module ──
+    from api.teacher_mode.service import controller as teacher_controller
     teacher_state = teacher_controller.get_state(session_id=session_id, user_id=user_id)
     if teacher_state:
-        log.info(_step("VOICE·TEACHER", f"📚 Teacher mode active | lesson={teacher_state.lesson_id}", start_ts))
-        await perf(
-            "teacher_mode",
-            "📚 Рэжым настаўніка актыўны",
-            detail=f"lesson_id={teacher_state.lesson_id} | step={teacher_state.current_step_id}",
-            duration_ms=round((time.time() - start_ts) * 1000),
+        from api.voice_teacher import handle_teacher_voice
+        await handle_teacher_voice(
+            audio_data, websocket, audio_queue, perf,
+            start_ts, session_id, user_id, teacher_state,
         )
+        return
 
-        tts = TTSWorker(audio_queue, perf, start_ts)
-        tts.start()
-        try:
-            teacher_transcript = ""
-            log.info(_step("VOICE·TEACHER", "Teacher mode always uses remote transcription", start_ts))
-
-            outcome = await teacher_controller.process_audio_turn(
-                session_id=session_id,
-                user_id=user_id,
-                audio_data=audio_data,
-                transcript=teacher_transcript,
-            )
-
-            log.info(
-                _step(
-                    "VOICE·TEACHER",
-                    f"📝 Teacher transcript result: «{outcome.transcript[:120]}» | normalized=«{outcome.normalized_transcript[:120]}»",
-                    start_ts,
-                )
-            )
-
-            if outcome.transcript:
-                await websocket.send_json({"type": "transcription", "text": outcome.transcript})
-
-            await websocket.send_json({
-                "type": "response",
-                "text": outcome.reply_text,
-                "mode": "teacher",
-                "teacher_action": outcome.teacher_action.value,
-                "step_id": outcome.step_id,
-                "fallback_reason": outcome.fallback_reason,
-            })
-
-            await tts.dispatch(outcome.reply_text)
-            await tts.stop()
-            return
-        finally:
-            tts.cancel()
-
-    client = get_genai_client()
-
-    # ── Build multi-turn contents with voice history ──
-    log.info(_step("VOICE·HISTORY", "📜 Loading voice history…", start_ts))
-    voice_history = get_voice_history(user_id)
-    history_contents = voice_history.to_gemini_contents()
-    log.info(_step(
-        "VOICE·HISTORY",
-        f"   turns={voice_history.turn_count} | contents={len(history_contents)}",
-        start_ts,
-    ))
-    await perf(
-        "history_loaded",
-        "📜 Гісторыя загружана",
-        detail=f"Тураў: {voice_history.turn_count} | "
-               f"Элементаў кантэксту: {len(history_contents)} | "
-               f"Ад старту: {(time.time()-start_ts)*1000:.0f} мс",
-        duration_ms=round((time.time() - start_ts) * 1000),
+    # ── ASR + build Gemini contents ──
+    voice_history = await _load_voice_history(user_id, perf, start_ts)
+    user_transcription, current_user_content = await _transcribe_and_build_content(
+        audio_data, websocket, perf, start_ts,
     )
+    all_contents = voice_history.to_gemini_contents() + [current_user_content]
 
-    # ── Prepare user content: local ASR (text) or compressed audio ──
-    user_transcription: str | None = None  # filled when LOCAL_ASR is on
-
-    if config.LOCAL_ASR:
-        from api import local_asr
-        # ── Local ASR: transcribe audio → send TEXT to Gemini ──
-        if not local_asr.is_ready():
-            log.warning(_step("VOICE·ASR", "⚠️ LOCAL_ASR=True but model not loaded, loading now…", start_ts))
-            await asyncio.to_thread(local_asr.load_asr_model)
-
-        log.info(_step("VOICE·ASR", f"🎙️ Local ASR transcription start | audio={len(audio_data)}B", start_ts))
-        t_asr = time.time()
-        user_transcription = await asyncio.to_thread(local_asr.transcribe_wav_bytes, audio_data)
-        asr_ms = (time.time() - t_asr) * 1000
-        log.info(_step(
-            "VOICE·ASR",
-            f"   ✅ Transcription: «{user_transcription[:120]}» | {asr_ms:.0f}ms",
-            start_ts,
-        ))
-        await perf(
-            "local_asr_done",
-            "🎙️ Лакальнае распазнаванне голасу",
-            detail=f"Тэкст: «{user_transcription[:100]}» | "
-                   f"Час: {asr_ms:.0f} мс | "
-                   f"Мадэль: {config.LOCAL_ASR_MODEL}",
-            duration_ms=round(asr_ms),
-        )
-
-        # Send transcription to client UI so they see what was recognized
-        await websocket.send_json({
-            "type": "transcription",
-            "text": user_transcription,
-        })
-
-        current_user_content = types.Content(
-            role="user",
-            parts=[types.Part(text=user_transcription)],
-        )
-    else:
-        log.info(_step("VOICE·ASR", "🎙️ Remote transcription start (fallback)", start_ts))
-        t_remote_asr = time.time()
-        try:
-            user_transcription = await _transcribe_audio_with_model(audio_data)
-        except Exception:
-            log.exception(_step("VOICE·ASR", "❌ Remote transcription failed", start_ts))
-            user_transcription = None
-        remote_asr_ms = (time.time() - t_remote_asr) * 1000
-
-        if user_transcription:
-            log.info(_step(
-                "VOICE·ASR",
-                f"   ✅ Remote transcription: «{user_transcription[:120]}» | {remote_asr_ms:.0f}ms",
-                start_ts,
-            ))
-            await perf(
-                "remote_asr_done",
-                "🎙️ Аддаленае распазнаванне голасу",
-                detail=f"Тэкст: «{user_transcription[:100]}» | Час: {remote_asr_ms:.0f} мс",
-                duration_ms=round(remote_asr_ms),
-            )
-            await websocket.send_json({
-                "type": "transcription",
-                "text": user_transcription,
-            })
-        # ── Compress WAV → MP3 (16kHz, 64k) to reduce Gemini upload size ──
-        log.info(_step("VOICE·COMPRESS", f"🗜️  Compressing WAV→MP3 | input={len(audio_data)}B", start_ts))
-        t_compress = time.time()
-        mp3_data = await asyncio.to_thread(compress_wav_to_mp3, audio_data)
-        compress_ms = (time.time() - t_compress) * 1000
-        ratio = len(audio_data) / len(mp3_data) if mp3_data else 0
-        log.info(_step(
-            "VOICE·COMPRESS",
-            f"   ✅ WAV→MP3: {len(audio_data)}B → {len(mp3_data)}B "
-            f"(×{ratio:.1f}) | {compress_ms:.0f}ms",
-            start_ts,
-        ))
-        await perf(
-            "audio_compressed",
-            "🗜️ Аўдыё сціснута WAV→MP3",
-            detail=f"{len(audio_data)}B → {len(mp3_data)}B (×{ratio:.1f} сцісканне) | "
-                   f"Час: {compress_ms:.0f} мс",
-            duration_ms=round(compress_ms),
-        )
-
-        # Current user turn with compressed audio
-        current_user_content = types.Content(
-            role="user",
-            parts=[
-                types.Part(
-                    inline_data=types.Blob(
-                        mime_type="audio/mp3",
-                        data=mp3_data,
-                    )
-                )
-            ],
-        )
-
-    all_contents = history_contents + [current_user_content]
-
-    if history_contents:
+    if voice_history.turn_count:
         log.info(_step(
             "VOICE·HISTORY",
             f"Including {voice_history.turn_count} previous turns in Gemini context",
             start_ts,
         ))
 
-    # ── Gemini API call ──
-    log.info(_step("VOICE·LLM", f"📡 generate_content_stream() → API call start…", start_ts))
+    # ── Gemini streaming call ──
+    response_stream = await _start_llm_stream(all_contents, perf, start_ts)
+
+    # ── TTS Worker ──
+    log.info(_step("VOICE·PIPELINE", "⚙️  Creating TTSWorker…", start_ts))
+    tts = TTSWorker(audio_queue, perf, start_ts)
+    tts.start()
+    await perf(
+        "tts_worker_start",
+        "⚙️ TTS Worker запушчаны",
+        detail=f"Рэжым: {config.TTS_MODE} | "
+               f"GROUP_LIMIT: {_GROUP_LIMIT} сімв. | "
+               f"Ад старту: {(time.time()-start_ts)*1000:.0f} мс",
+        duration_ms=round((time.time() - start_ts) * 1000),
+    )
+
+    # ── Stream LLM → sentence split → TTS dispatch ──
+    text_buffer, dispatch_count, ws_send_count, llm_end_ts = await _stream_and_dispatch(
+        response_stream, websocket, tts, perf, start_ts, gen_start,
+    )
+
+    # ── Save turn to voice history ──
+    await _save_voice_history(
+        voice_history, user_id, user_transcription, text_buffer, perf, start_ts,
+    )
+
+    total_ms = (time.time() - start_ts) * 1000
+    log.info(_step(
+        "VOICE·PIPELINE",
+        f"🏁 handle_simple_voice() DONE | "
+        f"total={total_ms:.0f}ms | "
+        f"llm={((llm_end_ts - gen_start)*1000):.0f}ms | "
+        f"text={len(text_buffer)} chars | "
+        f"dispatches={dispatch_count} | "
+        f"ws_sends={ws_send_count}",
+        start_ts,
+    ))
+    await perf(
+        "llm_complete",
+        "🏁 Пайплайн Simple Voice завершаны",
+        detail=f"Агульны час: {total_ms:.0f} мс | "
+               f"LLM: {(llm_end_ts - gen_start)*1000:.0f} мс | "
+               f"Тэкст: {len(text_buffer)} сімв. | "
+               f"Гісторыя: {voice_history.turn_count} тураў",
+        duration_ms=round(total_ms),
+    )
+
+
+# ── Sub-steps of the voice pipeline ─────────────────────────────────
+
+
+async def _load_voice_history(user_id: str, perf: PerfLogger, start_ts: float):
+    """Load voice conversation history for this user."""
+    log.info(_step("VOICE·HISTORY", "📜 Loading voice history…", start_ts))
+    voice_history = get_voice_history(user_id)
+    log.info(_step(
+        "VOICE·HISTORY",
+        f"   turns={voice_history.turn_count} | contents={len(voice_history.to_gemini_contents())}",
+        start_ts,
+    ))
+    await perf(
+        "history_loaded",
+        "📜 Гісторыя загружана",
+        detail=f"Тураў: {voice_history.turn_count} | "
+               f"Ад старту: {(time.time()-start_ts)*1000:.0f} мс",
+        duration_ms=round((time.time() - start_ts) * 1000),
+    )
+    return voice_history
+
+
+async def _transcribe_and_build_content(
+    audio_data: bytes,
+    websocket: WebSocket,
+    perf: PerfLogger,
+    start_ts: float,
+) -> tuple[str | None, types.Content]:
+    """Transcribe audio (local or remote ASR) and build Gemini user Content."""
+    if config.LOCAL_ASR:
+        return await _transcribe_local(audio_data, websocket, perf, start_ts)
+    return await _transcribe_remote(audio_data, websocket, perf, start_ts)
+
+
+async def _transcribe_local(
+    audio_data: bytes,
+    websocket: WebSocket,
+    perf: PerfLogger,
+    start_ts: float,
+) -> tuple[str | None, types.Content]:
+    """Local ASR: transcribe audio → return text Content for Gemini."""
+    from api import local_asr
+
+    if not local_asr.is_ready():
+        log.warning(_step("VOICE·ASR", "⚠️ LOCAL_ASR=True but model not loaded, loading now…", start_ts))
+        await asyncio.to_thread(local_asr.load_asr_model)
+        if not local_asr.is_ready():
+            log.error(_step(
+                "VOICE·ASR",
+                "LOCAL_ASR model is unavailable after load attempt; falling back to remote ASR",
+                start_ts,
+            ))
+            return await _transcribe_remote(audio_data, websocket, perf, start_ts)
+
+    log.info(_step("VOICE·ASR", f"🎙️ Local ASR transcription start | audio={len(audio_data)}B", start_ts))
+    t_asr = time.time()
+    transcription = await asyncio.to_thread(local_asr.transcribe_wav_bytes, audio_data)
+    asr_ms = (time.time() - t_asr) * 1000
+    log.info(_step("VOICE·ASR", f"   ✅ Transcription: «{transcription[:120]}» | {asr_ms:.0f}ms", start_ts))
+    await perf(
+        "local_asr_done",
+        "🎙️ Лакальнае распазнаванне голасу",
+        detail=f"Тэкст: «{transcription[:100]}» | "
+               f"Час: {asr_ms:.0f} мс | "
+               f"Мадэль: {config.LOCAL_ASR_MODEL}",
+        duration_ms=round(asr_ms),
+    )
+
+    await websocket.send_json({"type": "transcription", "text": transcription})
+
+    content = types.Content(role="user", parts=[types.Part(text=transcription)])
+    return transcription, content
+
+
+async def _transcribe_remote(
+    audio_data: bytes,
+    websocket: WebSocket,
+    perf: PerfLogger,
+    start_ts: float,
+) -> tuple[str | None, types.Content]:
+    """Remote ASR fallback: transcribe + compress audio → return Content for Gemini."""
+    log.info(_step("VOICE·ASR", "🎙️ Remote transcription start (fallback)", start_ts))
+    t_remote_asr = time.time()
+    try:
+        transcription = await _transcribe_audio_with_model(audio_data)
+    except Exception:
+        log.exception(_step("VOICE·ASR", "❌ Remote transcription failed", start_ts))
+        transcription = None
+    remote_asr_ms = (time.time() - t_remote_asr) * 1000
+
+    if transcription:
+        log.info(_step(
+            "VOICE·ASR",
+            f"   ✅ Remote transcription: «{transcription[:120]}» | {remote_asr_ms:.0f}ms",
+            start_ts,
+        ))
+        await perf(
+            "remote_asr_done",
+            "🎙️ Аддаленае распазнаванне голасу",
+            detail=f"Тэкст: «{transcription[:100]}» | Час: {remote_asr_ms:.0f} мс",
+            duration_ms=round(remote_asr_ms),
+        )
+        await websocket.send_json({"type": "transcription", "text": transcription})
+        content = types.Content(role="user", parts=[types.Part(text=transcription)])
+        return transcription, content
+
+    # Compress WAV → MP3 only when transcription failed and we need to send raw audio
+    log.info(_step("VOICE·COMPRESS", f"🗜️  Compressing WAV→MP3 | input={len(audio_data)}B", start_ts))
+    t_compress = time.time()
+    mp3_data = await asyncio.to_thread(compress_wav_to_mp3, audio_data)
+    compress_ms = (time.time() - t_compress) * 1000
+    ratio = len(audio_data) / len(mp3_data) if mp3_data else 0
+    log.info(_step(
+        "VOICE·COMPRESS",
+        f"   ✅ WAV→MP3: {len(audio_data)}B → {len(mp3_data)}B "
+        f"(×{ratio:.1f}) | {compress_ms:.0f}ms",
+        start_ts,
+    ))
+    await perf(
+        "audio_compressed",
+        "🗜️ Аўдыё сціснута WAV→MP3",
+        detail=f"{len(audio_data)}B → {len(mp3_data)}B (×{ratio:.1f} сцісканне) | "
+               f"Час: {compress_ms:.0f} мс",
+        duration_ms=round(compress_ms),
+    )
+    content = types.Content(
+        role="user",
+        parts=[types.Part(inline_data=types.Blob(mime_type="audio/mp3", data=mp3_data))],
+    )
+    return None, content
+
+
+async def _start_llm_stream(all_contents: list, perf: PerfLogger, start_ts: float):
+    """Start Gemini streaming generation and return the async response stream."""
+    client = get_genai_client()
+
+    log.info(_step("VOICE·LLM", "📡 generate_content_stream() → API call start…", start_ts))
     t_api_call = time.time()
     response_stream = await client.aio.models.generate_content_stream(
         model=config.SIMPLE_VOICE_MODEL,
@@ -518,40 +611,37 @@ async def handle_simple_voice(
                f"Ад старту: {(time.time() - start_ts)*1000:.0f} мс",
         duration_ms=round(api_call_ms),
     )
+    return response_stream
 
-    # ── TTS Worker ──
-    log.info(_step("VOICE·PIPELINE", "⚙️  Creating TTSWorker…", start_ts))
-    tts = TTSWorker(audio_queue, perf, start_ts)
-    worker_task = tts.start()
-    await perf(
-        "tts_worker_start",
-        "⚙️ TTS Worker запушчаны",
-        detail=f"Рэжым: {config.TTS_MODE} | "
-               f"GROUP_LIMIT: {_GROUP_LIMIT} сімв. | "
-               f"Ад старту: {(time.time()-start_ts)*1000:.0f} мс",
-        duration_ms=round((time.time() - start_ts) * 1000),
-    )
 
-    # ── LLM stream processing with sentence grouping ──
+async def _stream_and_dispatch(
+    response_stream,
+    websocket: WebSocket,
+    tts: TTSWorker,
+    perf: PerfLogger,
+    start_ts: float,
+    gen_start: float,
+) -> tuple[str, int, int, float]:
+    """Iterate the LLM stream, split into sentences, dispatch to TTS.
+
+    Returns (text_buffer, dispatch_count, ws_send_count, llm_end_ts).
+    """
     text_buffer = ""
-    sentence_buffer = ""
-    group_buffer = ""
     first_token = True
-    first_sentence_ready = False
-    first_tts_dispatched = False
     total_llm_tokens = 0
-    llm_end_ts = gen_start  # fallback
+    llm_end_ts = gen_start
 
     ws_send_count = 0
     dispatch_count = 0
-    _ws_last_sent_len = 0  # throttle: track last sent text length
+    _ws_last_sent_len = 0
+
+    splitter = SentenceSplitter()
 
     log.info(_step("VOICE·LLM", "🔄 Starting async iteration of LLM response stream…", start_ts))
 
     try:
         t_first_iter = time.time()
         async for chunk in response_stream:
-            from fastapi.websockets import WebSocketState
             if websocket.client_state != WebSocketState.CONNECTED:
                 log.warning(_step("VOICE·LLM", "⚠️ WebSocket disconnected, aborting pipeline", start_ts))
                 break
@@ -562,9 +652,10 @@ async def handle_simple_voice(
             total_llm_tokens += 1
 
             if first_token:
-                tts.llm_first_token_ts = time.time()
-                ttft_ms = (tts.llm_first_token_ts - gen_start) * 1000
-                iter_wait_ms = (tts.llm_first_token_ts - t_first_iter) * 1000
+                first_token_ts = time.time()
+                tts.set_llm_first_token_ts(first_token_ts)
+                ttft_ms = (first_token_ts - gen_start) * 1000
+                iter_wait_ms = (first_token_ts - t_first_iter) * 1000
                 log.info(_step(
                     "VOICE·LLM",
                     f"✍️  FIRST TOKEN received | TTFT={ttft_ms:.0f}ms | "
@@ -582,19 +673,12 @@ async def handle_simple_voice(
                 first_token = False
 
             text_buffer += chunk.text
-            sentence_buffer += chunk.text
 
-            # ── Send incremental text to client UI (throttled: every 8 tokens) ──
-            # Sending on every token blocks the event loop with hundreds of awaits,
-            # delaying sentence dispatch to TTS. 8-token batching keeps UI smooth
-            # while cutting await overhead ~8x.
+            # Throttled UI updates: every 8 tokens
             if total_llm_tokens % 8 == 1:
                 ws_send_count += 1
                 t_ws = time.time()
-                await websocket.send_json({
-                    "type": "response",
-                    "text": text_buffer,
-                })
+                await websocket.send_json({"type": "response", "text": text_buffer})
                 _ws_last_sent_len = len(text_buffer)
                 ws_ms = (time.time() - t_ws) * 1000
                 if ws_ms > 10:
@@ -604,82 +688,51 @@ async def handle_simple_voice(
                         start_ts,
                     ))
 
-            # ── Two modes: first sentence → immediately, rest → group ──
-            matches = list(_SENTENCE_END_RE.finditer(sentence_buffer))
-            if not matches:
-                continue
+            # ── Sentence splitting and dispatch ──
+            dispatches = splitter.add_token(chunk.text)
 
-            last_match = matches[-1]
-            split_idx = last_match.end()
-            ready = sentence_buffer[:split_idx].strip()
-            sentence_buffer = sentence_buffer[split_idx:]
-
-            if not ready:
-                continue
-
-            if not first_tts_dispatched:
-                # Accumulate until we have enough for first segment
-                group_buffer = f"{group_buffer} {ready}".strip() if group_buffer else ready
-                log.debug(_step(
+            if dispatches and dispatch_count == 0:
+                # First segment just became ready
+                first_text = dispatches[0]
+                sentence_ready_ms = (time.time() - gen_start) * 1000
+                log.info(_step(
                     "VOICE·SPLIT",
-                    f"🗄  Accumulate first segment | "
-                    f"group_buffer={len(group_buffer)} chars | "
-                    f"limit={config.TTS_FIRST_SEGMENT_LIMIT}",
+                    f"📝 FIRST SEGMENT ready | {len(first_text)} chars | "
+                    f"time_to_first_seg={sentence_ready_ms:.0f}ms | "
+                    f"tokens_so_far={total_llm_tokens} | "
+                    f"text=«{first_text[:80]}»",
                     start_ts,
                 ))
-                if len(group_buffer) >= config.TTS_FIRST_SEGMENT_LIMIT:
-                    if not first_sentence_ready:
-                        first_sentence_ready = True
-                        sentence_ready_ms = (time.time() - gen_start) * 1000
-                        log.info(_step(
-                            "VOICE·SPLIT",
-                            f"📝 FIRST SEGMENT ready | {len(group_buffer)} chars | "
-                            f"time_to_first_seg={sentence_ready_ms:.0f}ms | "
-                            f"tokens_so_far={total_llm_tokens} | "
-                            f"text=«{group_buffer[:80]}»",
-                            start_ts,
-                        ))
-                        await perf(
-                            "llm_first_sentence",
-                            "📝 Першы сказ гатовы для TTS",
-                            detail=f"Час: {sentence_ready_ms:.0f} мс | "
-                                   f"{len(group_buffer)} сімв. | "
-                                   f"LLM токенаў: {total_llm_tokens} | "
-                                   f"Тэкст: «{group_buffer[:80]}»",
-                            duration_ms=round(sentence_ready_ms),
-                        )
-                    dispatch_count += 1
-                    log.info(_step(
-                        "VOICE·SPLIT",
-                        f"📤 dispatch #{dispatch_count} (first) | {len(group_buffer)} chars",
-                        start_ts,
-                    ))
-                    await tts.dispatch(group_buffer)
-                    group_buffer = ""
-                    first_tts_dispatched = True
-            else:
-                # Group subsequent sentences into larger chunks
-                if group_buffer and len(group_buffer) + 1 + len(ready) > _GROUP_LIMIT:
-                    if group_buffer.strip():
-                        dispatch_count += 1
-                        log.info(_step(
-                            "VOICE·SPLIT",
-                            f"📤 dispatch #{dispatch_count} (group flush) | "
-                            f"{len(group_buffer)} chars | token #{total_llm_tokens}",
-                            start_ts,
-                        ))
-                        await perf(
-                            "split_group_flush",
-                            f"📤 Групавы dispatch #{dispatch_count}",
-                            detail=f"{len(group_buffer.strip())} сімв. | "
-                                   f"LLM токен #{total_llm_tokens} | "
-                                   f"Ад старту: {(time.time()-start_ts)*1000:.0f} мс | "
-                                   f"Тэкст: «{group_buffer.strip()[:60]}»",
-                            duration_ms=round((time.time() - start_ts) * 1000),
-                        )
-                        await tts.dispatch(group_buffer.strip())
-                        group_buffer = ""
-                group_buffer = f"{group_buffer} {ready}".strip() if group_buffer else ready
+                await perf(
+                    "llm_first_sentence",
+                    "📝 Першы сказ гатовы для TTS",
+                    detail=f"Час: {sentence_ready_ms:.0f} мс | "
+                           f"{len(first_text)} сімв. | "
+                           f"LLM токенаў: {total_llm_tokens} | "
+                           f"Тэкст: «{first_text[:80]}»",
+                    duration_ms=round(sentence_ready_ms),
+                )
+
+            for text in dispatches:
+                dispatch_count += 1
+                label = "first" if dispatch_count == 1 else "group flush"
+                log.info(_step(
+                    "VOICE·SPLIT",
+                    f"📤 dispatch #{dispatch_count} ({label}) | "
+                    f"{len(text)} chars | token #{total_llm_tokens}",
+                    start_ts,
+                ))
+                if label != "first":
+                    await perf(
+                        "split_group_flush",
+                        f"📤 Групавы dispatch #{dispatch_count}",
+                        detail=f"{len(text)} сімв. | "
+                               f"LLM токен #{total_llm_tokens} | "
+                               f"Ад старту: {(time.time()-start_ts)*1000:.0f} мс | "
+                               f"Тэкст: «{text[:60]}»",
+                        duration_ms=round((time.time() - start_ts) * 1000),
+                    )
+                await tts.dispatch(text)
 
         # ── LLM stream finished ──
         llm_end_ts = time.time()
@@ -701,42 +754,34 @@ async def handle_simple_voice(
             duration_ms=round(llm_total_ms),
         )
 
-        # ── Final UI text flush (throttling may have skipped last tokens) ──
+        # Final UI text flush
         if text_buffer and len(text_buffer) > _ws_last_sent_len:
             ws_send_count += 1
             await websocket.send_json({"type": "response", "text": text_buffer})
 
-        # ── Flush remaining text ──
-        leftover = sentence_buffer.strip()
-        if leftover:
-            group_buffer = f"{group_buffer} {leftover}".strip() if group_buffer else leftover
-            log.info(_step(
-                "VOICE·SPLIT",
-                f"🗑  Flushing leftover sentence_buffer: {len(leftover)} chars",
-                start_ts,
-            ))
-
-        if group_buffer.strip():
+        # Flush remaining text to TTS
+        final_text = splitter.flush()
+        if final_text:
             dispatch_count += 1
             log.info(_step(
                 "VOICE·SPLIT",
-                f"📤 dispatch #{dispatch_count} (final flush) | {len(group_buffer.strip())} chars",
+                f"📤 dispatch #{dispatch_count} (final flush) | {len(final_text)} chars",
                 start_ts,
             ))
             await perf(
                 "split_final_flush",
                 f"📤 Фінальны dispatch #{dispatch_count}",
-                detail=f"{len(group_buffer.strip())} сімв. | "
+                detail=f"{len(final_text)} сімв. | "
                        f"Усяго dispatches: {dispatch_count} | "
                        f"Ад старту: {(time.time()-start_ts)*1000:.0f} мс | "
-                       f"Тэкст: «{group_buffer.strip()[:60]}»",
+                       f"Тэкст: «{final_text[:60]}»",
                 duration_ms=round((time.time() - start_ts) * 1000),
             )
-            await tts.dispatch(group_buffer.strip())
+            await tts.dispatch(final_text)
 
-        log.info(_step("VOICE·PIPELINE", f"⏳ Waiting for TTS worker to finish…", start_ts))
+        log.info(_step("VOICE·PIPELINE", "⏳ Waiting for TTS worker to finish…", start_ts))
         await tts.stop()
-        log.info(_step("VOICE·PIPELINE", f"✅ TTS worker stopped", start_ts))
+        log.info(_step("VOICE·PIPELINE", "✅ TTS worker stopped", start_ts))
         await perf(
             "tts_worker_done",
             "✅ TTS Worker завершаны",
@@ -748,57 +793,49 @@ async def handle_simple_voice(
     finally:
         tts.cancel()
 
-    # ── Save turn to voice history ──
-    if text_buffer.strip():
-        user_text = user_transcription if user_transcription else "[галасавое паведамленне]"
-        assistant_text = text_buffer.strip()
+    return text_buffer, dispatch_count, ws_send_count, llm_end_ts
 
-        voice_history.add_turn(
-            user_text=user_text,
-            assistant_text=assistant_text,
-        )
 
+async def _save_voice_history(
+    voice_history,
+    user_id: str,
+    user_transcription: str | None,
+    text_buffer: str,
+    perf: PerfLogger,
+    start_ts: float,
+) -> None:
+    """Save the completed turn to voice history and dialogue log."""
+    if not text_buffer.strip():
+        return
+
+    user_text = user_transcription if user_transcription else "[галасавое паведамленне]"
+    assistant_text = text_buffer.strip()
+
+    voice_history.add_turn(user_text=user_text, assistant_text=assistant_text)
+
+    def _write_log():
         try:
-            with open("dialogues.txt", "a", encoding="utf-8") as f:
+            with open(config.DIALOGUE_LOG_PATH, "a", encoding="utf-8") as f:
                 timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 f.write(f"[{timestamp}] USER ({user_id}): {user_text}\n")
                 f.write(f"[{timestamp}] BOT: {assistant_text}\n---\n")
         except Exception as e:
             log.error(f"Памылка пры захаванні дыялогу ў файл: {e}")
 
-        log.info(_step(
-            "VOICE·HISTORY",
-            f"💾 Saved turn to history | "
-            f"assistant={len(text_buffer)} chars | "
-            f"total_turns={voice_history.turn_count}",
-            start_ts,
-        ))
-        await perf(
-            "history_saved",
-            "💾 Гісторыя захавана",
-            detail=f"Адказ: {len(text_buffer)} сімв. | "
-            f"Усяго тураў: {voice_history.turn_count} | "
-            f"Ад старту: {(time.time()-start_ts)*1000:.0f} мс",
-            duration_ms=round((time.time() - start_ts) * 1000),
-        )
+    await asyncio.to_thread(_write_log)
 
-    total_ms = (time.time() - start_ts) * 1000
     log.info(_step(
-        "VOICE·PIPELINE",
-        f"🏁 handle_simple_voice() DONE | "
-        f"total={total_ms:.0f}ms | "
-        f"llm={((llm_end_ts - gen_start)*1000):.0f}ms | "
-        f"text={len(text_buffer)} chars | "
-        f"dispatches={dispatch_count} | "
-        f"ws_sends={ws_send_count}",
+        "VOICE·HISTORY",
+        f"💾 Saved turn to history | "
+        f"assistant={len(text_buffer)} chars | "
+        f"total_turns={voice_history.turn_count}",
         start_ts,
     ))
     await perf(
-        "llm_complete",
-        "🏁 Пайплайн Simple Voice завершаны",
-        detail=f"Агульны час: {total_ms:.0f} мс | "
-               f"LLM: {(llm_end_ts - gen_start)*1000:.0f} мс | "
-               f"Тэкст: {len(text_buffer)} сімв. | "
-               f"Гісторыя: {voice_history.turn_count} тураў",
-        duration_ms=round(total_ms),
+        "history_saved",
+        "💾 Гісторыя захавана",
+        detail=f"Адказ: {len(text_buffer)} сімв. | "
+               f"Усяго тураў: {voice_history.turn_count} | "
+               f"Ад старту: {(time.time()-start_ts)*1000:.0f} мс",
+        duration_ms=round((time.time() - start_ts) * 1000),
     )
