@@ -336,17 +336,7 @@ async def handle_simple_voice(
         tts.start()
         try:
             teacher_transcript = ""
-            if config.LOCAL_ASR:
-                from api import local_asr
-
-                if not local_asr.is_ready():
-                    log.warning(_step("VOICE?ASR", "?? LOCAL_ASR=True but model not loaded, loading now?", start_ts))
-                    await asyncio.to_thread(local_asr.load_asr_model)
-
-                teacher_transcript = await asyncio.to_thread(local_asr.transcribe_wav_bytes, audio_data)
-                log.info(_step("VOICE·TEACHER", f"📝 Local transcript: «{teacher_transcript[:120]}»", start_ts))
-            else:
-                log.info(_step("VOICE·TEACHER", "📝 LOCAL_ASR disabled, teacher mode will use remote transcription", start_ts))
+            log.info(_step("VOICE·TEACHER", "Teacher mode always uses remote transcription", start_ts))
 
             outcome = await teacher_controller.process_audio_turn(
                 session_id=session_id,
