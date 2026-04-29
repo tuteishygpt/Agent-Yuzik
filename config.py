@@ -80,6 +80,9 @@ SIMPLE_VOICE_DEBUG_TIMESTAMPS = os.getenv("SIMPLE_VOICE_DEBUG_TIMESTAMPS", "True
 LOCAL_ASR = os.getenv("LOCAL_ASR", "True").lower() == "true"
 LOCAL_ASR_MODEL = os.getenv("LOCAL_ASR_MODEL", "nvidia/stt_be_fastconformer_hybrid_large_pc")
 
+# Dialogue log
+DIALOGUE_LOG_PATH = os.getenv("DIALOGUE_LOG_PATH", "dialogues.txt")
+
 # Default Bot Replies
 DEFAULT_NO_ANSWER = "🌀 Прабачце, не атрымалася сфарміраваць адказ. Паспрабуйце яшчэ раз."
 DEFAULT_ERROR = "Упс, Юзік страціў гузік ці інакш адбылася памылка! Паспрабуйце пазней."
