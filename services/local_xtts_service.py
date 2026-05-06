@@ -700,61 +700,90 @@ async def stream_audio_multi(
         try:
             session_id = str(id(sync_sentence_q))
             
-            def _continuous_raw_gen():
-                """Single generator yielding raw audio chunks across ALL sentences from GPU worker."""
+            # Queue of (seg_idx, raw_out_q, t_seg) for jobs already submitted to GPU.
+            # The prefetch thread fills it; _continuous_raw_gen drains it.
+            _job_q: stdlib_queue.Queue = stdlib_queue.Queue()
+
+            def _prefetch_thread():
+                """Read sentences, submit TTSJobs to GPU ahead of time.
+
+                This runs in its own thread so that jobs land in
+                GLOBAL_GPU_QUEUE *before* the current segment finishes,
+                eliminating the GPU idle gap between segments.
+                """
                 seg_idx = 0
+                try:
+                    while True:
+                        if cancel_event and cancel_event.is_set():
+                            break
+                        try:
+                            text = sync_sentence_q.get(timeout=0.5)
+                        except stdlib_queue.Empty:
+                            continue
+                        if text is None:
+                            break
+                        text = text.strip()
+                        if not text:
+                            continue
+
+                        seg_idx += 1
+                        t_seg = time.perf_counter()
+                        log.info(
+                            f"[TTS·TIMING] ▶ Multi seg #{seg_idx} submitted to global queue: "
+                            f"{len(text)} chars | «{text[:60]}»"
+                        )
+
+                        if (XTTS_MODEL is not None
+                                and hasattr(XTTS_MODEL, "tokenizer")
+                                and XTTS_MODEL.tokenizer is not None):
+                            text = XTTS_MODEL.tokenizer.preprocess_text(text, "be")
+
+                        raw_out_q = stdlib_queue.Queue()
+                        job = TTSJob(
+                            text=text,
+                            gpt_cond_latent=gpt_cond_latent,
+                            speaker_embedding=speaker_embedding,
+                            cancel_event=cancel_event,
+                            raw_out_q=raw_out_q,
+                            session_id=session_id,
+                            seg_idx=seg_idx,
+                            temperature=getattr(app_config, 'TTS_TEMPERATURE', 0.15),
+                            top_k=getattr(app_config, 'TTS_TOP_K', 5),
+                            top_p=getattr(app_config, 'TTS_TOP_P', 0.75),
+                        )
+
+                        GLOBAL_GPU_QUEUE.put(job)
+                        _job_q.put((seg_idx, raw_out_q, t_seg))
+                except Exception as e:
+                    log.error(f"Error in TTS prefetch thread: {e}", exc_info=True)
+                finally:
+                    _job_q.put(None)  # sentinel — always unblock _continuous_raw_gen
+
+            threading.Thread(target=_prefetch_thread, daemon=True).start()
+
+            def _continuous_raw_gen():
+                """Yield raw audio chunks from pre-submitted GPU jobs."""
                 while True:
                     if cancel_event and cancel_event.is_set():
                         log.info("[TTS·TIMING] ⛔ Cancel event set, stopping sentence generator")
                         return
+
                     try:
-                        text = sync_sentence_q.get(timeout=0.5)
+                        item = _job_q.get(timeout=0.5)
                     except stdlib_queue.Empty:
                         continue
-                    if text is None:
+                    if item is None:
                         break
-                    text = text.strip()
-                    if not text:
-                        continue
+                    seg_idx, raw_out_q, t_seg = item
 
-                    seg_idx += 1
-                    t_seg = time.perf_counter()
-                    log.info(
-                        f"[TTS·TIMING] ▶ Multi seg #{seg_idx} submitted to global queue: "
-                        f"{len(text)} chars | «{text[:60]}»"
-                    )
-
-                    # Preprocess text via tokenizer
-                    if (XTTS_MODEL is not None
-                            and hasattr(XTTS_MODEL, "tokenizer")
-                            and XTTS_MODEL.tokenizer is not None):
-                        text = XTTS_MODEL.tokenizer.preprocess_text(text, "be")
-
-                    raw_out_q = stdlib_queue.Queue()
-                    
-                    job = TTSJob(
-                        text=text,
-                        gpt_cond_latent=gpt_cond_latent,
-                        speaker_embedding=speaker_embedding,
-                        cancel_event=cancel_event,
-                        raw_out_q=raw_out_q,
-                        session_id=session_id,
-                        seg_idx=seg_idx,
-                        temperature=getattr(app_config, 'TTS_TEMPERATURE', 0.15),
-                        top_k=getattr(app_config, 'TTS_TOP_K', 5),
-                        top_p=getattr(app_config, 'TTS_TOP_P', 0.75),
-                    )
-                    
-                    GLOBAL_GPU_QUEUE.put(job)
-                    
                     seg_chunks = 0
                     seg_samples = 0
-                    
+
                     while True:
                         c_np = raw_out_q.get()
                         if c_np is None:
-                            break # end of sentence
-                            
+                            break
+
                         seg_chunks += 1
                         seg_samples += c_np.size
                         if seg_chunks == 1:
@@ -764,8 +793,7 @@ async def stream_audio_multi(
                                 f"{c_np.size} samples"
                             )
                         yield c_np
-                        
-                    # Exit generator entirely if cancelled
+
                     if cancel_event and cancel_event.is_set():
                         return
                     seg_ms = (time.perf_counter() - t_seg) * 1000
