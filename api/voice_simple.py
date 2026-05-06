@@ -347,6 +347,20 @@ async def handle_simple_voice(
                 log.info(_step("VOICE·TEACHER", f"📝 Local transcript: «{teacher_transcript[:120]}»", start_ts))
             else:
                 log.info(_step("VOICE·TEACHER", "📝 LOCAL_ASR disabled, teacher mode will use remote transcription", start_ts))
+                try:
+                    teacher_transcript = await _transcribe_audio_with_model(audio_data)
+                except Exception:
+                    log.exception(_step("VOICE·TEACHER", "❌ Remote teacher transcription failed", start_ts))
+                    teacher_transcript = ""
+                else:
+                    if teacher_transcript:
+                        log.info(
+                            _step(
+                                "VOICE·TEACHER",
+                                f"📝 Remote transcript: «{teacher_transcript[:120]}»",
+                                start_ts,
+                            )
+                        )
 
             outcome = await teacher_controller.process_audio_turn(
                 session_id=session_id,
