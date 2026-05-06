@@ -25,3 +25,10 @@ def test_router_agent_uses_gemini_image_tool():
     text = path.read_text(encoding="utf-8")
     assert "from tools.gemini_image_generator import generate_image_tool" in text
     assert "from tools.flux_generator import generate_image_tool" not in text
+
+
+def test_router_agent_uses_minsk_datetime_tool():
+    path = REPO_ROOT / "router_agent" / "agent.py"
+    text = path.read_text(encoding="utf-8")
+    assert "from tools.minsk_datetime_tool import minsk_datetime_tool" in text
+    assert "minsk_datetime_tool" in text
