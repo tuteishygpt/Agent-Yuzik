@@ -1,7 +1,5 @@
 """ADK image generation tool backed by Gemini image models."""
 
-from __future__ import annotations
-
 import base64
 import json
 import re
@@ -169,7 +167,7 @@ async def generate_image(
     person_generation: str = "ALLOW_ADULT",
     output_mime_type: str = "image/jpeg",
     tool_context: Optional[ToolContext] = None,
-):
+) -> types.Part:
     try:
         if number_of_images != 1:
             return types.Part(
@@ -207,6 +205,42 @@ async def generate_image(
         return types.Part(text=f"Памылка пры генерацыі малюнка: {exc!r}")
 
 
-generate_image_tool = FunctionTool(generate_image)
+class GenerateImageTool(FunctionTool):
+    """ADK tool wrapper with a manual declaration compatible with Vertex AI."""
+
+    def _get_declaration(self) -> types.FunctionDeclaration:
+        return types.FunctionDeclaration(
+            name=self.name,
+            description=self.description,
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "prompt": types.Schema(
+                        type=types.Type.STRING,
+                        description="English prompt for the image to generate.",
+                    ),
+                    "number_of_images": types.Schema(
+                        type=types.Type.INTEGER,
+                        description="Number of images to generate. Gemini supports only 1.",
+                    ),
+                    "aspect_ratio": types.Schema(
+                        type=types.Type.STRING,
+                        description="Image aspect ratio, for example 1:1, 16:9, 9:16, 4:3, or 3:4.",
+                    ),
+                    "person_generation": types.Schema(
+                        type=types.Type.STRING,
+                        description="Person generation policy for the image model.",
+                    ),
+                    "output_mime_type": types.Schema(
+                        type=types.Type.STRING,
+                        description="Requested output MIME type, for example image/jpeg or image/png.",
+                    ),
+                },
+                required=["prompt"],
+            ),
+        )
+
+
+generate_image_tool = GenerateImageTool(generate_image)
 
 __all__ = ["generate_image_tool"]

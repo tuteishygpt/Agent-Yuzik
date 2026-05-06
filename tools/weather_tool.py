@@ -146,7 +146,7 @@ async def _fetch_weather_forecast(
     )
 
 
-async def get_weather(city: str = "", forecast_days: int = 1):
+async def get_weather(city: str = "", forecast_days: int = 1) -> types.Part:
     city_query = (city or "").strip() or "Minsk"
     days = max(1, min(int(forecast_days or 1), 3))
     try:
@@ -163,6 +163,29 @@ async def get_weather(city: str = "", forecast_days: int = 1):
         return types.Part(text="Не ўдалося атрымаць даныя пра надвор'е. Паспрабуй крыху пазней.")
 
 
-weather_tool = FunctionTool(get_weather)
+class WeatherTool(FunctionTool):
+    """ADK tool wrapper with a manual declaration compatible with Vertex AI."""
+
+    def _get_declaration(self) -> types.FunctionDeclaration:
+        return types.FunctionDeclaration(
+            name=self.name,
+            description=self.description,
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "city": types.Schema(
+                        type=types.Type.STRING,
+                        description="Belarusian city name. Use Minsk when omitted.",
+                    ),
+                    "forecast_days": types.Schema(
+                        type=types.Type.INTEGER,
+                        description="Number of forecast days from 1 to 3.",
+                    ),
+                },
+            ),
+        )
+
+
+weather_tool = WeatherTool(get_weather)
 
 __all__ = ["weather_tool"]
