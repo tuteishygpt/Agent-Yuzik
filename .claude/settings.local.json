@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -E \"^d|\\\\.py$\")",
+      "Bash(python -m pytest tests/test_voice_simple_tts_worker.py tests/test_voice_simple_teacher_remote_asr.py tests/test_voice_simple_remote_asr.py -v)",
+      "Bash(python -c \"from api.voice_teacher import handle_teacher_voice; print\\('voice_teacher OK'\\)\")",
+      "Bash(python -c \"from api.voice_simple import handle_simple_voice; print\\('voice_simple OK'\\)\")",
+      "Bash(python -c \"from api.voice import router; print\\('voice router OK'\\)\")",
+      "Bash(python app.py)",
+      "Bash(PYTHONIOENCODING=utf-8 python app.py)",
+      "Bash(curl -s http://localhost:7861/api/health)",
+      "Bash(netstat -ano)",
+      "Bash(python *)",
+      "WebFetch(domain:docs.cloud.google.com)",
+      "Bash(gh api *)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(grep -r \"Application\\\\|Application\\\\|Dispatcher\\\\|run_polling\\\\|run_webhook\" /d/CodexPRJ/Yuzik --include=\"*.py\" ! -path \"*/.venv/*\" ! -path \"*/.worktrees/*\")",
+      "Bash(xargs grep *)",
+      "Bash(grep -r \"telegram-webhook\\\\|telegram.*webhook\\\\|@app.post\" /d/CodexPRJ/Yuzik --include=\"*.py\" ! -path \"*/.venv/*\")",
+      "Bash(grep *)"
+    ]
+  }
+}

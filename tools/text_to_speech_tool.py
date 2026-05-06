@@ -530,7 +530,7 @@ async def stream_speech_multi(
 # synthesize_speech — асноўная функцыя (абодва рэжымы)
 # ═══════════════════════════════════════════════════════════════════════
 
-async def synthesize_speech(
+async def synthesize_speech_tool(
     text: str,
     speaker_audio_path: Optional[str] = None,
     tool_context: Optional[ToolContext] = None,
@@ -684,4 +684,4 @@ class SynthesizeSpeechTool(FunctionTool):
         )
 
 
-synthesize_speech_tool = SynthesizeSpeechTool(func=synthesize_speech)
+synthesize_speech_tool = SynthesizeSpeechTool(func=synthesize_speech_tool)

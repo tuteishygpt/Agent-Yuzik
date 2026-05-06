@@ -36,6 +36,10 @@ INITIAL_MIN_BUFFER_S = getattr(app_config, 'TTS_INITIAL_BUFFER_S', 0.20)
 MIN_BUFFER_S        = getattr(app_config, 'TTS_MIN_BUFFER_S', 0.15)
 FADE_S              = 0.005
 ENABLE_TEXT_SPLITTING = False
+# Max audio duration per character (seconds). XTTS hallucinations produce
+# vastly more audio than the text warrants — cut them off early.
+_MAX_AUDIO_S_PER_CHAR = 0.15  # ~150ms/char ≈ generous upper bound for Belarusian
+_MIN_MAX_AUDIO_S = 5.0        # absolute floor so ultra-short texts aren't clipped
 FIRST_SEGMENT_LIMIT = getattr(app_config, 'TTS_FIRST_SEGMENT_LIMIT', 80)
 
 device = globals().get("device", "cuda:0" if torch.cuda.is_available() else "cpu")
@@ -45,8 +49,8 @@ repo_id = globals().get("repo_id", "archivartaunik/BE_XTTS_V2_10ep250k")
 
 # GPU / AMP — auto-detect BF16 support (Ampere+: A100, L4, T4 etc.)
 use_cuda = torch.cuda.is_available()
-use_bf16 = use_cuda and torch.cuda.is_bf16_supported()
-amp_dtype = torch.bfloat16 if use_bf16 else torch.float16
+use_bf16 = False # torch.cuda.is_bf16_supported() 
+amp_dtype = torch.float16
 log.info(f"AMP dtype: {amp_dtype} (bf16_supported={use_bf16}, device={device})")
 
 # ---- Глабальныя зменныя мадэлі ----
@@ -109,6 +113,12 @@ def _gpu_worker_loop():
                         job.raw_out_q.put(None)
                         continue
                         
+                    max_samples = int(
+                        max(len(job.text) * _MAX_AUDIO_S_PER_CHAR, _MIN_MAX_AUDIO_S)
+                        * sampling_rate
+                    )
+                    total_samples = 0
+
                     for chunk in XTTS_MODEL.inference_stream(
                         text=job.text,
                         language="be",
@@ -123,8 +133,19 @@ def _gpu_worker_loop():
                     ):
                         c_np = _to_np_audio(chunk)
                         if c_np.size > 0:
+                            total_samples += c_np.size
                             job.raw_out_q.put(c_np)
-                            
+
+                        if total_samples > max_samples:
+                            expected_ms = max_samples / sampling_rate * 1000
+                            actual_ms = total_samples / sampling_rate * 1000
+                            log.warning(
+                                f"[GPU Worker] ⚠️ Hallucination guard: seg #{job.seg_idx} "
+                                f"exceeded {expected_ms:.0f}ms limit ({actual_ms:.0f}ms generated "
+                                f"for {len(job.text)} chars). Cutting off."
+                            )
+                            break
+
                         if job.cancel_event and job.cancel_event.is_set():
                             log.info(f"[GPU Worker] Cancel mid-inference seg #{job.seg_idx}, releasing GPU")
                             break
@@ -914,16 +935,17 @@ def synthesize_to_file(
         to_device=device,
     )
     log.info(f"Сінтэз у файл для тэксту даўжынёй {len(text_input)} сімвалаў...")
+    # Для поўнага сінтэзу ў файл выкарыстоўваем float32 або відавочны кантроль, 
+    # бо XTTS.inference() унутры выклікае .numpy(), які не любіць float16/bfloat16.
     with torch.inference_mode(), torch.autocast(
         device_type="cuda",
-        dtype=amp_dtype,
+        dtype=torch.float32, 
         enabled=str(device).startswith("cuda"),
     ):
         with _inference_lock:
-            out = XTTS_MODEL.synthesize(
+            # Выкарыстоўваем inference() напрамую, каб пазбегнуць канфлікту аргументаў у synthesize()
+            out = XTTS_MODEL.inference(
                 text=text_input.strip(),
-                config=XTTS_MODEL.config,
-                speaker_wav=speaker_audio or default_voice_file,
                 language="be",
                 gpt_cond_latent=gpt_cond_latent,
                 speaker_embedding=speaker_embedding,

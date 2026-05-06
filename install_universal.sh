@@ -19,6 +19,8 @@ if [ ! -d "Agent-Yuzik" ]; then
 fi
 cd Agent-Yuzik
 git pull origin main
+cp ~/.env . || true
+cp ~/requirements.txt . || true
 
 # 3. Наладка віртуальнага асяроддзя (каб не ламаць сістэмны Python)
 echo "[3/6] Стварэнне віртуальнага Python-асяроддзя..."
@@ -42,18 +44,4 @@ cd ..
 echo "[6/6] Запуск..."
 echo "-------------------------------------------------------------------"
 
-# Калі GOOGLE_API_KEY не зададзены, просім у карыстальніка
-if [ -z "$GOOGLE_API_KEY" ]; then
-    echo "⚠️ Ключ GOOGLE_API_KEY не знойдзены ў асяроддзі."
-    read -p "Увядзіце ваш ключ Vertex AI in express mode: " USER_KEY
-    export GOOGLE_API_KEY="$USER_KEY"
-fi
-
-unset GEMINI_API_KEY
-unset GOOGLE_CLOUD_PROJECT
-unset GOOGLE_CLOUD_LOCATION
-export GOOGLE_GENAI_USE_VERTEXAI="true"
-export PORT="7861"
-
-echo "✅ Усё гатова! Запуск сервера на порце $PORT..."
-python app.py
+echo "✅ Усё гатова! Каб запусціць сервер, выканайце: cd Agent-Yuzik && source .venv/bin/activate && python app.py"

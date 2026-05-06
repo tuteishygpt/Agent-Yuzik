@@ -1,0 +1,14 @@
+[Unit]
+Description=Agent Yuzik Service
+After=network.target
+
+[Service]
+User=svsvec
+WorkingDirectory=/home/svsvec/Agent-Yuzik
+Environment="PATH=/home/svsvec/Agent-Yuzik/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ExecStart=/home/svsvec/Agent-Yuzik/.venv/bin/python app.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
