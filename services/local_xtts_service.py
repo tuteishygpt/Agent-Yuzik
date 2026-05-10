@@ -925,40 +925,66 @@ def synthesize_to_file(
     output_path: str,
     speaker_audio: Optional[str] = None
 ) -> str:
-    """Нестрымінгавая генерацыя ўсяго тэксту і захаванне яго ў адзіны WAV-файл."""
+    """Нестрымінгавая генерацыя ўсяго тэксту і захаванне яго ў адзіны WAV-файл.
+
+    Доўгія тэксты аўтаматычна разбіваюцца на кавалкі па ≤180 сімвалаў
+    (ліміт бібліятэкі XTTS для беларускай мовы), а потым зліваюцца ў адзін файл.
+    """
     if XTTS_MODEL is None:
         load_model()
     if not text_input or not text_input.strip():
         raise ValueError("Тэкст пусты")
+
     gpt_cond_latent, speaker_embedding = _latents_for(
         speaker_audio or default_voice_file,
         to_device=device,
     )
-    log.info(f"Сінтэз у файл для тэксту даўжынёй {len(text_input)} сімвалаў...")
-    # Для поўнага сінтэзу ў файл выкарыстоўваем float32 або відавочны кантроль, 
-    # бо XTTS.inference() унутры выклікае .numpy(), які не любіць float16/bfloat16.
-    with torch.inference_mode(), torch.autocast(
-        device_type="cuda",
-        dtype=torch.float32, 
-        enabled=str(device).startswith("cuda"),
-    ):
-        with _inference_lock:
-            # Выкарыстоўваем inference() напрамую, каб пазбегнуць канфлікту аргументаў у synthesize()
-            out = XTTS_MODEL.inference(
-                text=text_input.strip(),
-                language="be",
-                gpt_cond_latent=gpt_cond_latent,
-                speaker_embedding=speaker_embedding,
-                temperature=0.25,
-                length_penalty=0.9,
-                repetition_penalty=7.0,
-                top_k=10,
-                top_p=0.80,
-            )
-    audio_np = _to_np_audio(out["wav"])
-    bytes_data = audio_np.tobytes()
-    wav_bytes = _add_wav_header(bytes_data, sample_rate=sampling_rate, channels=1)
+
+    # Ліміт для беларускай мовы ў бібліятэцы XTTS — 182 сімвалы на сказ.
+    # Мы разбіваем тэкст самі, каб пазбегнуць AssertionError (400 токенаў) унутры inference().
+    BE_CHAR_LIMIT = 180
+    chunks = split_sentence(text_input.strip(), "be", BE_CHAR_LIMIT)
+    log.info(
+        f"Сінтэз у файл: {len(text_input)} сімвалаў → {len(chunks)} кавалак(аў)"
+    )
+
+    all_audio: list = []
+
+    for i, chunk in enumerate(chunks):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        log.info(f"  Кавалак {i+1}/{len(chunks)}: {len(chunk)} сімв.")
+
+        with torch.inference_mode(), torch.autocast(
+            device_type="cuda",
+            dtype=torch.float32,
+            enabled=str(device).startswith("cuda"),
+        ):
+            with _inference_lock:
+                out = XTTS_MODEL.inference(
+                    text=chunk,
+                    language="be",
+                    gpt_cond_latent=gpt_cond_latent,
+                    speaker_embedding=speaker_embedding,
+                    temperature=0.25,
+                    length_penalty=0.9,
+                    repetition_penalty=7.0,
+                    top_k=10,
+                    top_p=0.80,
+                )
+        audio_np = _to_np_audio(out["wav"])
+        all_audio.append(audio_np)
+
+    if not all_audio:
+        raise RuntimeError("Сінтэз не даў аўдыё-вынікаў")
+
+    combined = np.concatenate(all_audio)
+    wav_bytes = _add_wav_header(combined.tobytes(), sample_rate=sampling_rate, channels=1)
     with open(output_path, "wb") as f:
         f.write(wav_bytes)
-    log.info(f"Файл паспяхова захаваны ў: {output_path}")
+    log.info(
+        f"Файл захаваны: {output_path} ({len(combined)/sampling_rate:.1f}s аўдыё)"
+    )
     return output_path
+
