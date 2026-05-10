@@ -17,6 +17,7 @@ body {
     color: var(--text-primary);
     overflow: hidden;
     height: 100vh;
+    height: 100dvh;
 }
 
 .voice-container {
@@ -25,6 +26,7 @@ body {
     align-items: center;
     justify-content: flex-start;
     height: 100vh;
+    height: 100dvh;
     padding: 2rem;
     gap: 1.4rem;
     overflow-y: auto;
@@ -1333,7 +1335,7 @@ body {
    =========================== */
 @media (max-width: 600px) {
     .voice-container {
-        padding: 1rem 0.85rem 1.25rem;
+        padding: 1rem 0.85rem max(5rem, calc(1.25rem + env(safe-area-inset-bottom)));
         gap: 1rem;
     }
 
@@ -1379,6 +1381,7 @@ body {
 
     .teacher-panel {
         width: 100%;
+        margin-top: 0;
         padding: 0.85rem;
         border-radius: 14px;
     }
