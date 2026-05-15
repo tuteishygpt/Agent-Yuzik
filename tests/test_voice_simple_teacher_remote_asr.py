@@ -1,113 +1,112 @@
 import asyncio
-import importlib
 import os
 import sys
-import time
-from types import ModuleType, SimpleNamespace
+from types import SimpleNamespace
+
+from fastapi.websockets import WebSocketState
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+import api.voice_simple as voice_simple
+import api.voice_teacher as voice_teacher
+from api.teacher_mode.models import TeacherAction
 
-def _load_voice_simple_for_teacher(monkeypatch, controller):
-    fake_deps = ModuleType("api.deps")
-    fake_deps.get_genai_client = lambda: None
-    monkeypatch.setitem(sys.modules, "api.deps", fake_deps)
 
-    fake_teacher_service = ModuleType("api.teacher_mode.service")
-    fake_teacher_service.controller = controller
-    monkeypatch.setitem(sys.modules, "api.teacher_mode.service", fake_teacher_service)
+class _FakeWebSocket:
+    def __init__(self):
+        self.client_state = WebSocketState.CONNECTED
+        self.messages = []
 
-    fake_voice_history = ModuleType("api.voice_history")
-    fake_voice_history.get_voice_history = lambda user_id: SimpleNamespace(
-        turn_count=0,
-        to_gemini_contents=lambda: [],
+    async def send_json(self, payload):
+        self.messages.append(payload)
+
+
+class _FakePerf:
+    def __init__(self):
+        self.start_ts = 0.0
+
+    async def __call__(self, *args, **kwargs):
+        return None
+
+
+class _FakeTeacherController:
+    def __init__(self):
+        self.process_calls = []
+
+    def get_state(self, *, session_id: str, user_id: str):
+        return SimpleNamespace(lesson_id="lesson-1", current_step_id="step-1")
+
+    async def process_audio_turn(self, **kwargs):
+        self.process_calls.append(kwargs)
+        return SimpleNamespace(
+            transcript=kwargs["transcript"],
+            normalized_transcript=kwargs["transcript"].lower(),
+            reply_text="Настаўніцкі адказ.",
+            teacher_action=TeacherAction.repeat_question,
+            step_id="step-1",
+            fallback_reason=None,
+        )
+
+
+async def _fake_stream_speech_multi(sentence_queue, cancel_event=None):
+    while True:
+        item = await sentence_queue.get()
+        if item is None:
+            break
+        yield b"audio"
+
+
+def test_teacher_mode_uses_remote_transcription_when_local_asr_disabled(monkeypatch):
+    fake_controller = _FakeTeacherController()
+
+    monkeypatch.setattr(voice_simple.config, "LOCAL_ASR", False)
+    monkeypatch.setattr(voice_teacher, "teacher_controller", fake_controller)
+    monkeypatch.setattr(
+        voice_teacher,
+        "_transcribe_audio_with_model",
+        lambda audio: asyncio.sleep(0, result="recognized student answer"),
     )
-    monkeypatch.setitem(sys.modules, "api.voice_history", fake_voice_history)
+    monkeypatch.setattr(voice_simple, "stream_speech_multi", _fake_stream_speech_multi)
 
-    fake_voice_perf = ModuleType("api.voice_perf")
-    fake_voice_perf.PerfLogger = object
-    monkeypatch.setitem(sys.modules, "api.voice_perf", fake_voice_perf)
+    async def scenario():
+        websocket = _FakeWebSocket()
+        audio_queue = asyncio.Queue()
+        await voice_teacher.handle_teacher_voice(
+            audio_data=b"wav-bytes",
+            websocket=websocket,
+            audio_queue=audio_queue,
+            perf=_FakePerf(),
+            start_ts=0.0,
+            session_id="session-id",
+            user_id="voice-user",
+            teacher_state=SimpleNamespace(lesson_id="lesson-1", current_step_id="step-1"),
+        )
 
-    fake_voice_utils = ModuleType("api.voice_utils")
-    fake_voice_utils.LOCAL_SAMPLE_RATE = 16000
-    fake_voice_utils.compress_wav_to_mp3 = lambda audio_data: b"mp3"
-    monkeypatch.setitem(sys.modules, "api.voice_utils", fake_voice_utils)
+    asyncio.run(scenario())
 
-    fake_tts = ModuleType("tools.text_to_speech_tool")
-
-    async def _unused_stream_speech(*args, **kwargs):
-        if False:
-            yield b""
-
-    async def _stream_speech_multi(sentence_queue, cancel_event=None, **kwargs):
-        while True:
-            sentence = await sentence_queue.get()
-            if sentence is None:
-                return
-            yield b"audio"
-
-    fake_tts.stream_speech = _unused_stream_speech
-    fake_tts.stream_speech_multi = _stream_speech_multi
-    monkeypatch.setitem(sys.modules, "tools.text_to_speech_tool", fake_tts)
-
-    sys.modules.pop("api.voice_simple", None)
-    return importlib.import_module("api.voice_simple")
+    assert fake_controller.process_calls[0]["transcript"] == "recognized student answer"
 
 
 def test_teacher_mode_ignores_local_asr_setting(monkeypatch):
-    captured = {}
-
-    class TeacherController:
-        def get_state(self, *, session_id, user_id):
-            return SimpleNamespace(lesson_id="basics_greetings", current_step_id="intro")
-
-        async def process_audio_turn(self, **kwargs):
-            captured.update(kwargs)
-            return SimpleNamespace(
-                transcript="remote transcript",
-                normalized_transcript="remote transcript",
-                reply_text="Dobry dzien!",
-                teacher_action=SimpleNamespace(value="repeat_question"),
-                step_id="intro",
-                fallback_reason=None,
-            )
-
-    voice_simple = _load_voice_simple_for_teacher(monkeypatch, TeacherController())
-    monkeypatch.setattr(voice_simple.config, "LOCAL_ASR", True)
-
-    fake_local_asr = ModuleType("api.local_asr")
-    fake_local_asr.is_ready = lambda: True
-
-    def fail_transcribe(audio_data):
+    def fail_transcribe(audio):
         raise AssertionError("teacher mode must not call local ASR")
 
-    fake_local_asr.transcribe_wav_bytes = fail_transcribe
-    monkeypatch.setitem(sys.modules, "api.local_asr", fake_local_asr)
-
-    sent_messages = []
-
-    websocket = SimpleNamespace(send_json=lambda payload: sent_messages.append(payload))
-
-    async def send_json(payload):
-        sent_messages.append(payload)
-
-    websocket.send_json = send_json
-
-    async def perf(*args, **kwargs):
-        return None
-
-    perf.start_ts = time.time()
-
-    asyncio.run(
-        voice_simple.handle_simple_voice(
-            audio_data=b"wav",
-            websocket=websocket,
-            audio_queue=asyncio.Queue(),
-            perf=perf,
-            user_id="u1",
-            ws_session_id="s1",
-        )
+    monkeypatch.setattr(voice_simple.config, "LOCAL_ASR", True)
+    monkeypatch.setattr(
+        voice_teacher,
+        "_transcribe_audio_with_model",
+        lambda audio: asyncio.sleep(0, result="remote teacher text"),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "api.local_asr",
+        SimpleNamespace(
+            is_ready=lambda: True,
+            load_asr_model=lambda: None,
+            transcribe_wav_bytes=fail_transcribe,
+        ),
     )
 
-    assert captured["transcript"] == ""
-    assert sent_messages[0] == {"type": "transcription", "text": "remote transcript"}
+    transcript = asyncio.run(voice_teacher._transcribe_for_teacher(b"wav-bytes", start_ts=0.0))
+
+    assert transcript == "remote teacher text"
