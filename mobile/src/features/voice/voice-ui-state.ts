@@ -4,6 +4,7 @@ export type VoiceUiPhase =
   | "idle"
   | "connecting"
   | "connected"
+  | "listening"
   | "recording"
   | "processing"
   | "speaking"
@@ -12,6 +13,7 @@ export type VoiceUiPhase =
 export type VoiceUiInput = {
   status: string;
   isRecording: boolean;
+  isListening: boolean;
   isPlaying: boolean;
 };
 
@@ -31,6 +33,10 @@ export type VoiceUiState = {
 function resolvePhase(input: VoiceUiInput): VoiceUiPhase {
   if (input.isRecording) {
     return "recording";
+  }
+
+  if (input.isListening && !input.isRecording) {
+    return "listening";
   }
 
   if (input.isPlaying) {
@@ -59,13 +65,28 @@ function resolvePhase(input: VoiceUiInput): VoiceUiPhase {
 export function resolveVoiceUiState(input: VoiceUiInput): VoiceUiState {
   const phase = resolvePhase(input);
 
+  if (phase === "listening") {
+    return {
+      phase,
+      connectionLabel: "Падключана",
+      statusLabel: "Чакаю голас...",
+      accentColor: webTheme.colors.primary,
+      haloColor: webTheme.colors.primaryGlow,
+      icon: "🎙",
+      shouldAnimateMic: false,
+      shouldAnimateHalo: true,
+      shouldAnimateVisualizer: false,
+      shouldPulseConnection: false,
+    };
+  }
+
   if (phase === "recording") {
     return {
       phase,
       connectionLabel: "Падключана",
       statusLabel: "Слухаю...",
       accentColor: webTheme.colors.listening,
-      haloColor: "rgba(255, 68, 102, 0.42)",
+      haloColor: webTheme.colors.listeningGlow,
       icon: "🎙",
       shouldAnimateMic: true,
       shouldAnimateHalo: true,
@@ -80,7 +101,7 @@ export function resolveVoiceUiState(input: VoiceUiInput): VoiceUiState {
       connectionLabel: "Думаю",
       statusLabel: "Думаю...",
       accentColor: webTheme.colors.processing,
-      haloColor: "rgba(255, 170, 0, 0.34)",
+      haloColor: webTheme.colors.processingGlow,
       icon: "✹",
       shouldAnimateMic: true,
       shouldAnimateHalo: true,
@@ -95,7 +116,7 @@ export function resolveVoiceUiState(input: VoiceUiInput): VoiceUiState {
       connectionLabel: "Падключана",
       statusLabel: "Юзік адказвае...",
       accentColor: webTheme.colors.speaking,
-      haloColor: "rgba(68, 255, 170, 0.34)",
+      haloColor: webTheme.colors.speakingGlow,
       icon: "🔊",
       shouldAnimateMic: true,
       shouldAnimateHalo: true,
@@ -140,7 +161,7 @@ export function resolveVoiceUiState(input: VoiceUiInput): VoiceUiState {
       connectionLabel: "Памылка",
       statusLabel: "Праверце падключэнне і паспрабуйце яшчэ раз",
       accentColor: webTheme.colors.danger,
-      haloColor: "rgba(255, 68, 102, 0.24)",
+      haloColor: webTheme.colors.listeningBorder,
       icon: "🎙",
       shouldAnimateMic: false,
       shouldAnimateHalo: false,

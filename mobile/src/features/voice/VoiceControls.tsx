@@ -5,11 +5,14 @@ import { webGlassPanel, webTheme } from "@/theme/webTheme";
 type VoiceControlsProps = {
   status: string;
   isRecording: boolean;
+  isListening: boolean;
   isTeacherActive: boolean;
   onConnect: () => Promise<void> | void;
   onReconnect: () => Promise<void> | void;
   onStartRecording: () => Promise<void> | void;
   onStopRecording: () => Promise<void> | void;
+  onStartListening: () => Promise<void> | void;
+  onStopListening: () => void;
   onInterrupt: () => Promise<void> | void;
   onStartTeacherLesson: () => Promise<void> | void;
   onStopTeacherLesson: () => Promise<void> | void;
@@ -18,45 +21,59 @@ type VoiceControlsProps = {
 export function VoiceControls({
   status,
   isRecording,
+  isListening,
   isTeacherActive,
   onConnect,
   onReconnect,
   onStartRecording,
   onStopRecording,
+  onStartListening,
+  onStopListening,
   onInterrupt,
   onStartTeacherLesson,
   onStopTeacherLesson,
 }: VoiceControlsProps) {
   const statusLabel = isRecording
     ? "Слухаю"
-    : status === "processing"
-      ? "Думаю"
-      : status === "connected"
-        ? "Гатова"
-        : status;
+    : isListening
+      ? "VAD актыўны"
+      : status === "processing"
+        ? "Думаю"
+        : status === "connected"
+          ? "Гатова"
+          : status;
+
+  const connected = status === "connected" || status === "processing" || isListening || isRecording;
 
   return (
     <View style={styles.container}>
       <Text style={styles.status}>Voice: {statusLabel}</Text>
-      <View style={styles.utilityRow}>
-        <Pressable onPress={() => void onConnect()} style={styles.secondaryButton}>
-          <Text style={styles.secondaryText}>Connect</Text>
-        </Pressable>
-        <Pressable onPress={() => void onReconnect()} style={styles.secondaryButton}>
-          <Text style={styles.secondaryText}>Reconnect</Text>
-        </Pressable>
-      </View>
       <View style={styles.row}>
         <Pressable
-          onPress={() => void (isRecording ? onStopRecording() : onStartRecording())}
-          style={styles.primaryButton}
+          onPress={() => void (isListening ? onStopListening() : onStartListening())}
+          style={[styles.primaryButton, isListening ? styles.listeningButton : null]}
+          disabled={!connected}
         >
           <Text style={styles.primaryText}>
-            {isRecording ? "■ Спыніць" : "▶ Пачаць"}
+            {isListening ? "■ Спыніць" : "🎙 Пачаць"}
           </Text>
         </Pressable>
         <Pressable onPress={() => void onInterrupt()} style={styles.secondaryButton}>
           <Text style={styles.secondaryText}>Interrupt</Text>
+        </Pressable>
+      </View>
+      <View style={styles.utilityRow}>
+        <Pressable onPress={() => void onReconnect()} style={styles.secondaryButton}>
+          <Text style={styles.secondaryText}>Пераканектыць</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => void (isRecording ? onStopRecording() : onStartRecording())}
+          style={styles.secondaryButton}
+          disabled={!connected}
+        >
+          <Text style={styles.secondaryText}>
+            {isRecording ? "■ Спыніць ручн." : "▶ Ручны запіс"}
+          </Text>
         </Pressable>
       </View>
       <View style={styles.row}>
@@ -102,6 +119,9 @@ const styles = StyleSheet.create({
     backgroundColor: webTheme.colors.primary,
     paddingHorizontal: 16,
     paddingVertical: 14,
+  },
+  listeningButton: {
+    backgroundColor: webTheme.colors.listening,
   },
   primaryText: {
     color: "#ffffff",

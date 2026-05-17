@@ -1,0 +1,13 @@
+.git/
+.worktrees/
+.venv/
+venv/
+node_modules/
+**/node_modules/
+.pytest_cache/
+**/.pytest_cache/
+tmp/
+verification-temp/
+latents_cache/
+files/
+*.log

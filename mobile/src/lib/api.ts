@@ -1,3 +1,5 @@
+import { getRuntimeEnv } from "./env";
+
 export type ChatHistoryMessage = {
   role: "user" | "assistant";
   content: string;
@@ -62,6 +64,43 @@ function createHeaders(accessToken: string | null, headers?: HeadersInit): Heade
   return nextHeaders;
 }
 
+function isNetworkLoggingEnabled(): boolean {
+  try {
+    return getRuntimeEnv().debugNetworkLoggingEnabled;
+  } catch {
+    return false;
+  }
+}
+
+function getBodySummary(body: BodyInit | null | undefined): string {
+  if (!body) {
+    return "none";
+  }
+
+  if (typeof FormData !== "undefined" && body instanceof FormData) {
+    return "form-data";
+  }
+
+  if (typeof body === "string") {
+    return `string:${body.length}B`;
+  }
+
+  return "present";
+}
+
+function logNetwork(message: string, metadata?: Record<string, unknown>): void {
+  if (!isNetworkLoggingEnabled()) {
+    return;
+  }
+
+  if (metadata) {
+    console.log(`[Network] ${message}`, metadata);
+    return;
+  }
+
+  console.log(`[Network] ${message}`);
+}
+
 async function readBody(response: Response): Promise<unknown> {
   const contentType = response.headers.get("content-type") ?? "";
 
@@ -121,14 +160,41 @@ async function requestJson<T>(
     throw new ApiError("Missing Supabase access token.", 401, null);
   }
 
-  const response = await fetchImpl(joinUrl(backendUrl, path), {
+  const url = joinUrl(backendUrl, path);
+  const method = init?.method ?? "GET";
+  const startedAt = Date.now();
+
+  logNetwork("HTTP request", {
+    method,
+    url,
+    hasAuthToken: true,
+    body: getBodySummary(init?.body),
+  });
+
+  const response = await fetchImpl(url, {
     ...init,
     headers: createHeaders(accessToken, init?.headers),
   });
 
   const body = await readBody(response);
+  const durationMs = Date.now() - startedAt;
+
+  logNetwork("HTTP response", {
+    method,
+    url,
+    status: response.status,
+    ok: response.ok,
+    durationMs,
+  });
 
   if (!response.ok) {
+    logNetwork("HTTP error body", {
+      method,
+      url,
+      status: response.status,
+      body,
+    });
+
     throw new ApiError(
       getErrorMessage(body, `Request failed with status ${response.status}.`),
       response.status,

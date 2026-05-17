@@ -1,19 +1,23 @@
-const mockSound = {
-  playAsync: jest.fn().mockResolvedValue(undefined),
-  pauseAsync: jest.fn().mockResolvedValue(undefined),
-  unloadAsync: jest.fn().mockResolvedValue(undefined),
+const mockPlayer = {
+  addListener: jest.fn((_eventName: string, listener: (status: { didJustFinish?: boolean; isLoaded?: boolean }) => void) => {
+    mockPlaybackStatusListener = listener;
+    return { remove: mockRemoveListener };
+  }),
+  play: jest.fn(),
+  pause: jest.fn(),
+  remove: jest.fn(),
 };
 
-const mockCreateAsync = jest.fn().mockResolvedValue({
-  sound: mockSound,
-});
+let mockPlaybackStatusListener:
+  | ((status: { didJustFinish?: boolean; isLoaded?: boolean }) => void)
+  | null = null;
+const mockRemoveListener = jest.fn();
+const mockCreateAudioPlayer = jest.fn(() => mockPlayer);
 
-jest.mock("expo-av", () => ({
+jest.mock("expo-audio/build/AudioModule", () => ({
   __esModule: true,
-  Audio: {
-    Sound: {
-      createAsync: mockCreateAsync,
-    },
+  default: {
+    AudioPlayer: mockCreateAudioPlayer,
   },
 }));
 
@@ -39,9 +43,10 @@ function createLocalPcmFrame(samples: number[]): Uint8Array {
 describe("audio playback adapter", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockPlaybackStatusListener = null;
   });
 
-  it("plays cached response audio through expo-av instead of expo-audio", async () => {
+  it("plays cached response audio through expo-audio", async () => {
     const writeBytesToCache = jest
       .fn()
       .mockResolvedValue("file:///cache/yuzik-voice-response.wav");
@@ -55,13 +60,16 @@ describe("audio playback adapter", () => {
       new Uint8Array([1, 2, 3]),
       null,
     );
-    expect(mockCreateAsync).toHaveBeenCalledWith(
+    expect(mockCreateAudioPlayer).toHaveBeenCalledWith(
       { uri: "file:///cache/yuzik-voice-response.wav" },
-      { shouldPlay: false },
-      expect.any(Function),
+      500,
       false,
     );
-    expect(mockSound.playAsync).toHaveBeenCalledTimes(1);
+    expect(mockPlayer.addListener).toHaveBeenCalledWith(
+      "playbackStatusUpdate",
+      expect.any(Function),
+    );
+    expect(mockPlayer.play).toHaveBeenCalledTimes(1);
     expect(playback.isPlaying()).toBe(true);
   });
 
@@ -193,14 +201,14 @@ describe("audio playback adapter", () => {
     const finishers: Array<() => void> = [];
     const sounds = [
       {
-        playAsync: jest.fn().mockResolvedValue(undefined),
-        pauseAsync: jest.fn().mockResolvedValue(undefined),
-        unloadAsync: jest.fn().mockResolvedValue(undefined),
+        play: jest.fn(),
+        pause: jest.fn(),
+        remove: jest.fn(),
       },
       {
-        playAsync: jest.fn().mockResolvedValue(undefined),
-        pauseAsync: jest.fn().mockResolvedValue(undefined),
-        unloadAsync: jest.fn().mockResolvedValue(undefined),
+        play: jest.fn(),
+        pause: jest.fn(),
+        remove: jest.fn(),
       },
     ];
     const writeBytesToCache = jest
@@ -223,16 +231,16 @@ describe("audio playback adapter", () => {
     await firstStarted;
     await flushPromises();
 
-    expect(sounds[0].playAsync).toHaveBeenCalledTimes(1);
-    expect(sounds[0].pauseAsync).not.toHaveBeenCalled();
-    expect(sounds[0].unloadAsync).not.toHaveBeenCalled();
-    expect(sounds[1].playAsync).not.toHaveBeenCalled();
+    expect(sounds[0].play).toHaveBeenCalledTimes(1);
+    expect(sounds[0].pause).not.toHaveBeenCalled();
+    expect(sounds[0].remove).not.toHaveBeenCalled();
+    expect(sounds[1].play).not.toHaveBeenCalled();
 
     finishers[0]();
     await secondStarted;
 
-    expect(sounds[0].unloadAsync).toHaveBeenCalledTimes(1);
-    expect(sounds[1].playAsync).toHaveBeenCalledTimes(1);
+    expect(sounds[0].remove).toHaveBeenCalledTimes(1);
+    expect(sounds[1].play).toHaveBeenCalledTimes(1);
   });
 
   it("coalesces local PCM stream chunks before creating a WAV sound", async () => {

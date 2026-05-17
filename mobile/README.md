@@ -22,6 +22,19 @@ Expo Router workspace for the mobile v1 client.
    - `APP_PROD_PACKAGE_ID`
 3. Use distinct package identifiers for dev, preview, and production installs.
 
+Current mobile Supabase project:
+
+- Project name: `yuzik-mobile`
+- Project ref: `doszqckatytesciwlwzv`
+- Project URL: `https://doszqckatytesciwlwzv.supabase.co`
+- Backend URL: `https://yuzik.tuteishygpt.pro`
+
+Supabase Auth URL configuration still needs these dashboard entries:
+
+- Enable Anonymous Sign-Ins under Auth providers. The mobile shell bootstraps with `signInAnonymously()` before linking an email account.
+- Site URL: `https://yuzik.tuteishygpt.pro`
+- Additional Redirect URLs: `yuzik-dev://auth/callback`, `yuzik://auth/callback`
+
 ## Install
 
 ```bash

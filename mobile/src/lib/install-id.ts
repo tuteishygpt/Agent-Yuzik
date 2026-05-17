@@ -32,25 +32,13 @@ export async function getOrCreateInstallId(
 }
 
 export async function hashInstallId(installId: string): Promise<string> {
-  try {
-    const digest = await Crypto.digestStringAsync(
-      Crypto.CryptoDigestAlgorithm.SHA256,
-      installId,
-      {
-        encoding: Crypto.CryptoEncoding.HEX,
-      },
-    );
-
-    if (digest) {
-      return digest;
-    }
-  } catch {
-    // Fall through to the Node-based implementation used by Jest.
-  }
-
-  // Jest runs in Node, where expo-crypto's digest implementation is not reliable.
-  const { createHash } = require("node:crypto") as typeof import("node:crypto");
-  return createHash("sha256").update(installId).digest("hex");
+  return Crypto.digestStringAsync(
+    Crypto.CryptoDigestAlgorithm.SHA256,
+    installId,
+    {
+      encoding: Crypto.CryptoEncoding.HEX,
+    },
+  );
 }
 
 export { INSTALL_ID_STORAGE_KEY };

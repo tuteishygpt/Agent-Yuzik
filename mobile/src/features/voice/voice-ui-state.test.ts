@@ -8,6 +8,7 @@ describe("resolveVoiceUiState", () => {
       resolveVoiceUiState({
         status: "connected",
         isRecording: true,
+        isListening: false,
         isPlaying: false,
       }),
     ).toMatchObject({
@@ -25,6 +26,7 @@ describe("resolveVoiceUiState", () => {
       resolveVoiceUiState({
         status: "processing",
         isRecording: false,
+        isListening: false,
         isPlaying: false,
       }),
     ).toMatchObject({
@@ -42,6 +44,7 @@ describe("resolveVoiceUiState", () => {
       resolveVoiceUiState({
         status: "connected",
         isRecording: false,
+        isListening: false,
         isPlaying: true,
       }),
     ).toMatchObject({
@@ -57,6 +60,7 @@ describe("resolveVoiceUiState", () => {
       resolveVoiceUiState({
         status: "connecting",
         isRecording: false,
+        isListening: false,
         isPlaying: false,
       }),
     ).toMatchObject({
@@ -69,6 +73,7 @@ describe("resolveVoiceUiState", () => {
       resolveVoiceUiState({
         status: "error",
         isRecording: false,
+        isListening: false,
         isPlaying: false,
       }),
     ).toMatchObject({

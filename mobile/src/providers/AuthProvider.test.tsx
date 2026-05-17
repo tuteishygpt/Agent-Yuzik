@@ -405,7 +405,7 @@ describe("auth callback route", () => {
 
     expect(getTextContent(renderer)).toContain("Completing sign in");
     expect(mockCompleteSupabaseNativeCallback).toHaveBeenCalledWith(url);
-    expect(mockReplace).toHaveBeenCalledWith("/(tabs)");
+    expect(mockReplace).toHaveBeenCalledWith("/chat");
 
     act(() => {
       renderer.unmount();

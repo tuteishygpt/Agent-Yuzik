@@ -1,0 +1,85 @@
+import { createVad } from "./vad";
+
+describe("createVad", () => {
+  it("fires onSpeechStart after minSpeechFrames above threshold", () => {
+    const onSpeechStart = jest.fn();
+    const onSpeechEnd = jest.fn();
+    const vad = createVad(
+      { onSpeechStart, onSpeechEnd },
+      { positiveSpeechThreshold: -35, minSpeechFrames: 3 },
+    );
+
+    vad.processFrame(-40); // below threshold
+    expect(onSpeechStart).not.toHaveBeenCalled();
+
+    vad.processFrame(-30); // above
+    vad.processFrame(-25); // above
+    expect(onSpeechStart).not.toHaveBeenCalled();
+
+    vad.processFrame(-20); // above — 3rd consecutive
+    expect(onSpeechStart).toHaveBeenCalledTimes(1);
+  });
+
+  it("fires onSpeechEnd after redemptionFrames of silence", () => {
+    const onSpeechStart = jest.fn();
+    const onSpeechEnd = jest.fn();
+    const vad = createVad(
+      { onSpeechStart, onSpeechEnd },
+      {
+        positiveSpeechThreshold: -35,
+        negativeSpeechThreshold: -50,
+        minSpeechFrames: 2,
+        redemptionFrames: 3,
+      },
+    );
+
+    // Start speech
+    vad.processFrame(-20);
+    vad.processFrame(-20);
+    expect(vad.isSpeaking).toBe(true);
+
+    // Silence frames
+    vad.processFrame(-60);
+    vad.processFrame(-60);
+    expect(onSpeechEnd).not.toHaveBeenCalled();
+
+    vad.processFrame(-60); // 3rd silence frame
+    expect(onSpeechEnd).toHaveBeenCalledTimes(1);
+    expect(vad.isSpeaking).toBe(false);
+  });
+
+  it("does not fire when paused", () => {
+    const onSpeechStart = jest.fn();
+    const vad = createVad(
+      { onSpeechStart, onSpeechEnd: jest.fn() },
+      { positiveSpeechThreshold: -35, minSpeechFrames: 2 },
+    );
+
+    vad.pause();
+    vad.processFrame(-20);
+    vad.processFrame(-20);
+    vad.processFrame(-20);
+    expect(onSpeechStart).not.toHaveBeenCalled();
+    expect(vad.isPaused).toBe(true);
+  });
+
+  it("resets state on resume", () => {
+    const onSpeechStart = jest.fn();
+    const vad = createVad(
+      { onSpeechStart, onSpeechEnd: jest.fn() },
+      { positiveSpeechThreshold: -35, minSpeechFrames: 3 },
+    );
+
+    vad.processFrame(-20);
+    vad.processFrame(-20); // 2 frames accumulated
+    vad.pause();
+    vad.resume();
+
+    // Need full 3 frames again after resume
+    vad.processFrame(-20);
+    vad.processFrame(-20);
+    expect(onSpeechStart).not.toHaveBeenCalled();
+    vad.processFrame(-20);
+    expect(onSpeechStart).toHaveBeenCalledTimes(1);
+  });
+});

@@ -1,6 +1,19 @@
 import type { ConfigContext, ExpoConfig } from "@expo/config";
+import { loadProjectEnv } from "@expo/env";
+
+loadProjectEnv(__dirname, { silent: true });
 
 type EnvSource = Record<string, string | undefined>;
+
+type ExpoConfigWithLegacyArchitecture = ExpoConfig & {
+  newArchEnabled: boolean;
+  android: NonNullable<ExpoConfig["android"]> & {
+    newArchEnabled: boolean;
+  };
+  ios: NonNullable<ExpoConfig["ios"]> & {
+    newArchEnabled: boolean;
+  };
+};
 
 function readRequired(source: EnvSource, key: string): string {
   const value = source[key]?.trim();
@@ -50,6 +63,21 @@ function getAppPackageId(source: EnvSource): string {
   return readRequired(source, "APP_DEV_PACKAGE_ID");
 }
 
+function parseBoolean(value: string | undefined): boolean {
+  if (!value) {
+    return false;
+  }
+
+  const normalized = value.trim().toLowerCase();
+
+  return (
+    normalized === "1" ||
+    normalized === "true" ||
+    normalized === "yes" ||
+    normalized === "on"
+  );
+}
+
 function getPublicEnv(source: EnvSource) {
   const variant = getAppVariant(source);
   const backendUrl = normalizeUrl(
@@ -71,12 +99,14 @@ function getPublicEnv(source: EnvSource) {
     supabaseAnonKey,
     appScheme: variant === "production" ? prodScheme : devScheme,
     buildChannel,
-    debugMenuEnabled: false,
-    debugNetworkLoggingEnabled: false,
+    debugMenuEnabled: parseBoolean(source.EXPO_PUBLIC_ENABLE_DEBUG_MENU),
+    debugNetworkLoggingEnabled: parseBoolean(
+      source.EXPO_PUBLIC_ENABLE_NETWORK_LOGGING,
+    ),
   };
 }
 
-export default ({ config }: ConfigContext): ExpoConfig => {
+export default ({ config }: ConfigContext): ExpoConfigWithLegacyArchitecture => {
   const env = process.env as EnvSource;
   const variant = getAppVariant(env);
   const publicEnv = getPublicEnv(env);
@@ -94,21 +124,28 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     slug: "yuzik-mobile",
     version,
     scheme: publicEnv.appScheme,
+    newArchEnabled: false,
     orientation: "portrait",
     userInterfaceStyle: "automatic",
-    plugins: ["expo-router"],
+    plugins: ["expo-router", "expo-secure-store", "expo-asset", "expo-audio"],
     experiments: {
       typedRoutes: true,
     },
     ios: {
       bundleIdentifier: packageId,
+      newArchEnabled: false,
     },
     android: {
       package: packageId,
+      newArchEnabled: false,
+      permissions: ["INTERNET", "MODIFY_AUDIO_SETTINGS", "RECORD_AUDIO", "VIBRATE"],
     },
     extra: {
       buildProfile: env.EAS_BUILD_PROFILE?.trim() || variant,
       publicEnv,
+      eas: {
+        projectId: "0493fa6f-9900-40ca-bf62-a171d31ecb3f",
+      },
     },
   };
 };

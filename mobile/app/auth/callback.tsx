@@ -20,7 +20,7 @@ export default function AuthCallbackScreen() {
           await completeSupabaseNativeCallback(url);
 
           if (!cancelled) {
-            router.replace("/(tabs)");
+            router.replace("/chat" as never);
           }
         }
       } catch (error) {

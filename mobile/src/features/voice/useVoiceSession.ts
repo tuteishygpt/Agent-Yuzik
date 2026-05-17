@@ -1,25 +1,20 @@
-import {
-  useEffect,
-  useRef,
-  useState,
-  type Dispatch,
-  type MutableRefObject,
-  type SetStateAction,
-} from "react";
+import { useState, useRef } from "react";
 
-import { createVoicePlaybackAdapter, type VoicePlaybackAdapter } from "@/lib/audio-playback";
-import {
-  createDefaultVoiceRecorderAdapter,
-  type VoiceRecorderAdapter,
-} from "@/lib/audio-recording";
-import {
-  createVoiceSocketClient,
-  type VoiceSocketClient,
-  type VoiceSocketMessage,
+import type {
+  VoiceConfigMessage,
+  VoiceSocketMessage,
+  VoiceSocketClient,
 } from "@/lib/voice-socket";
-import { getRuntimeEnv } from "@/lib/env";
-import { getSupabaseSession } from "@/lib/supabase";
 import { useTeacherMode } from "@/features/teacher/useTeacherMode";
+import type { VoicePlaybackAdapter } from "@/lib/audio-playback";
+import type { VoiceRecorderAdapter } from "@/lib/audio-recording";
+import type { VadConfig } from "@/lib/vad";
+import { toErrorMessage } from "@/lib/errors";
+
+import { useVoiceSocket, type VoiceSocketControls } from "./useVoiceSocket";
+import { useVoiceRecording } from "./useVoiceRecording";
+import { useVoicePlayback } from "./useVoicePlayback";
+import { useVoiceVad } from "./useVoiceVad";
 
 export type VoiceTranscriptEntry = {
   id: string;
@@ -36,11 +31,12 @@ export type VoiceSessionState = {
     | "reconnecting"
     | "reconnected, please retry"
     | "error";
-  voiceConfig: VoiceSocketMessage | null;
+  voiceConfig: VoiceConfigMessage | null;
   transcript: VoiceTranscriptEntry[];
   retryNotice: string | null;
   error: string | null;
   isRecording: boolean;
+  isListening: boolean;
   isPlaying: boolean;
 };
 
@@ -54,6 +50,7 @@ export type VoiceSessionOptions = {
   recording?: VoiceRecorderAdapter;
   playback?: VoicePlaybackAdapter;
   teacherMode?: ReturnType<typeof useTeacherMode>;
+  vadConfig?: Partial<VadConfig>;
 };
 
 export type VoiceSession = VoiceSessionState & {
@@ -68,10 +65,14 @@ export type VoiceSession = VoiceSessionState & {
   reconnect: () => Promise<void>;
   startRecording: () => Promise<void>;
   stopRecording: () => Promise<void>;
+  startListening: () => Promise<void>;
+  stopListening: () => void;
   interrupt: () => Promise<void>;
   startTeacherLesson: () => Promise<void>;
   stopTeacherLesson: () => Promise<void>;
 };
+
+const ANTI_ECHO_DELAY_MS = 350;
 
 const initialState: VoiceSessionState = {
   connectionStatus: "idle",
@@ -80,6 +81,7 @@ const initialState: VoiceSessionState = {
   retryNotice: null,
   error: null,
   isRecording: false,
+  isListening: false,
   isPlaying: false,
 };
 
@@ -94,66 +96,70 @@ function createTranscriptEntry(
   };
 }
 
-function buildVoiceSocketUrl(backendUrl: string): string {
-  const normalized = backendUrl.replace(/\/+$/, "");
-  return normalized.replace(/^http/i, "ws") + "/api/voice";
-}
+export function useVoiceSession(
+  options: VoiceSessionOptions = {},
+): VoiceSession {
+  const teacherModeFromHook = useTeacherMode();
+  const teacherMode = options.teacherMode ?? teacherModeFromHook;
+  const [state, setState] = useState<VoiceSessionState>(initialState);
+  const stateRef = useRef<VoiceSessionState>(initialState);
 
-function createStateUpdater(
-  setState: Dispatch<SetStateAction<VoiceSessionState>>,
-  stateRef: MutableRefObject<VoiceSessionState>,
-) {
-  return (updater: (current: VoiceSessionState) => VoiceSessionState) => {
+  const recording = useVoiceRecording(options.recording);
+  const playback = useVoicePlayback(options.playback);
+  const vad = useVoiceVad(options.vadConfig);
+
+  function update(
+    updater: (current: VoiceSessionState) => VoiceSessionState,
+  ) {
     setState((current) => {
       const next = updater(current);
       stateRef.current = next;
       return next;
     });
-  };
-}
+  }
 
-export function useVoiceSession(options: VoiceSessionOptions = {}): VoiceSession {
-  const teacherModeFromHook = useTeacherMode();
-  const teacherMode = options.teacherMode ?? teacherModeFromHook;
-  const recordingRef = useRef<VoiceRecorderAdapter>(
-    options.recording ?? createDefaultVoiceRecorderAdapter(),
-  );
-  const playbackRef = useRef<VoicePlaybackAdapter>(
-    options.playback ?? createVoicePlaybackAdapter(),
-  );
-  const socketRef = useRef<VoiceSocketClient | null>(null);
-  const stateRef = useRef<VoiceSessionState>(initialState);
-  const [state, setState] = useState<VoiceSessionState>(initialState);
+  function appendTranscript(entry: VoiceTranscriptEntry) {
+    update((s) => ({ ...s, transcript: [...s.transcript, entry] }));
+  }
 
-  const updateState = createStateUpdater(setState, stateRef);
+  function resumeAfterPlayback() {
+    update((s) => ({ ...s, isPlaying: false, connectionStatus: "connected" }));
+    setTimeout(() => {
+      vad.resume();
+      if (stateRef.current.isListening && !stateRef.current.isPlaying) {
+        void recording.stop().catch(() => {}).then(() =>
+          recording
+            .start((db) => vad.feedMeteringFrame(db))
+            .catch(() => {}),
+        );
+      }
+    }, ANTI_ECHO_DELAY_MS);
+  }
 
-  const appendTranscript = (entry: VoiceTranscriptEntry) => {
-    updateState((current) => ({
-      ...current,
-      transcript: [...current.transcript, entry],
-    }));
-  };
-
-  const resolveTeacherSelection = () => ({
-    lessonId: teacherMode.selectedLesson?.id ?? null,
-    stepId: teacherMode.selectedStep?.id ?? null,
-    prompt: teacherMode.currentPrompt ?? null,
-    active: teacherMode.isActive,
-  });
-
-  const handleSocketMessage = (message: VoiceSocketMessage) => {
+  function handleMessage(message: VoiceSocketMessage) {
     if (message.type === "audio") {
-      void playbackRef.current.playBytes(message.bytes);
-      updateState((current) => ({
-        ...current,
-        isPlaying: true,
-      }));
+      vad.pause();
+      update((s) => ({ ...s, isPlaying: true }));
+      void playback
+        .play(message.bytes, {
+          sampleRate: stateRef.current.voiceConfig?.sample_rate,
+        })
+        .catch((error: unknown) => {
+          const msg = toErrorMessage(error);
+          update((s) => ({
+            ...s,
+            connectionStatus: "error",
+            error: msg,
+            isPlaying: false,
+          }));
+          vad.resume();
+        });
       return;
     }
 
     if (message.type === "voice_config") {
-      updateState((current) => ({
-        ...current,
+      update((s) => ({
+        ...s,
         connectionStatus: "connected",
         voiceConfig: message,
         error: null,
@@ -162,11 +168,9 @@ export function useVoiceSession(options: VoiceSessionOptions = {}): VoiceSession
     }
 
     if (message.type === "processing") {
+      vad.pause();
       appendTranscript(createTranscriptEntry("system", "processing"));
-      updateState((current) => ({
-        ...current,
-        connectionStatus: "processing",
-      }));
+      update((s) => ({ ...s, connectionStatus: "processing" }));
       return;
     }
 
@@ -177,13 +181,14 @@ export function useVoiceSession(options: VoiceSessionOptions = {}): VoiceSession
 
     if (message.type === "response") {
       appendTranscript(createTranscriptEntry("assistant", message.text));
-      updateState((current) => ({
-        ...current,
+      update((s) => ({
+        ...s,
         connectionStatus: "connected",
         retryNotice: message.fallback_reason
           ? "reconnected, please retry"
-          : current.retryNotice,
+          : s.retryNotice,
       }));
+      resumeAfterPlayback();
       return;
     }
 
@@ -192,25 +197,19 @@ export function useVoiceSession(options: VoiceSessionOptions = {}): VoiceSession
       teacherMode.selectStep?.(message.step_id);
       teacherMode.setCurrentPrompt?.(message.prompt);
       teacherMode.startLesson?.({ sessionId: message.lesson_id });
-      updateState((current) => ({
-        ...current,
-        connectionStatus: "connected",
-      }));
+      update((s) => ({ ...s, connectionStatus: "connected" }));
       return;
     }
 
     if (message.type === "teacher_mode_stopped") {
       teacherMode.stopLesson?.();
-      updateState((current) => ({
-        ...current,
-        connectionStatus: "connected",
-      }));
+      update((s) => ({ ...s, connectionStatus: "connected" }));
       return;
     }
 
     if (message.type === "error") {
-      updateState((current) => ({
-        ...current,
+      update((s) => ({
+        ...s,
         connectionStatus: "error",
         error: message.message,
       }));
@@ -218,140 +217,182 @@ export function useVoiceSession(options: VoiceSessionOptions = {}): VoiceSession
     }
 
     if (message.type === "interruption_handshake") {
-      playbackRef.current.stop();
-      updateState((current) => ({
-        ...current,
-        connectionStatus: "connected",
-        isPlaying: false,
-      }));
+      playback.stop();
+      update((s) => ({ ...s, connectionStatus: "connected", isPlaying: false }));
+      vad.resume();
+      if (stateRef.current.isListening) {
+        void recording.stop().catch(() => {}).then(() =>
+          recording
+            .start((db) => vad.feedMeteringFrame(db))
+            .catch(() => {}),
+        );
+      }
     }
-  };
+  }
 
-  useEffect(() => {
-    return () => {
-      socketRef.current?.disconnect();
-      playbackRef.current.release();
-    };
-  }, []);
+  function handleStatusChange(
+    status: "idle" | "connecting" | "connected" | "reconnecting" | "error",
+    error?: string,
+  ) {
+    update((s) => ({
+      ...s,
+      connectionStatus: status,
+      error: error ?? (status === "error" ? s.error : null),
+      retryNotice:
+        status === "connected" && s.connectionStatus === "reconnecting"
+          ? "reconnected, please retry"
+          : s.retryNotice,
+    }));
+  }
+
+  const socket: VoiceSocketControls = useVoiceSocket(
+    options,
+    handleMessage,
+    handleStatusChange,
+  );
 
   async function connect() {
-    const backendUrl = options.backendUrl ?? getRuntimeEnv().backendUrl;
-    const getAccessToken =
-      options.getAccessToken ??
-      (async () => (await getSupabaseSession())?.access_token ?? null);
-    const socketFactory =
-      options.socketClientFactory ??
-      ((socketOptions) =>
-        createVoiceSocketClient({
-          ...socketOptions,
-          url: buildVoiceSocketUrl(backendUrl),
-        }));
-
-    socketRef.current?.disconnect();
-
-    updateState((current) => ({
-      ...current,
-      connectionStatus: "connecting",
-      error: null,
-    }));
-
-    const socket = socketFactory({
-      url: buildVoiceSocketUrl(backendUrl),
-      getAccessToken,
-    });
-
-    socket.onMessage(handleSocketMessage);
-    socketRef.current = socket;
     await socket.connect();
-
-    updateState((current) => ({
-      ...current,
-      connectionStatus: "connected",
-    }));
   }
 
   async function reconnect() {
-    updateState((current) => ({
-      ...current,
-      connectionStatus: "reconnecting",
-    }));
-
-    await connect();
-
-    updateState((current) => ({
-      ...current,
-      connectionStatus: "reconnected, please retry",
-      retryNotice: "reconnected, please retry",
-    }));
+    await socket.reconnect();
   }
 
   async function startRecording() {
-    await recordingRef.current.prepare();
-    recordingRef.current.start();
-
-    updateState((current) => ({
-      ...current,
-      isRecording: true,
-    }));
+    try {
+      await recording.start();
+    } catch (error) {
+      const msg = toErrorMessage(error);
+      update((s) => ({
+        ...s,
+        connectionStatus: "error",
+        error: msg,
+        isRecording: false,
+      }));
+      return;
+    }
+    update((s) => ({ ...s, isRecording: true }));
   }
 
   async function stopRecording() {
-    const result = await recordingRef.current.stop();
+    update((s) => ({ ...s, isRecording: false }));
+    try {
+      const result = await recording.stop();
+      if (result.wavBytes) {
+        socket.sendAudio({ wavBytes: result.wavBytes });
+      }
+    } catch {}
+  }
 
-    updateState((current) => ({
-      ...current,
-      isRecording: false,
-    }));
-
-    if (result.wavBytes) {
-      socketRef.current?.sendAudio({
-        wavBytes: result.wavBytes,
-      });
+  async function startListening() {
+    try {
+      await recording.start((db) => vad.feedMeteringFrame(db));
+    } catch (error) {
+      const msg = toErrorMessage(error);
+      update((s) => ({
+        ...s,
+        connectionStatus: "error",
+        error: msg,
+        isListening: false,
+      }));
+      return;
     }
+
+    update((s) => ({ ...s, isListening: true }));
+    console.log("[VoiceSession] startListening: recording started, VAD starting");
+
+    vad.start(
+      () => {
+        console.log("[VoiceSession] VAD: speech start");
+        update((s) => ({ ...s, isRecording: true }));
+      },
+      () => {
+        update((s) => ({ ...s, isRecording: false }));
+
+        if (stateRef.current.isPlaying) {
+          return;
+        }
+
+        void recording
+          .stop()
+          .catch(() => ({ wavBytes: null }) as { wavBytes: null })
+          .then((result) => {
+            if (result.wavBytes) {
+              socket.sendAudio({ wavBytes: result.wavBytes });
+            }
+            const s = stateRef.current;
+            if (s.isListening && !s.isPlaying && s.connectionStatus !== "processing") {
+              recording
+                .start((db) => vad.feedMeteringFrame(db))
+                .catch(() => {});
+            }
+          });
+      },
+    );
+  }
+
+  function stopListening() {
+    vad.stop();
+    void recording.stop();
+    update((s) => ({ ...s, isListening: false, isRecording: false }));
   }
 
   async function interrupt() {
-    playbackRef.current.stop();
-    socketRef.current?.sendInterrupt();
-    updateState((current) => ({
-      ...current,
-      isPlaying: false,
-      retryNotice: null,
-    }));
+    playback.stop();
+    socket.sendInterrupt();
+    update((s) => ({ ...s, isPlaying: false, retryNotice: null }));
+    vad.resume();
+    if (stateRef.current.isListening) {
+      void recording.stop().catch(() => {}).then(() =>
+        recording
+          .start((db) => vad.feedMeteringFrame(db))
+          .catch(() => {}),
+      );
+    }
   }
 
   async function startTeacherLesson() {
     const payload = teacherMode.createStartLessonPayload?.();
-
-    if (!payload) {
-      return;
+    if (!payload) return;
+    try {
+      socket.sendTeacherStartLesson(payload);
+      teacherMode.startLesson?.({
+        sessionId: teacherMode.selectedLesson?.id ?? null,
+      });
+    } catch (error) {
+      const msg = toErrorMessage(error);
+      update((s) => ({ ...s, connectionStatus: "error", error: msg }));
     }
-
-    teacherMode.startLesson?.({
-      sessionId: teacherMode.selectedLesson?.id ?? null,
-    });
-    socketRef.current?.sendTeacherStartLesson(payload);
   }
 
   async function stopTeacherLesson() {
     const payload = teacherMode.createStopLessonPayload?.();
-
-    if (!payload) {
-      return;
+    if (!payload) return;
+    try {
+      socket.sendTeacherStopLesson(payload);
+      teacherMode.stopLesson?.();
+    } catch (error) {
+      const msg = toErrorMessage(error);
+      update((s) => ({ ...s, connectionStatus: "error", error: msg }));
     }
-
-    socketRef.current?.sendTeacherStopLesson(payload);
-    teacherMode.stopLesson?.();
   }
 
   return {
     ...state,
     status: state.connectionStatus,
-    teacherSelection: resolveTeacherSelection(),
+    teacherSelection: {
+      lessonId: teacherMode.selectedLesson?.id ?? null,
+      stepId: teacherMode.selectedStep?.id ?? null,
+      prompt: teacherMode.currentPrompt ?? null,
+      active: teacherMode.isActive,
+    },
     connect,
     reconnect,
     startRecording,
     stopRecording,
+    startListening,
+    stopListening,
     interrupt,
     startTeacherLesson,
     stopTeacherLesson,

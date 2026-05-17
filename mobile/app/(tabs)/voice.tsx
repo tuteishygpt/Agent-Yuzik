@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect } from "react";
 import {
   Animated,
-  Easing,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -15,30 +14,75 @@ import { useTeacherMode } from "@/features/teacher/useTeacherMode";
 import { TranscriptPanel } from "@/features/voice/TranscriptPanel";
 import { VoiceControls } from "@/features/voice/VoiceControls";
 import { resolveVoiceUiState } from "@/features/voice/voice-ui-state";
+import { useVoiceAnimations } from "@/features/voice/useVoiceAnimations";
 import { useVoiceSession } from "@/features/voice/useVoiceSession";
 import { getRuntimeEnv } from "@/lib/env";
 import { getSupabaseSession } from "@/lib/supabase";
 import { webGlassPanel, webTextStyles, webTheme } from "@/theme/webTheme";
 
+const VISUALIZER_BAR_COUNT = 24;
 const visualizerHeights = Array.from(
-  { length: 24 },
-  (_, index) => 12 + ((index * 11) % 52),
+  { length: VISUALIZER_BAR_COUNT },
+  (_, i) => 12 + ((i * 11) % 52),
 );
+
+function VisualizerBars({
+  pulse,
+  uiState,
+}: {
+  pulse: Animated.Value;
+  uiState: ReturnType<typeof resolveVoiceUiState>;
+}) {
+  return (
+    <View
+      style={[
+        styles.visualizer,
+        uiState.phase === "processing" ? styles.visualizerProcessing : null,
+      ]}
+    >
+      {visualizerHeights.map((height, index) => {
+        const pulseOffset = (index % 6) / 6;
+        const animatedHeight = pulse.interpolate({
+          inputRange: [0, 0.5, 1],
+          outputRange: [
+            height,
+            uiState.shouldAnimateVisualizer
+              ? height + 18 + pulseOffset * 18
+              : height,
+            height,
+          ],
+        });
+
+        return (
+          <Animated.View
+            key={index}
+            style={[
+              styles.visualizerBar,
+              {
+                backgroundColor: uiState.accentColor,
+                height: animatedHeight,
+                opacity: uiState.shouldAnimateVisualizer ? 0.85 : 0.45,
+              },
+            ]}
+          />
+        );
+      })}
+    </View>
+  );
+}
 
 export default function VoiceScreen() {
   const teacherMode = useTeacherMode();
-  const voiceSession = useVoiceSession({
-    teacherMode,
-  });
-  const micPulse = useRef(new Animated.Value(0)).current;
-  const haloPulse = useRef(new Animated.Value(0)).current;
-  const dotPulse = useRef(new Animated.Value(0)).current;
-  const visualizerPulse = useRef(new Animated.Value(0)).current;
+  const voiceSession = useVoiceSession({ teacherMode });
   const uiState = resolveVoiceUiState({
     status: voiceSession.status,
     isRecording: voiceSession.isRecording,
+    isListening: voiceSession.isListening,
     isPlaying: voiceSession.isPlaying,
   });
+  const { styles: animatedStyles, visualizerPulse } =
+    useVoiceAnimations(uiState);
+
   const isConnected =
     uiState.phase === "connected" ||
     uiState.phase === "recording" ||
@@ -46,189 +90,20 @@ export default function VoiceScreen() {
     uiState.phase === "speaking";
 
   useEffect(() => {
-    micPulse.stopAnimation();
-    micPulse.setValue(0);
-
-    if (!uiState.shouldAnimateMic) {
-      return;
-    }
-
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(micPulse, {
-          toValue: 1,
-          duration: uiState.phase === "idle" ? 1800 : 780,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-        Animated.timing(micPulse, {
-          toValue: 0,
-          duration: uiState.phase === "idle" ? 1800 : 780,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-      ]),
-    );
-
-    loop.start();
-    return () => loop.stop();
-  }, [micPulse, uiState.phase, uiState.shouldAnimateMic]);
-
-  useEffect(() => {
-    haloPulse.stopAnimation();
-    haloPulse.setValue(0);
-
-    if (!uiState.shouldAnimateHalo) {
-      return;
-    }
-
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(haloPulse, {
-          toValue: 1,
-          duration: uiState.phase === "processing" ? 1050 : 820,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-        Animated.timing(haloPulse, {
-          toValue: 0,
-          duration: uiState.phase === "processing" ? 1050 : 820,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-      ]),
-    );
-
-    loop.start();
-    return () => loop.stop();
-  }, [haloPulse, uiState.phase, uiState.shouldAnimateHalo]);
-
-  useEffect(() => {
-    dotPulse.stopAnimation();
-    dotPulse.setValue(0);
-
-    if (!uiState.shouldPulseConnection) {
-      return;
-    }
-
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(dotPulse, {
-          toValue: 1,
-          duration: 700,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-        Animated.timing(dotPulse, {
-          toValue: 0,
-          duration: 700,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-      ]),
-    );
-
-    loop.start();
-    return () => loop.stop();
-  }, [dotPulse, uiState.shouldPulseConnection]);
-
-  useEffect(() => {
-    visualizerPulse.stopAnimation();
-    visualizerPulse.setValue(0);
-
-    if (!uiState.shouldAnimateVisualizer) {
-      return;
-    }
-
-    const loop = Animated.loop(
-      Animated.timing(visualizerPulse, {
-        toValue: 1,
-        duration: uiState.phase === "processing" ? 920 : 680,
-        easing: Easing.linear,
-        useNativeDriver: false,
-      }),
-    );
-
-    loop.start();
-    return () => loop.stop();
-  }, [uiState.phase, uiState.shouldAnimateVisualizer, visualizerPulse]);
-
-  const animatedStyles = useMemo(
-    () => ({
-      mic: {
-        transform: [
-          {
-            scale: micPulse.interpolate({
-              inputRange: [0, 1],
-              outputRange:
-                uiState.phase === "idle" ? [1, 1.025] : [1, 1.08],
-            }),
-          },
-          {
-            rotate:
-              uiState.phase === "processing"
-                ? micPulse.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: ["0deg", "10deg"],
-                  })
-                : "0deg",
-          },
-        ],
-      },
-      halo: {
-        opacity: haloPulse.interpolate({
-          inputRange: [0, 1],
-          outputRange: uiState.shouldAnimateHalo ? [0.28, 0.62] : [0.18, 0.18],
-        }),
-        transform: [
-          {
-            scale: haloPulse.interpolate({
-              inputRange: [0, 1],
-              outputRange: uiState.shouldAnimateHalo ? [1, 1.32] : [1, 1],
-            }),
-          },
-        ],
-      },
-      dot: {
-        opacity: dotPulse.interpolate({
-          inputRange: [0, 1],
-          outputRange: uiState.shouldPulseConnection ? [0.45, 1] : [1, 1],
-        }),
-        transform: [
-          {
-            scale: dotPulse.interpolate({
-              inputRange: [0, 1],
-              outputRange: uiState.shouldPulseConnection ? [0.9, 1.35] : [1, 1],
-            }),
-          },
-        ],
-      },
-    }),
-    [
-      dotPulse,
-      haloPulse,
-      micPulse,
-      uiState.phase,
-      uiState.shouldAnimateHalo,
-      uiState.shouldPulseConnection,
-    ],
-  );
-
-  useEffect(() => {
     void (async () => {
       const session = await getSupabaseSession();
       const accessToken = session?.access_token;
-
-      if (!accessToken) {
-        return;
-      }
-
+      if (!accessToken) return;
       await teacherMode.loadLessons({
         backendUrl: getRuntimeEnv().backendUrl,
         accessToken,
       });
     })();
   }, [teacherMode]);
+
+  useEffect(() => {
+    void voiceSession.connect();
+  }, []);
 
   return (
     <SafeAreaView style={styles.screen}>
@@ -257,16 +132,16 @@ export default function VoiceScreen() {
           {voiceSession.retryNotice ? (
             <Text style={styles.notice}>{voiceSession.retryNotice}</Text>
           ) : null}
-          {voiceSession.error ? <Text style={styles.error}>{voiceSession.error}</Text> : null}
+          {voiceSession.error ? (
+            <Text style={styles.error}>{voiceSession.error}</Text>
+          ) : null}
         </View>
 
         <View style={styles.micStage}>
           <Animated.View
             style={[
               styles.micHalo,
-              {
-                backgroundColor: uiState.haloColor,
-              },
+              { backgroundColor: uiState.haloColor },
               animatedStyles.halo,
             ]}
           />
@@ -295,40 +170,7 @@ export default function VoiceScreen() {
           {uiState.statusLabel}
         </Text>
 
-        <View
-          style={[
-            styles.visualizer,
-            uiState.phase === "processing" ? styles.visualizerProcessing : null,
-          ]}
-        >
-          {visualizerHeights.map((height, index) => {
-            const pulseOffset = (index % 6) / 6;
-            const animatedHeight = visualizerPulse.interpolate({
-              inputRange: [0, 0.5, 1],
-              outputRange: [
-                height,
-                uiState.shouldAnimateVisualizer
-                  ? height + 18 + pulseOffset * 18
-                  : height,
-                height,
-              ],
-            });
-
-            return (
-            <Animated.View
-              key={index}
-              style={[
-                styles.visualizerBar,
-                {
-                  backgroundColor: uiState.accentColor,
-                  height: animatedHeight,
-                  opacity: uiState.shouldAnimateVisualizer ? 0.85 : 0.45,
-                },
-              ]}
-            />
-            );
-          })}
-        </View>
+        <VisualizerBars pulse={visualizerPulse} uiState={uiState} />
 
         <TeacherBanner
           lesson={teacherMode.selectedLesson}
@@ -348,11 +190,14 @@ export default function VoiceScreen() {
       <VoiceControls
         status={voiceSession.status}
         isRecording={voiceSession.isRecording}
+        isListening={voiceSession.isListening}
         isTeacherActive={teacherMode.isActive}
         onConnect={voiceSession.connect}
         onReconnect={voiceSession.reconnect}
         onStartRecording={voiceSession.startRecording}
         onStopRecording={voiceSession.stopRecording}
+        onStartListening={voiceSession.startListening}
+        onStopListening={voiceSession.stopListening}
         onInterrupt={voiceSession.interrupt}
         onStartTeacherLesson={voiceSession.startTeacherLesson}
         onStopTeacherLesson={voiceSession.stopTeacherLesson}
@@ -373,7 +218,7 @@ const styles = StyleSheet.create({
     width: 260,
     height: 260,
     borderRadius: 130,
-    backgroundColor: "rgba(78, 130, 238, 0.16)",
+    backgroundColor: webTheme.colors.bgGlowPrimary,
   },
   bgGlowBottom: {
     position: "absolute",
@@ -382,7 +227,7 @@ const styles = StyleSheet.create({
     width: 280,
     height: 280,
     borderRadius: 140,
-    backgroundColor: "rgba(130, 78, 238, 0.14)",
+    backgroundColor: webTheme.colors.bgGlowSecondary,
   },
   content: {
     alignItems: "center",
@@ -402,10 +247,10 @@ const styles = StyleSheet.create({
     ...webGlassPanel,
   },
   connected: {
-    borderColor: "rgba(68, 255, 170, 0.28)",
+    borderColor: webTheme.colors.speakingBorder,
   },
   disconnected: {
-    borderColor: "rgba(255, 68, 102, 0.24)",
+    borderColor: webTheme.colors.listeningBorder,
   },
   statusDot: {
     width: 8,
@@ -464,15 +309,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   micOrbListening: {
-    backgroundColor: "rgba(255, 68, 102, 0.15)",
+    backgroundColor: webTheme.colors.listeningBg,
     borderColor: webTheme.colors.listening,
   },
   micOrbProcessing: {
-    backgroundColor: "rgba(255, 170, 0, 0.10)",
+    backgroundColor: webTheme.colors.processingBg,
     borderColor: webTheme.colors.processing,
   },
   micOrbSpeaking: {
-    backgroundColor: "rgba(68, 255, 170, 0.10)",
+    backgroundColor: webTheme.colors.speakingBg,
     borderColor: webTheme.colors.speaking,
   },
   micIcon: {
@@ -504,9 +349,7 @@ const styles = StyleSheet.create({
     backgroundColor: webTheme.colors.primary,
     opacity: 0.72,
   },
-  visualizerListening: {},
   visualizerProcessing: {
     opacity: 0.55,
   },
-  visualizerSpeaking: {},
 });

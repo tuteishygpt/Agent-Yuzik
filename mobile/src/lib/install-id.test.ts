@@ -3,6 +3,8 @@ import {
   getOrCreateInstallId,
   hashInstallId,
 } from "./install-id";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 type MemoryStorage = {
   getItem: (key: string) => Promise<string | null>;
@@ -29,6 +31,12 @@ function createMemoryStorage(): MemoryStorage {
 }
 
 describe("install id", () => {
+  it("does not import Node crypto from the app module", () => {
+    const source = readFileSync(join(__dirname, "install-id.ts"), "utf8");
+
+    expect(source).not.toContain("node:crypto");
+  });
+
   it("generates an install id once and reuses it on later reads", async () => {
     const storage = createMemoryStorage();
     const generateId = jest.fn<Promise<string>, []>().mockResolvedValue(

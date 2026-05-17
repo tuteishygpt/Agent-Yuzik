@@ -31,6 +31,10 @@ class FakeWebSocket {
     this.onopen?.();
   }
 
+  emitError(event: unknown = { message: "socket failed" }) {
+    this.onerror?.(event);
+  }
+
   emitText(data: string) {
     this.onmessage?.({ data });
   }
@@ -65,7 +69,9 @@ describe("voice socket protocol", () => {
     expect(parseVoiceSocketMessage('{"type":"processing"}')).toEqual({
       type: "processing",
     });
-    expect(parseVoiceSocketMessage('{"type":"transcription","text":"hi"}')).toEqual({
+    expect(
+      parseVoiceSocketMessage('{"type":"transcription","text":"hi"}'),
+    ).toEqual({
       type: "transcription",
       text: "hi",
     });
@@ -78,10 +84,11 @@ describe("voice socket protocol", () => {
       WebSocketImpl: FakeWebSocket as never,
     });
 
-    await client.connect();
-
+    const connectPromise = client.connect();
+    await Promise.resolve();
     const socket = FakeWebSocket.instances[0];
     socket.emitOpen();
+    await connectPromise;
 
     expect(toBytes(socket.sent[0]).length).toBeGreaterThan(0);
     expect(JSON.parse(String(socket.sent[0]))).toEqual({
@@ -100,6 +107,50 @@ describe("voice socket protocol", () => {
     ]);
   });
 
+  it("does not resolve connect until the websocket is open and auth is sent", async () => {
+    const client = createVoiceSocketClient({
+      url: "wss://api.yuzik.example/api/voice",
+      getAccessToken: async () => "token-123",
+      WebSocketImpl: FakeWebSocket as never,
+    });
+
+    const connectPromise = client.connect();
+    await Promise.resolve();
+    const socket = FakeWebSocket.instances[0];
+
+    await expect(
+      Promise.race([
+        connectPromise.then(() => "resolved"),
+        Promise.resolve("pending"),
+      ]),
+    ).resolves.toBe("pending");
+
+    socket.emitOpen();
+
+    await expect(connectPromise).resolves.toBeUndefined();
+    expect(JSON.parse(String(socket.sent[0]))).toEqual({
+      type: "auth",
+      access_token: "token-123",
+    });
+  });
+
+  it("rejects connect when the websocket fails before opening", async () => {
+    const client = createVoiceSocketClient({
+      url: "wss://api.yuzik.example/api/voice",
+      getAccessToken: async () => "token-123",
+      WebSocketImpl: FakeWebSocket as never,
+    });
+
+    const connectPromise = client.connect();
+    await Promise.resolve();
+    const socket = FakeWebSocket.instances[0];
+    socket.emitError({});
+
+    await expect(connectPromise).rejects.toThrow(
+      "Voice socket connection failed.",
+    );
+  });
+
   it("forwards inbound text control messages to listeners", async () => {
     const received: unknown[] = [];
     const client = createVoiceSocketClient({
@@ -112,11 +163,14 @@ describe("voice socket protocol", () => {
       received.push(message);
     });
 
-    await client.connect();
-
+    const connectPromise = client.connect();
+    await Promise.resolve();
     const socket = FakeWebSocket.instances[0];
     socket.emitOpen();
-    socket.emitText('{"type":"teacher_mode_started","lesson_id":"lesson-1","step_id":"step-1","prompt":"Hello","mode":"teacher"}');
+    await connectPromise;
+    socket.emitText(
+      '{"type":"teacher_mode_started","lesson_id":"lesson-1","step_id":"step-1","prompt":"Hello","mode":"teacher"}',
+    );
 
     expect(received).toEqual([
       {

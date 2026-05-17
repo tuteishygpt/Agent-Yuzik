@@ -2,6 +2,7 @@ import type {
   TeacherStartLessonPayload,
   TeacherStopLessonPayload,
 } from "@/features/teacher/teacher-types";
+import { getRuntimeEnv } from "@/lib/env";
 
 export type VoiceConfigMessage = {
   type: "voice_config";
@@ -74,7 +75,9 @@ export type VoiceSocketListener = (message: VoiceSocketMessage) => void;
 export type VoiceSocketClient = {
   connect: () => Promise<void>;
   disconnect: () => void;
-  sendAudio: (input: Uint8Array | { wavBytes: Uint8Array; timestamp?: number }) => void;
+  sendAudio: (
+    input: Uint8Array | { wavBytes: Uint8Array; timestamp?: number },
+  ) => void;
   sendInterrupt: () => void;
   sendTeacherStartLesson: (payload: TeacherStartLessonPayload) => void;
   sendTeacherStopLesson: (payload: TeacherStopLessonPayload) => void;
@@ -116,13 +119,51 @@ function sendJson(socket: Pick<WebSocket, "send">, payload: unknown): void {
   socket.send(encodeMessage(payload));
 }
 
+function isNetworkLoggingEnabled(): boolean {
+  try {
+    return getRuntimeEnv().debugNetworkLoggingEnabled;
+  } catch {
+    return false;
+  }
+}
+
+function logVoiceSocket(
+  message: string,
+  metadata?: Record<string, unknown>,
+): void {
+  if (!isNetworkLoggingEnabled()) {
+    return;
+  }
+
+  if (metadata) {
+    console.log(`[VoiceSocket] ${message}`, metadata);
+    return;
+  }
+
+  console.log(`[VoiceSocket] ${message}`);
+}
+
+function getWebSocketErrorMessage(event: unknown): string {
+  if (event && typeof event === "object" && "message" in event) {
+    const message = (event as { message?: unknown }).message;
+
+    if (typeof message === "string" && message.trim()) {
+      return message;
+    }
+  }
+
+  return "Voice socket connection failed.";
+}
+
 export function buildVoiceAudioFrame(input: {
   wavBytes: Uint8Array;
   timestamp?: number;
 }): Uint8Array {
   const timestamp = input.timestamp ?? Date.now();
   const payload = cloneBytes(input.wavBytes);
-  const frame = new Uint8Array(payload.length + END_MARKER.length + TIMESTAMP_SIZE);
+  const frame = new Uint8Array(
+    payload.length + END_MARKER.length + TIMESTAMP_SIZE,
+  );
 
   frame.set(payload, 0);
   frame.set(END_MARKER, payload.length);
@@ -133,7 +174,9 @@ export function buildVoiceAudioFrame(input: {
   return frame;
 }
 
-export function parseVoiceSocketMessage(raw: string): VoiceControlMessage | null {
+export function parseVoiceSocketMessage(
+  raw: string,
+): VoiceControlMessage | null {
   try {
     const payload = JSON.parse(raw) as Record<string, unknown>;
 
@@ -178,65 +221,124 @@ export function createVoiceSocketClient({
       throw new Error("Missing Supabase access token.");
     }
 
-    socket = new WebSocketImpl(url);
-    socket.binaryType = "arraybuffer";
-    authenticated = false;
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const startedAt = Date.now();
 
-    socket.onopen = () => {
-      if (!socket || authenticated) {
-        return;
-      }
-
-      sendJson(socket, {
-        type: "auth",
-        access_token: authToken,
+      logVoiceSocket("connect", {
+        url,
+        hasAuthToken: true,
       });
-      authenticated = true;
-    };
 
-    socket.onmessage = (event: MessageEvent<string | ArrayBuffer>) => {
-      const data = event.data;
-
-      if (typeof data === "string") {
-        const message = parseVoiceSocketMessage(data);
-        if (message) {
-          emit(message);
-        }
-        return;
-      }
-
-      emit({
-        type: "audio",
-        bytes: toUint8Array(data),
-      });
-    };
-
-    socket.onclose = () => {
+      socket = new WebSocketImpl(url);
+      socket.binaryType = "arraybuffer";
       authenticated = false;
-    };
+
+      const settleConnect = (callback: () => void) => {
+        if (settled) {
+          return;
+        }
+
+        settled = true;
+        callback();
+      };
+
+      socket.onopen = () => {
+        if (!socket || authenticated) {
+          return;
+        }
+
+        logVoiceSocket("open", {
+          url,
+          durationMs: Date.now() - startedAt,
+        });
+
+        sendJson(socket, {
+          type: "auth",
+          access_token: authToken,
+        });
+        logVoiceSocket("sent auth", { url });
+        authenticated = true;
+        settleConnect(resolve);
+      };
+
+      socket.onmessage = (event: MessageEvent<string | ArrayBuffer>) => {
+        const data = event.data;
+
+        if (typeof data === "string") {
+          const message = parseVoiceSocketMessage(data);
+          if (message) {
+            logVoiceSocket("received control", {
+              type: message.type,
+              bytes: data.length,
+            });
+            emit(message);
+          }
+          return;
+        }
+
+        logVoiceSocket("received audio", {
+          bytes: data.byteLength,
+        });
+        emit({
+          type: "audio",
+          bytes: toUint8Array(data),
+        });
+      };
+
+      socket.onerror = (event: Event) => {
+        const message = getWebSocketErrorMessage(event);
+        logVoiceSocket("error", { url, message });
+        settleConnect(() => reject(new Error(message)));
+      };
+
+      socket.onclose = (event: CloseEvent) => {
+        logVoiceSocket("close", {
+          url,
+          code: event.code,
+          reason: event.reason,
+          wasClean: event.wasClean,
+        });
+        authenticated = false;
+        settleConnect(() =>
+          reject(new Error("Voice socket closed before opening.")),
+        );
+      };
+    });
   }
 
   function disconnect(): void {
+    logVoiceSocket("disconnect");
     socket?.close();
     socket = null;
     authenticated = false;
   }
 
-  function sendAudio(input: Uint8Array | { wavBytes: Uint8Array; timestamp?: number }): void {
+  function sendAudio(
+    input: Uint8Array | { wavBytes: Uint8Array; timestamp?: number },
+  ): void {
     const nextSocket = ensureSocket();
 
     if (!authenticated) {
       throw new Error("Voice auth must be sent before audio.");
     }
 
-    nextSocket.send(input instanceof Uint8Array ? input : buildVoiceAudioFrame(input));
+    const frame =
+      input instanceof Uint8Array ? input : buildVoiceAudioFrame(input);
+    logVoiceSocket("sent audio", { bytes: frame.byteLength });
+    nextSocket.send(frame);
   }
 
   function sendInterrupt(): void {
+    logVoiceSocket("sent interrupt");
     sendJson(ensureSocket(), { type: "interrupt" });
   }
 
   function sendTeacherStartLesson(payload: TeacherStartLessonPayload): void {
+    logVoiceSocket("sent teacher_start_lesson", {
+      lessonId: payload.lesson_id,
+      stepId: payload.step_id,
+    });
     sendJson(ensureSocket(), {
       type: "teacher_start_lesson",
       ...payload,
@@ -244,6 +346,10 @@ export function createVoiceSocketClient({
   }
 
   function sendTeacherStopLesson(payload: TeacherStopLessonPayload): void {
+    logVoiceSocket("sent teacher_stop_lesson", {
+      lessonId: payload.lesson_id,
+      sessionId: payload.session_id,
+    });
     sendJson(ensureSocket(), {
       type: "teacher_stop_lesson",
       ...payload,
