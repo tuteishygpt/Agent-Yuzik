@@ -22,9 +22,6 @@ set profile_state = jsonb_build_object(
 )
 where profile_state = '{}'::jsonb;
 
-create unique index if not exists devices_user_install_unique_idx
-  on public.devices (user_id, install_id_hash);
-
 do $$
 begin
   if not exists (

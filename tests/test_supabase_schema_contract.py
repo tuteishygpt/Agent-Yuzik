@@ -33,3 +33,29 @@ def test_migration_chain_includes_mobile_teacher_contract_columns() -> None:
         idx = sql.find(fragment, start)
         assert idx != -1
         start = idx + len(fragment)
+
+
+def test_updated_at_trigger_function_uses_fixed_search_path() -> None:
+    sql = _normalized_migration_sql()
+
+    assert "create or replace function public.set_updated_at()" in sql
+    assert "set search_path = public, pg_temp" in sql
+
+
+def test_migration_chain_does_not_create_duplicate_devices_install_indexes() -> None:
+    sql = _normalized_migration_sql()
+
+    assert "constraint devices_user_install_unique unique (user_id, install_id_hash)" in sql
+    assert "devices_user_install_unique_idx" not in sql
+
+
+def test_migration_chain_indexes_foreign_keys_reported_by_advisors() -> None:
+    sql = _normalized_migration_sql()
+
+    expected_indexes = [
+        "create index if not exists adk_sessions_conversation_id_idx on public.adk_sessions (conversation_id)",
+        "create index if not exists artifacts_adk_session_row_id_idx on public.artifacts (adk_session_row_id)",
+    ]
+
+    for expected_index in expected_indexes:
+        assert expected_index in sql

@@ -22,6 +22,10 @@ node_modules/
 
 # ── Кэшы і мадэлі ──
 .cache/
+.pytest_cache/
+/tmp/
+tmp/
+verification-temp/
 model/
 latents_cache/
 
@@ -31,6 +35,10 @@ files/
 # ── IDE ──
 .vscode/
 .idea/
+.expo/
+.build-tools/
+.claude/
+CLAUDE.md
 *.swp
 *.swo
 *~

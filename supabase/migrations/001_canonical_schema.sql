@@ -3,6 +3,7 @@ create extension if not exists pgcrypto;
 create or replace function public.set_updated_at()
 returns trigger
 language plpgsql
+set search_path = public, pg_temp
 as $$
 begin
   new.updated_at = timezone('utc', now());
@@ -70,6 +71,9 @@ create unique index if not exists adk_sessions_one_active_per_user_app_idx
 
 create index if not exists adk_sessions_user_last_used_idx
   on public.adk_sessions (user_id, last_used_at desc);
+
+create index if not exists adk_sessions_conversation_id_idx
+  on public.adk_sessions (conversation_id);
 
 create table if not exists public.teacher_sessions (
   id uuid primary key default gen_random_uuid(),
@@ -153,6 +157,9 @@ create index if not exists artifacts_user_created_at_idx
 
 create index if not exists artifacts_conversation_created_at_idx
   on public.artifacts (conversation_id, created_at desc);
+
+create index if not exists artifacts_adk_session_row_id_idx
+  on public.artifacts (adk_session_row_id);
 
 create trigger profiles_set_updated_at
 before update on public.profiles

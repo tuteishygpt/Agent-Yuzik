@@ -59,10 +59,18 @@ def extract_end_marker(raw: bytes):
 
 
 def ensure_wav(audio_bytes: bytes) -> bytes:
-    """Wrap raw PCM in a WAV header if not already WAV."""
+    """Convert audio to WAV. Supports WAV passthrough, container formats
+    (m4a/mp3/ogg via pydub/ffmpeg), and raw PCM fallback."""
     if audio_bytes[:4] == b'RIFF':
         return audio_bytes
-    return create_wav_header(len(audio_bytes)) + audio_bytes
+    try:
+        audio = AudioSegment.from_file(io.BytesIO(audio_bytes))
+        audio = audio.set_frame_rate(16000).set_channels(1).set_sample_width(2)
+        buf = io.BytesIO()
+        audio.export(buf, format="wav")
+        return buf.getvalue()
+    except Exception:
+        return create_wav_header(len(audio_bytes)) + audio_bytes
 
 
 def compress_wav_to_mp3(wav_data: bytes, sample_rate: int = 16000, bitrate: str = "64k") -> bytes:
