@@ -416,7 +416,7 @@ function describeLesson(lesson) {
             </div>
             <div class="teacher-meta-item">
                 <span class="teacher-meta-label">Статус</span>
-                <span class="teacher-meta-value">${state.teacherMode ? 'Ідзе занятак' : 'Гатова да старту'}</span>
+                <span class="teacher-meta-value">${state.teacherMode ? 'Ідуць заняткі' : 'Гатова да старту'}</span>
             </div>
             <div class="teacher-meta-item goal">
                 <span class="teacher-meta-label">Мэта</span>
@@ -473,7 +473,7 @@ function updateTeacherPanel() {
     if (elements.teacherPanelSummary) {
         const stepSummary = currentStep?.prompt ? ` · ${currentStep.prompt}` : "";
         const summary = lesson
-            ? `${lesson.title}${active ? " · занятак ідзе" : " · гатова да старту"}${stepSummary}`
+            ? `${lesson.title}${active ? " · заняткі ідуць" : " · гатова да старту"}${stepSummary}`
             : "Абярыце ўрок";
         elements.teacherPanelSummary.hidden = !collapsed;
         elements.teacherPanelSummary.textContent = summary;
