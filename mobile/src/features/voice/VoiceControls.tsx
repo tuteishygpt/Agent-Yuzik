@@ -1,5 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
+import { webGlassPanel, webTheme } from "@/theme/webTheme";
+
 type VoiceControlsProps = {
   status: string;
   isRecording: boolean;
@@ -25,10 +27,18 @@ export function VoiceControls({
   onStartTeacherLesson,
   onStopTeacherLesson,
 }: VoiceControlsProps) {
+  const statusLabel = isRecording
+    ? "Слухаю"
+    : status === "processing"
+      ? "Думаю"
+      : status === "connected"
+        ? "Гатова"
+        : status;
+
   return (
     <View style={styles.container}>
-      <Text style={styles.status}>Voice: {status}</Text>
-      <View style={styles.row}>
+      <Text style={styles.status}>Voice: {statusLabel}</Text>
+      <View style={styles.utilityRow}>
         <Pressable onPress={() => void onConnect()} style={styles.secondaryButton}>
           <Text style={styles.secondaryText}>Connect</Text>
         </Pressable>
@@ -42,7 +52,7 @@ export function VoiceControls({
           style={styles.primaryButton}
         >
           <Text style={styles.primaryText}>
-            {isRecording ? "Send voice" : "Push to talk"}
+            {isRecording ? "■ Спыніць" : "▶ Пачаць"}
           </Text>
         </Pressable>
         <Pressable onPress={() => void onInterrupt()} style={styles.secondaryButton}>
@@ -70,13 +80,17 @@ const styles = StyleSheet.create({
     gap: 12,
     padding: 16,
     borderTopWidth: 1,
-    borderTopColor: "#d0d5dd",
-    backgroundColor: "#ffffff",
+    borderTopColor: webTheme.colors.border,
+    backgroundColor: "rgba(12, 14, 24, 0.96)",
   },
   status: {
-    color: "#475467",
+    color: webTheme.colors.textMuted,
     fontSize: 13,
     fontWeight: "700",
+  },
+  utilityRow: {
+    flexDirection: "row",
+    gap: 10,
   },
   row: {
     flexDirection: "row",
@@ -84,8 +98,8 @@ const styles = StyleSheet.create({
   },
   primaryButton: {
     flex: 1,
-    borderRadius: 18,
-    backgroundColor: "#101828",
+    borderRadius: webTheme.radii.pill,
+    backgroundColor: webTheme.colors.primary,
     paddingHorizontal: 16,
     paddingVertical: 14,
   },
@@ -96,25 +110,27 @@ const styles = StyleSheet.create({
   },
   secondaryButton: {
     flex: 1,
-    borderRadius: 18,
-    backgroundColor: "#eef4ff",
+    borderRadius: webTheme.radii.pill,
+    ...webGlassPanel,
     paddingHorizontal: 16,
     paddingVertical: 14,
   },
   secondaryText: {
-    color: "#1849a9",
+    color: webTheme.colors.text,
     fontWeight: "700",
     textAlign: "center",
   },
   teacherButton: {
     flex: 1,
-    borderRadius: 18,
-    backgroundColor: "#fff6e6",
+    borderRadius: webTheme.radii.pill,
+    backgroundColor: "rgba(168, 240, 200, 0.10)",
+    borderColor: "rgba(68, 255, 170, 0.24)",
+    borderWidth: 1,
     paddingHorizontal: 16,
     paddingVertical: 14,
   },
   teacherText: {
-    color: "#a15c07",
+    color: webTheme.colors.teacher,
     fontWeight: "700",
     textAlign: "center",
   },

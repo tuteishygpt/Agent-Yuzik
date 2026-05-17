@@ -4,6 +4,7 @@ import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { DebugInfo } from "@/components/settings/DebugInfo";
 import { getRuntimeEnv } from "@/lib/env";
 import { useAuth } from "@/providers/AuthProvider";
+import { webTextStyles, webTheme } from "@/theme/webTheme";
 
 function getAuthStateLabel(input: {
   status: "loading" | "ready" | "error";
@@ -30,7 +31,9 @@ export default function SettingsScreen() {
   const appVersion = String(expoConfig?.version ?? "1.0.0");
 
   return (
-    <ScrollView contentContainerStyle={styles.content}>
+    <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
+      <View style={styles.bgGlowTop} />
+      <View style={styles.bgGlowBottom} />
       <View style={styles.hero}>
         <Text style={styles.eyebrow}>Runtime</Text>
         <Text style={styles.title}>Settings</Text>
@@ -54,30 +57,48 @@ export default function SettingsScreen() {
 }
 
 const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: webTheme.colors.background,
+  },
   content: {
     padding: 20,
     gap: 20,
-    backgroundColor: "#f5f7fb",
+    minHeight: "100%",
+  },
+  bgGlowTop: {
+    position: "absolute",
+    top: -80,
+    left: -70,
+    width: 240,
+    height: 240,
+    borderRadius: 120,
+    backgroundColor: "rgba(78, 130, 238, 0.13)",
+  },
+  bgGlowBottom: {
+    position: "absolute",
+    right: -90,
+    bottom: 70,
+    width: 260,
+    height: 260,
+    borderRadius: 130,
+    backgroundColor: "rgba(130, 78, 238, 0.11)",
   },
   hero: {
     paddingTop: 24,
     gap: 6,
   },
   eyebrow: {
-    fontSize: 13,
-    fontWeight: "700",
-    letterSpacing: 1,
-    textTransform: "uppercase",
-    color: "#5c677d",
+    ...webTextStyles.eyebrow,
   },
   title: {
     fontSize: 32,
     fontWeight: "700",
-    color: "#14213d",
+    color: webTheme.colors.text,
   },
   subtitle: {
     fontSize: 16,
     lineHeight: 24,
-    color: "#33415c",
+    color: webTheme.colors.textMuted,
   },
 });

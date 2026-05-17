@@ -1,6 +1,7 @@
 import { StyleSheet, Text, View } from "react-native";
 
 import { formatSecretState, type PublicEnv } from "@/lib/env";
+import { webGlassPanel, webTheme } from "@/theme/webTheme";
 
 type DebugInfoProps = {
   appVersion: string;
@@ -60,15 +61,13 @@ const styles = StyleSheet.create({
   card: {
     gap: 12,
     padding: 20,
-    borderRadius: 20,
-    backgroundColor: "#ffffff",
-    borderWidth: 1,
-    borderColor: "#dbe2ef",
+    borderRadius: webTheme.radii.xl,
+    ...webGlassPanel,
   },
   heading: {
     fontSize: 22,
     fontWeight: "700",
-    color: "#14213d",
+    color: webTheme.colors.text,
     marginBottom: 4,
   },
   row: {
@@ -79,11 +78,11 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     letterSpacing: 0.4,
     textTransform: "uppercase",
-    color: "#5c677d",
+    color: webTheme.colors.textMuted,
   },
   value: {
     fontSize: 16,
     lineHeight: 22,
-    color: "#1f2937",
+    color: webTheme.colors.text,
   },
 });

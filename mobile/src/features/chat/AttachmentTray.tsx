@@ -1,6 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import type { ChatAttachment } from "@/lib/file-picker";
+import { webGlassPanel, webTheme } from "@/theme/webTheme";
 
 type AttachmentTrayProps = {
   attachment: ChatAttachment | null;
@@ -29,7 +30,7 @@ export function AttachmentTray({ attachment, onClear }: AttachmentTrayProps) {
 const styles = StyleSheet.create({
   container: {
     borderTopWidth: 1,
-    borderTopColor: "#e4e7ec",
+    borderTopColor: webTheme.colors.border,
     flexDirection: "row",
     gap: 12,
     justifyContent: "space-between",
@@ -40,30 +41,30 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   label: {
-    color: "#667085",
+    color: webTheme.colors.textMuted,
     fontSize: 12,
     fontWeight: "700",
     letterSpacing: 0.4,
     textTransform: "uppercase",
   },
   name: {
-    color: "#101828",
+    color: webTheme.colors.text,
     fontSize: 15,
     fontWeight: "600",
   },
   mime: {
-    color: "#667085",
+    color: webTheme.colors.textMuted,
     fontSize: 13,
   },
   clearButton: {
     alignSelf: "center",
     borderRadius: 999,
-    backgroundColor: "#f8fafc",
+    ...webGlassPanel,
     paddingHorizontal: 14,
     paddingVertical: 10,
   },
   clearText: {
-    color: "#344054",
+    color: webTheme.colors.text,
     fontWeight: "700",
   },
 });

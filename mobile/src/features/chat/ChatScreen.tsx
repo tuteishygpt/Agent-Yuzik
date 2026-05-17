@@ -4,6 +4,7 @@ import { createChatApiClient } from "@/lib/api";
 import { getRuntimeEnv } from "@/lib/env";
 import { getSupabaseSession } from "@/lib/supabase";
 import { pickSingleAttachment } from "@/lib/file-picker";
+import { webGlassPanel, webTextStyles, webTheme } from "@/theme/webTheme";
 
 import { Composer } from "./Composer";
 import { MessageList } from "./MessageList";
@@ -26,13 +27,15 @@ export default function ChatScreen() {
 
   return (
     <SafeAreaView style={styles.screen}>
+      <View style={styles.bgGlowTop} />
+      <View style={styles.bgGlowBottom} />
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={styles.flex}
       >
         <View style={styles.header}>
           <View style={styles.titleBlock}>
-            <Text style={styles.kicker}>Mobile chat</Text>
+            <Text style={styles.kicker}>Chat</Text>
             <Text style={styles.title}>Ask, upload, and keep context</Text>
           </View>
           <Pressable onPress={() => void controller.clearHistory()} style={styles.clearButton}>
@@ -66,7 +69,25 @@ export default function ChatScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: "#f7f9fc",
+    backgroundColor: webTheme.colors.background,
+  },
+  bgGlowTop: {
+    position: "absolute",
+    top: -90,
+    left: -80,
+    width: 260,
+    height: 260,
+    borderRadius: 130,
+    backgroundColor: "rgba(78, 130, 238, 0.13)",
+  },
+  bgGlowBottom: {
+    position: "absolute",
+    right: -90,
+    bottom: 120,
+    width: 270,
+    height: 270,
+    borderRadius: 135,
+    backgroundColor: "rgba(130, 78, 238, 0.12)",
   },
   flex: {
     flex: 1,
@@ -84,35 +105,31 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   kicker: {
-    color: "#667085",
-    fontSize: 12,
-    fontWeight: "800",
-    letterSpacing: 1.2,
-    textTransform: "uppercase",
+    ...webTextStyles.eyebrow,
   },
   title: {
-    color: "#101828",
+    color: webTheme.colors.text,
     fontSize: 24,
     fontWeight: "800",
     lineHeight: 30,
   },
   clearButton: {
     borderRadius: 999,
-    backgroundColor: "#eef4ff",
+    ...webGlassPanel,
     paddingHorizontal: 14,
     paddingVertical: 10,
   },
   clearText: {
-    color: "#1849a9",
+    color: webTheme.colors.text,
     fontWeight: "700",
   },
   error: {
-    color: "#b42318",
+    color: webTheme.colors.danger,
     paddingHorizontal: 16,
     paddingBottom: 8,
   },
   loading: {
-    color: "#667085",
+    color: webTheme.colors.textMuted,
     paddingHorizontal: 16,
     paddingBottom: 8,
   },

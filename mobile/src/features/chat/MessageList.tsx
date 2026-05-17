@@ -1,5 +1,6 @@
 import { FlatList, Image, Pressable, StyleSheet, Text, View } from "react-native";
 
+import { webTheme } from "@/theme/webTheme";
 import type { ChatMessage } from "./useChatController";
 
 type MessageListProps = {
@@ -63,7 +64,7 @@ const styles = StyleSheet.create({
     paddingVertical: 20,
   },
   empty: {
-    color: "#667085",
+    color: webTheme.colors.textMuted,
     fontSize: 16,
     lineHeight: 24,
     paddingVertical: 24,
@@ -73,19 +74,20 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     padding: 14,
     borderWidth: 1,
+    maxWidth: "92%",
   },
   userCard: {
     alignSelf: "flex-end",
-    backgroundColor: "#fff6ed",
-    borderColor: "#f4d7b8",
+    backgroundColor: "rgba(78, 130, 238, 0.12)",
+    borderColor: "rgba(96, 160, 255, 0.18)",
   },
   assistantCard: {
     alignSelf: "flex-start",
-    backgroundColor: "#f3f7ff",
-    borderColor: "#c7d4f7",
+    backgroundColor: "rgba(68, 255, 170, 0.08)",
+    borderColor: "rgba(68, 255, 170, 0.16)",
   },
   role: {
-    color: "#667085",
+    color: webTheme.colors.textMuted,
     fontSize: 12,
     fontWeight: "700",
     letterSpacing: 0.4,
@@ -93,12 +95,12 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
   },
   content: {
-    color: "#101828",
+    color: webTheme.colors.text,
     fontSize: 16,
     lineHeight: 24,
   },
   artifact: {
-    color: "#475467",
+    color: webTheme.colors.textMuted,
     fontSize: 12,
     marginTop: 8,
   },
@@ -112,14 +114,14 @@ const styles = StyleSheet.create({
   },
   actionButton: {
     borderRadius: 999,
-    backgroundColor: "#ffffff",
+    backgroundColor: "rgba(255, 255, 255, 0.04)",
     borderWidth: 1,
-    borderColor: "#d0d5dd",
+    borderColor: webTheme.colors.border,
     paddingHorizontal: 12,
     paddingVertical: 8,
   },
   actionText: {
-    color: "#344054",
+    color: webTheme.colors.text,
     fontSize: 12,
     fontWeight: "700",
   },
@@ -128,10 +130,10 @@ const styles = StyleSheet.create({
     height: 180,
     marginTop: 10,
     borderRadius: 14,
-    backgroundColor: "#e4e7ec",
+    backgroundColor: webTheme.colors.surfaceStrong,
   },
   artifactError: {
-    color: "#b42318",
+    color: webTheme.colors.danger,
     fontSize: 12,
     marginTop: 8,
   },

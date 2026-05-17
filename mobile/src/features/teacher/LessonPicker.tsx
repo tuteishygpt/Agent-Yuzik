@@ -1,6 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import type { TeacherLesson } from "@/features/teacher/teacher-types";
+import { webGlassPanel, webTheme } from "@/theme/webTheme";
 
 type LessonPickerProps = {
   lessons: TeacherLesson[];
@@ -49,31 +50,30 @@ export function LessonPicker({
 
 const styles = StyleSheet.create({
   container: {
+    width: "100%",
     gap: 12,
   },
   eyebrow: {
     fontSize: 12,
-    fontWeight: "700",
+    fontWeight: "800",
     letterSpacing: 1,
     textTransform: "uppercase",
-    color: "#5c677d",
+    color: webTheme.colors.textMuted,
   },
   empty: {
     fontSize: 15,
     lineHeight: 22,
-    color: "#33415c",
+    color: webTheme.colors.textMuted,
   },
   lessonCard: {
     gap: 4,
     padding: 16,
-    borderRadius: 18,
-    backgroundColor: "#ffffff",
-    borderWidth: 1,
-    borderColor: "#d9e2ec",
+    borderRadius: webTheme.radii.lg,
+    ...webGlassPanel,
   },
   lessonCardSelected: {
-    borderColor: "#fca311",
-    backgroundColor: "#fff6e6",
+    borderColor: "rgba(122, 168, 255, 0.48)",
+    backgroundColor: "rgba(78, 130, 238, 0.14)",
   },
   lessonCardPressed: {
     opacity: 0.85,
@@ -81,16 +81,16 @@ const styles = StyleSheet.create({
   lessonTitle: {
     fontSize: 18,
     fontWeight: "700",
-    color: "#14213d",
+    color: webTheme.colors.text,
   },
   lessonMeta: {
     fontSize: 13,
-    color: "#5c677d",
+    color: webTheme.colors.textMuted,
   },
   lessonGoal: {
     fontSize: 14,
     lineHeight: 20,
-    color: "#33415c",
+    color: webTheme.colors.textMuted,
   },
   selectedBadge: {
     marginTop: 6,
@@ -98,7 +98,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     letterSpacing: 0.6,
     textTransform: "uppercase",
-    color: "#f77f00",
+    color: webTheme.colors.teacher,
   },
 });
 

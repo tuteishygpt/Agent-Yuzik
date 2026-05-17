@@ -1,6 +1,7 @@
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import type { ChatAttachment } from "@/lib/file-picker";
+import { webGlassPanel, webTheme } from "@/theme/webTheme";
 
 import { AttachmentTray } from "./AttachmentTray";
 
@@ -32,7 +33,7 @@ export function Composer({
         </Pressable>
         <TextInput
           placeholder="Type a message"
-          placeholderTextColor="#98a2b3"
+          placeholderTextColor={webTheme.colors.textDim}
           style={styles.input}
           multiline
           value={draftText}
@@ -51,9 +52,9 @@ export function Composer({
 
 const styles = StyleSheet.create({
   container: {
-    borderTopColor: "#e4e7ec",
+    borderTopColor: webTheme.colors.border,
     borderTopWidth: 1,
-    backgroundColor: "#fff",
+    backgroundColor: "rgba(12, 14, 24, 0.96)",
   },
   row: {
     alignItems: "flex-end",
@@ -66,25 +67,25 @@ const styles = StyleSheet.create({
     minHeight: 48,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: "#d0d5dd",
+    borderColor: webTheme.colors.borderStrong,
     paddingHorizontal: 14,
     paddingVertical: 12,
-    color: "#101828",
-    backgroundColor: "#fff",
+    color: webTheme.colors.text,
+    backgroundColor: "rgba(255, 255, 255, 0.04)",
   },
   attachButton: {
     borderRadius: 16,
-    backgroundColor: "#eef4ff",
+    ...webGlassPanel,
     paddingHorizontal: 14,
     paddingVertical: 14,
   },
   attachText: {
-    color: "#1849a9",
+    color: webTheme.colors.text,
     fontWeight: "700",
   },
   sendButton: {
     borderRadius: 16,
-    backgroundColor: "#101828",
+    backgroundColor: webTheme.colors.primary,
     paddingHorizontal: 18,
     paddingVertical: 14,
   },
@@ -92,7 +93,7 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   sendText: {
-    color: "#fff",
+    color: "#ffffff",
     fontWeight: "700",
   },
 });
