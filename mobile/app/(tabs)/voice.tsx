@@ -91,13 +91,17 @@ export default function VoiceScreen() {
 
   useEffect(() => {
     void (async () => {
-      const session = await getSupabaseSession();
-      const accessToken = session?.access_token;
-      if (!accessToken) return;
-      await teacherMode.loadLessons({
-        backendUrl: getRuntimeEnv().backendUrl,
-        accessToken,
-      });
+      try {
+        const session = await getSupabaseSession();
+        const accessToken = session?.access_token;
+        if (!accessToken) return;
+        await teacherMode.loadLessons({
+          backendUrl: getRuntimeEnv().backendUrl,
+          accessToken,
+        });
+      } catch (e) {
+        console.warn("[Voice] Failed to load teacher lessons", e);
+      }
     })();
   }, [teacherMode]);
 

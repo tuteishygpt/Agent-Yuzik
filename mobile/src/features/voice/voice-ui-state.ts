@@ -51,7 +51,7 @@ function resolvePhase(input: VoiceUiInput): VoiceUiPhase {
     return "connecting";
   }
 
-  if (input.status === "connected" || input.status === "reconnected, please retry") {
+  if (input.status === "connected" || input.status === "reconnected") {
     return "connected";
   }
 

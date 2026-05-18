@@ -19,6 +19,7 @@ const CHANNELS = 1;
 const BITS_PER_SAMPLE = 16;
 const BYTES_PER_SAMPLE = BITS_PER_SAMPLE / 8;
 const STOP_TIMEOUT_MS = 100;
+const METERING_THROTTLE_MS = 50;
 const MICROPHONE_PERMISSION_ERROR =
   "Microphone permission is required to start voice recording.";
 
@@ -81,15 +82,19 @@ function loadLiveAudioStream(): LiveAudioStream {
 }
 
 async function ensureMicrophonePermission(): Promise<void> {
-  if (Platform.OS !== "android") {
+  if (Platform.OS === "android") {
+    const result = await PermissionsAndroid.request(
+      PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+    );
+    if (result !== PermissionsAndroid.RESULTS.GRANTED) {
+      throw new Error(MICROPHONE_PERMISSION_ERROR);
+    }
     return;
   }
 
-  const result = await PermissionsAndroid.request(
-    PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
-  );
-
-  if (result !== PermissionsAndroid.RESULTS.GRANTED) {
+  const { Audio } = require("expo-av") as typeof import("expo-av");
+  const { granted } = await Audio.requestPermissionsAsync();
+  if (!granted) {
     throw new Error(MICROPHONE_PERMISSION_ERROR);
   }
 }
@@ -97,46 +102,54 @@ async function ensureMicrophonePermission(): Promise<void> {
 async function stopLiveAudioStream(stream: LiveAudioStream): Promise<void> {
   try {
     const stopResult = stream.stop();
-    await Promise.race([
+    const timedOut = Symbol();
+    const result = await Promise.race([
       Promise.resolve(stopResult).catch(() => undefined),
-      new Promise((resolve) => setTimeout(resolve, STOP_TIMEOUT_MS)),
+      new Promise((resolve) => setTimeout(() => resolve(timedOut), STOP_TIMEOUT_MS)),
     ]);
+    if (result === timedOut) {
+      try { stream.stop(); } catch {}
+    }
   } catch {}
-}
-
-export async function readRecordingBytes(_uri: string): Promise<Uint8Array> {
-  return new Uint8Array(0);
 }
 
 export function createDefaultVoiceRecorderAdapter(): VoiceRecorderAdapter {
   return createVoiceRecorderAdapter();
 }
 
-type RecorderState = "idle" | "prepared" | "recording" | "stopping";
-
 export function createVoiceRecorderAdapter(
   _injectedRecorder?: unknown,
 ): VoiceRecorderAdapter {
+  type RecorderState = "idle" | "preparing" | "prepared" | "recording" | "stopping";
   let state: RecorderState = "idle";
   let pcmChunks: Uint8Array[] = [];
   let totalPcmBytes = 0;
   let meteringCb: MeteringCallback | null = null;
+  let lastMeteringAt = 0;
+  let peakSinceLastEmit = -160;
+  let activeStream: LiveAudioStream | null = null;
 
   return {
     async prepare() {
       if (state !== "idle") return;
+      state = "preparing";
 
-      await ensureMicrophonePermission();
+      try {
+        await ensureMicrophonePermission();
 
-      const stream = loadLiveAudioStream();
-      stream.init({
-        sampleRate: SAMPLE_RATE,
-        channels: CHANNELS,
-        bitsPerSample: BITS_PER_SAMPLE,
-        audioSource: 6,
-      });
-
-      state = "prepared";
+        const stream = loadLiveAudioStream();
+        stream.init({
+          sampleRate: SAMPLE_RATE,
+          channels: CHANNELS,
+          bitsPerSample: BITS_PER_SAMPLE,
+          audioSource: 6,
+        });
+        activeStream = stream;
+        state = "prepared";
+      } catch (e) {
+        state = "idle";
+        throw e;
+      }
     },
     async start(onMetering?: MeteringCallback) {
       if (state !== "prepared") return;
@@ -145,14 +158,21 @@ export function createVoiceRecorderAdapter(
       totalPcmBytes = 0;
       meteringCb = onMetering ?? null;
 
-      const stream = loadLiveAudioStream();
+      const stream = activeStream ?? loadLiveAudioStream();
       stream.on("data", (base64: string) => {
         const chunk = new Uint8Array(Buffer.from(base64, "base64"));
         pcmChunks.push(chunk);
         totalPcmBytes += chunk.byteLength;
 
         if (meteringCb) {
-          meteringCb(computeRmsDb(chunk));
+          const db = computeRmsDb(chunk);
+          peakSinceLastEmit = Math.max(peakSinceLastEmit, db);
+          const now = Date.now();
+          if (now - lastMeteringAt >= METERING_THROTTLE_MS) {
+            lastMeteringAt = now;
+            meteringCb(peakSinceLastEmit);
+            peakSinceLastEmit = -160;
+          }
         }
       });
 
@@ -165,7 +185,8 @@ export function createVoiceRecorderAdapter(
       }
 
       state = "stopping";
-      const stream = loadLiveAudioStream();
+      const stream = activeStream ?? loadLiveAudioStream();
+      activeStream = null;
       await stopLiveAudioStream(stream);
 
       if (totalPcmBytes === 0) {

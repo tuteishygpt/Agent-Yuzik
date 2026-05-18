@@ -29,7 +29,7 @@ export type VoiceSessionState = {
     | "connected"
     | "processing"
     | "reconnecting"
-    | "reconnected, please retry"
+    | "reconnected"
     | "error";
   voiceConfig: VoiceConfigMessage | null;
   transcript: VoiceTranscriptEntry[];
@@ -123,6 +123,7 @@ export function useVoiceSession(
     peakDb: -160,
   });
   const vadRecordingActiveRef = useRef(false);
+  const vadRestartingRef = useRef(false);
 
   const recording = useVoiceRecording(options.recording);
   const playback = useVoicePlayback(options.playback);
@@ -185,6 +186,14 @@ export function useVoiceSession(
     void stopVadRecording()
       .then((result) => {
         if (result.wavBytes && shouldSubmitSpeechSegment(completedSegment)) {
+          if (!socket.isConnected()) {
+            update((s) => ({
+              ...s,
+              connectionStatus: "error",
+              error: "Voice socket disconnected before audio could be sent.",
+            }));
+            return;
+          }
           try {
             update((s) => ({ ...s, connectionStatus: "processing" }));
             socket.sendAudio({ wavBytes: result.wavBytes });
@@ -200,6 +209,15 @@ export function useVoiceSession(
         }
         update((s) => ({ ...s, connectionStatus: "connected" }));
         scheduleResumeListening(RESUME_AFTER_RESPONSE_MS);
+      })
+      .catch((error: unknown) => {
+        const msg = toErrorMessage(error);
+        update((s) => ({
+          ...s,
+          connectionStatus: "error",
+          error: msg,
+          isRecording: false,
+        }));
       });
   }
 
@@ -250,7 +268,10 @@ export function useVoiceSession(
       update((s) => ({ ...s, isPlaying: false, connectionStatus: "connected" }));
       if (stateRef.current.isListening) {
         startVadSession();
-        void startVadRecording().catch(() => {});
+        void startVadRecording().catch((error: unknown) => {
+          const msg = toErrorMessage(error);
+          update((s) => ({ ...s, connectionStatus: "error", error: msg, isListening: false }));
+        });
       }
     }, delayMs);
   }
@@ -265,6 +286,7 @@ export function useVoiceSession(
 
   function handleMessage(message: VoiceSocketMessage) {
     if (message.type === "audio") {
+      if (vadRestartingRef.current) return;
       clearResumeListeningTimer();
       suspendVadRecording();
       update((s) => ({ ...s, isPlaying: true }));
@@ -274,6 +296,9 @@ export function useVoiceSession(
           playbackMinBufferMs: getPlaybackMinBufferMs(
             stateRef.current.voiceConfig?.playback_min_buffer_ms,
           ),
+        })
+        .then(() => {
+          scheduleResumeListening(RESUME_AFTER_AUDIO_IDLE_MS);
         })
         .catch((error: unknown) => {
           const msg = toErrorMessage(error);
@@ -285,10 +310,11 @@ export function useVoiceSession(
           }));
           if (stateRef.current.isListening) {
             startVadSession();
-            void startVadRecording().catch(() => {});
+            void startVadRecording().catch((e: unknown) => {
+              update((s) => ({ ...s, connectionStatus: "error", error: toErrorMessage(e), isListening: false }));
+            });
           }
         });
-      scheduleResumeListening(RESUME_AFTER_AUDIO_IDLE_MS);
       return;
     }
 
@@ -321,7 +347,7 @@ export function useVoiceSession(
         ...s,
         connectionStatus: "connected",
         retryNotice: message.fallback_reason
-          ? "reconnected, please retry"
+          ? "reconnected"
           : s.retryNotice,
       }));
       scheduleResumeListening(RESUME_AFTER_RESPONSE_MS);
@@ -358,9 +384,15 @@ export function useVoiceSession(
       update((s) => ({ ...s, connectionStatus: "connected", isPlaying: false }));
       stopVadSession();
       if (stateRef.current.isListening) {
-        startVadSession();
+        vadRestartingRef.current = true;
         void stopVadRecording().then(() =>
-          startVadRecording().catch(() => {}),
+          startVadRecording().then(() => {
+            vadRestartingRef.current = false;
+            startVadSession();
+          }).catch((e: unknown) => {
+            vadRestartingRef.current = false;
+            update((s) => ({ ...s, connectionStatus: "error", error: toErrorMessage(e), isListening: false }));
+          }),
         );
       }
     }
@@ -376,7 +408,7 @@ export function useVoiceSession(
       error: error ?? (status === "error" ? s.error : null),
       retryNotice:
         status === "connected" && s.connectionStatus === "reconnecting"
-          ? "reconnected, please retry"
+          ? "reconnected"
           : s.retryNotice,
     }));
   }
@@ -457,7 +489,9 @@ export function useVoiceSession(
     if (stateRef.current.isListening) {
       startVadSession();
       void stopVadRecording().then(() =>
-        startVadRecording().catch(() => {}),
+        startVadRecording().catch((e: unknown) => {
+          update((s) => ({ ...s, connectionStatus: "error", error: toErrorMessage(e), isListening: false }));
+        }),
       );
     }
   }

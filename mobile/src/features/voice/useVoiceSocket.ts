@@ -39,6 +39,7 @@ export function useVoiceSocket(
   ) => void,
 ): VoiceSocketControls {
   const socketRef = useRef<VoiceSocketClient | null>(null);
+  const unsubMessageRef = useRef<(() => void) | null>(null);
   const onMessageRef = useRef(onMessage);
   onMessageRef.current = onMessage;
   const onStatusChangeRef = useRef(onStatusChange);
@@ -46,6 +47,7 @@ export function useVoiceSocket(
 
   useEffect(() => {
     return () => {
+      unsubMessageRef.current?.();
       socketRef.current?.disconnect();
     };
   }, []);
@@ -57,21 +59,20 @@ export function useVoiceSocket(
       (async () => (await getSupabaseSession())?.access_token ?? null);
     const socketFactory =
       options.socketClientFactory ??
-      ((socketOptions) =>
-        createVoiceSocketClient({
-          ...socketOptions,
-          url: buildVoiceSocketUrl(backendUrl),
-        }));
+      ((socketOptions) => createVoiceSocketClient(socketOptions));
 
+    unsubMessageRef.current?.();
+    unsubMessageRef.current = null;
     socketRef.current?.disconnect();
     onStatusChangeRef.current(isReconnect ? "reconnecting" : "connecting");
 
+    const wsUrl = buildVoiceSocketUrl(backendUrl);
     const socket = socketFactory({
-      url: buildVoiceSocketUrl(backendUrl),
+      url: wsUrl,
       getAccessToken,
     });
 
-    socket.onMessage((msg) => onMessageRef.current(msg));
+    unsubMessageRef.current = socket.onMessage((msg) => onMessageRef.current(msg));
     socketRef.current = socket;
 
     try {
@@ -85,18 +86,22 @@ export function useVoiceSocket(
       return;
     }
 
-    if (isReconnect) {
-      onStatusChangeRef.current("connected");
-    } else {
-      onStatusChangeRef.current("connected");
-    }
+    onStatusChangeRef.current("connected");
   }
 
   return {
     connect: () => establishSocket(false),
     reconnect: () => establishSocket(true),
-    sendAudio: (input) => socketRef.current?.sendAudio(input),
-    sendInterrupt: () => socketRef.current?.sendInterrupt(),
+    sendAudio: (input) => {
+      if (!socketRef.current)
+        throw new VoiceError("SOCKET_NOT_CONNECTED", "Voice socket is not connected.");
+      socketRef.current.sendAudio(input);
+    },
+    sendInterrupt: () => {
+      if (!socketRef.current)
+        throw new VoiceError("SOCKET_NOT_CONNECTED", "Voice socket is not connected.");
+      socketRef.current.sendInterrupt();
+    },
     sendTeacherStartLesson: (payload: TeacherStartLessonPayload) => {
       if (!socketRef.current)
         throw new VoiceError("SOCKET_NOT_CONNECTED", "Voice socket is not connected.");

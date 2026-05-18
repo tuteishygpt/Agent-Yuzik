@@ -195,7 +195,7 @@ describe("useVoiceSession", () => {
       await latestSession?.reconnect();
     });
 
-    expect(readRenderedText(renderer)).toContain("reconnected, please retry");
+    expect(readRenderedText(renderer)).toContain("reconnected");
     expect(readRenderedText(renderer)).toContain("lesson-1");
   });
 

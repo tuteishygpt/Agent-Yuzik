@@ -1,3 +1,5 @@
+import { AppState, type AppStateStatus } from "react-native";
+
 import type {
   TeacherStartLessonPayload,
   TeacherStopLessonPayload,
@@ -202,7 +204,11 @@ export function createVoiceSocketClient({
 
   function emit(message: VoiceSocketMessage) {
     for (const listener of listeners) {
-      listener(message);
+      try {
+        listener(message);
+      } catch (e) {
+        console.error("[VoiceSocket] listener error", e);
+      }
     }
   }
 
@@ -214,6 +220,8 @@ export function createVoiceSocketClient({
     return socket;
   }
 
+  const CONNECT_TIMEOUT_MS = 15000;
+
   async function connect(): Promise<void> {
     authToken = await getAccessToken();
 
@@ -224,6 +232,15 @@ export function createVoiceSocketClient({
     await new Promise<void>((resolve, reject) => {
       let settled = false;
       const startedAt = Date.now();
+
+      const connectTimer = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          socket?.close();
+          socket = null;
+          reject(new Error("Voice socket connection timed out."));
+        }
+      }, CONNECT_TIMEOUT_MS);
 
       logVoiceSocket("connect", {
         url,
@@ -240,6 +257,7 @@ export function createVoiceSocketClient({
         }
 
         settled = true;
+        clearTimeout(connectTimer);
         callback();
       };
 
@@ -259,6 +277,7 @@ export function createVoiceSocketClient({
         });
         logVoiceSocket("sent auth", { url });
         authenticated = true;
+        subscribeAppState();
         settleConnect(resolve);
       };
 
@@ -289,17 +308,23 @@ export function createVoiceSocketClient({
       socket.onerror = (event: Event) => {
         const message = getWebSocketErrorMessage(event);
         logVoiceSocket("error", { url, message });
+        const deadSocket = socket;
+        socket = null;
+        authenticated = false;
+        unsubscribeAppState();
         settleConnect(() => reject(new Error(message)));
+        try { deadSocket?.close(); } catch {}
       };
 
-      socket.onclose = (event: CloseEvent) => {
+      socket.onclose = (event?: CloseEvent) => {
         logVoiceSocket("close", {
           url,
-          code: event.code,
-          reason: event.reason,
-          wasClean: event.wasClean,
+          code: event?.code,
+          reason: event?.reason,
+          wasClean: event?.wasClean,
         });
         authenticated = false;
+        unsubscribeAppState();
         settleConnect(() =>
           reject(new Error("Voice socket closed before opening.")),
         );
@@ -307,8 +332,31 @@ export function createVoiceSocketClient({
     });
   }
 
+  let appStateSubscription: ReturnType<typeof AppState.addEventListener> | null = null;
+
+  function handleAppStateChange(state: AppStateStatus): void {
+    if (state === "background" || state === "inactive") {
+      if (socket) {
+        logVoiceSocket("backgrounded, disconnecting");
+        disconnect();
+      }
+    }
+  }
+
+  function subscribeAppState(): void {
+    if (!appStateSubscription) {
+      appStateSubscription = AppState.addEventListener("change", handleAppStateChange);
+    }
+  }
+
+  function unsubscribeAppState(): void {
+    appStateSubscription?.remove();
+    appStateSubscription = null;
+  }
+
   function disconnect(): void {
     logVoiceSocket("disconnect");
+    unsubscribeAppState();
     socket?.close();
     socket = null;
     authenticated = false;

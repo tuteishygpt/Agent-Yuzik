@@ -59,6 +59,8 @@ function ignorePlaybackCleanupSync(cleanup: (() => void) | undefined): void {
   }
 }
 
+let cacheFileCounter = 0;
+
 async function writeBytesToCache(
   bytes: Uint8Array,
   cacheDirectory: string | null,
@@ -69,12 +71,17 @@ async function writeBytesToCache(
     throw new Error("File system cache directory is unavailable.");
   }
 
-  const uri = `${directory.replace(/\/+$/, "")}/yuzik-voice-response.wav`;
+  cacheFileCounter = (cacheFileCounter + 1) % 4;
+  const uri = `${directory.replace(/\/+$/, "")}/yuzik-voice-${cacheFileCounter}.wav`;
   await FileSystem.writeAsStringAsync(uri, bytesToBase64(bytes), {
     encoding: FileSystem.EncodingType.Base64,
   });
 
   return uri;
+}
+
+function deleteCacheFile(uri: string): void {
+  void FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => undefined);
 }
 
 export function createVoicePlaybackAdapter(
@@ -128,12 +135,14 @@ export function createVoicePlaybackAdapter(
   let completeCurrentSound: (() => void) | null = null;
   let playbackQueue = Promise.resolve();
   let playing = false;
-  let generation = 0;
+  let generation = {};
   const nativePcm =
     options.nativePcm === undefined
       ? createNativePcmPlayer()
       : options.nativePcm;
   let nativePcmEnabled = nativePcm?.isAvailable() ?? false;
+  let nativePcmFailCount = 0;
+  const NATIVE_PCM_MAX_FAILURES = 3;
 
   const enqueuePlayback = (
     bytes: Uint8Array,
@@ -166,14 +175,15 @@ export function createVoicePlaybackAdapter(
 
         if (queuedGeneration !== generation) {
           ignorePlaybackCleanupSync(() => nextSound.remove());
+          deleteCacheFile(uri);
           resolveStarted();
           return;
         }
 
+        playing = true;
         currentSound = nextSound;
         completeCurrentSound = finishSound;
         nextSound.play();
-        playing = true;
         resolveStarted();
 
         await finished;
@@ -184,6 +194,7 @@ export function createVoicePlaybackAdapter(
         }
         playing = false;
         ignorePlaybackCleanupSync(() => nextSound.remove());
+        deleteCacheFile(uri);
       } catch (error) {
         playing = false;
         rejectStarted(error);
@@ -215,10 +226,14 @@ export function createVoicePlaybackAdapter(
           sampleRate,
           playbackOptions.playbackMinBufferMs ?? 0,
         );
+        nativePcmFailCount = 0;
         playing = true;
         return;
       } catch {
-        nativePcmEnabled = false;
+        nativePcmFailCount += 1;
+        if (nativePcmFailCount >= NATIVE_PCM_MAX_FAILURES) {
+          nativePcmEnabled = false;
+        }
       }
     }
 
@@ -226,7 +241,7 @@ export function createVoicePlaybackAdapter(
   };
 
   function resetState() {
-    generation += 1;
+    generation = {};
     playing = false;
     pcmBuffer.clear();
     ignorePlaybackCleanup(nativePcm?.stop());

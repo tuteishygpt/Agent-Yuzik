@@ -19,6 +19,8 @@ export type PcmBuffer = {
   hasPending: () => boolean;
 };
 
+const MAX_BUFFER_BYTES = 512 * 1024; // 512KB auto-flush threshold
+
 export function createPcmBuffer(
   onFlush: (wavBytes: Uint8Array) => Promise<void>,
 ): PcmBuffer {
@@ -65,17 +67,23 @@ export function createPcmBuffer(
 
   return {
     push(bytes: Uint8Array, requestedSampleRate: number): Promise<void> {
+      if (totalBytes > 0 && requestedSampleRate !== sampleRate) {
+        flush();
+      }
+
       const pcmBytes = bytes.slice(LOCAL_PCM_FRAME_HEADER_SIZE);
       const declaredBytes = getLocalPcmSampleCount(bytes) * 4;
 
       sampleRate = requestedSampleRate;
-      chunks.push(
-        pcmBytes.byteLength === declaredBytes ? pcmBytes : pcmBytes.slice(0),
-      );
+      chunks.push(pcmBytes.slice(0));
       totalBytes += pcmBytes.byteLength;
 
-      clearTimer();
-      timer = setTimeout(flush, DEFAULT_LOCAL_PCM_EMPTY_GRACE_MS);
+      if (totalBytes >= MAX_BUFFER_BYTES) {
+        flush();
+      } else {
+        clearTimer();
+        timer = setTimeout(flush, DEFAULT_LOCAL_PCM_EMPTY_GRACE_MS);
+      }
 
       return new Promise<void>((resolve, reject) => {
         resolvers.push({ resolve, reject });

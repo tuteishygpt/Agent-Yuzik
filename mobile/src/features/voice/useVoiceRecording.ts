@@ -15,6 +15,7 @@ export function useVoiceRecording(
   injected?: VoiceRecorderAdapter,
 ): VoiceRecordingControls {
   const recorderRef = useRef<VoiceRecorderAdapter | null>(injected ?? null);
+  const preparedRef = useRef(false);
 
   function getRecorder(): VoiceRecorderAdapter {
     recorderRef.current ??= createDefaultVoiceRecorderAdapter();
@@ -24,7 +25,10 @@ export function useVoiceRecording(
   return {
     start: async (onMetering?: MeteringCallback) => {
       const recorder = getRecorder();
-      await recorder.prepare();
+      if (!preparedRef.current) {
+        await recorder.prepare();
+        preparedRef.current = true;
+      }
       await recorder.start(onMetering);
     },
     stop: async () => {
@@ -33,6 +37,7 @@ export function useVoiceRecording(
         return { wavBytes: null };
       }
       const result = await recorder.stop();
+      preparedRef.current = false;
       return { wavBytes: result.wavBytes ?? null };
     },
   };
