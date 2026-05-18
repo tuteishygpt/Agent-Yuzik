@@ -38,6 +38,9 @@ describe("audio recording adapter (native PCM stream)", () => {
     expect(mockRequestPermission).toHaveBeenCalledWith(
       "android.permission.RECORD_AUDIO",
     );
+
+    await adapter.start();
+
     expect(mockStream.init).toHaveBeenCalledWith({
       sampleRate: 16000,
       channels: 1,

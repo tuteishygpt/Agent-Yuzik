@@ -212,15 +212,20 @@ export function createVoicePlaybackAdapter(
     enqueuePlayback(wavBytes, {}),
   );
 
+  let stopped = false;
+
   const playLocalPcmFrame = async (
     bytes: Uint8Array,
     playbackOptions: VoicePlaybackBytesOptions,
   ): Promise<void> => {
+    if (stopped) return;
+
     const sampleRate =
       playbackOptions.sampleRate ?? DEFAULT_LOCAL_PCM_SAMPLE_RATE;
 
     if (nativePcmEnabled) {
       try {
+        if (stopped) return;
         await nativePcm?.pushFloat32Pcm(
           bytes.slice(LOCAL_PCM_FRAME_HEADER_SIZE),
           sampleRate,
@@ -228,19 +233,23 @@ export function createVoicePlaybackAdapter(
         );
         nativePcmFailCount = 0;
         playing = true;
-        return;
       } catch {
         nativePcmFailCount += 1;
         if (nativePcmFailCount >= NATIVE_PCM_MAX_FAILURES) {
           nativePcmEnabled = false;
         }
+        if (stopped) return;
+        await pcmBuffer.push(bytes, sampleRate);
       }
+      return;
     }
 
+    if (stopped) return;
     await pcmBuffer.push(bytes, sampleRate);
   };
 
   function resetState() {
+    stopped = true;
     generation = {};
     playing = false;
     pcmBuffer.clear();
@@ -256,6 +265,7 @@ export function createVoicePlaybackAdapter(
       bytes: Uint8Array,
       playbackOptions: VoicePlaybackBytesOptions = {},
     ) {
+      stopped = false;
       if (isLocalPcmFrame(bytes)) {
         await playLocalPcmFrame(bytes, playbackOptions);
         return;

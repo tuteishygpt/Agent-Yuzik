@@ -18,6 +18,7 @@ import { useVoiceAnimations } from "@/features/voice/useVoiceAnimations";
 import { useVoiceSession } from "@/features/voice/useVoiceSession";
 import { getRuntimeEnv } from "@/lib/env";
 import { getSupabaseSession } from "@/lib/supabase";
+import { useAuth } from "@/providers/AuthProvider";
 import { webGlassPanel, webTextStyles, webTheme } from "@/theme/webTheme";
 
 const VISUALIZER_BAR_COUNT = 24;
@@ -72,6 +73,7 @@ function VisualizerBars({
 }
 
 export default function VoiceScreen() {
+  const auth = useAuth();
   const teacherMode = useTeacherMode();
   const voiceSession = useVoiceSession({ teacherMode });
   const uiState = resolveVoiceUiState({
@@ -106,8 +108,10 @@ export default function VoiceScreen() {
   }, [teacherMode]);
 
   useEffect(() => {
-    void voiceSession.connect();
-  }, []);
+    if (auth.status === "ready" && auth.session) {
+      void voiceSession.connect();
+    }
+  }, [auth.status, auth.session]);
 
   return (
     <SafeAreaView style={styles.screen}>

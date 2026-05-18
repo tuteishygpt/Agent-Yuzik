@@ -10,8 +10,11 @@ function usePulseLoop(
   useNativeDriver = true,
 ) {
   const value = useRef(new Animated.Value(0)).current;
+  const loopRef = useRef<Animated.CompositeAnimation | null>(null);
 
   useEffect(() => {
+    loopRef.current?.stop();
+    loopRef.current = null;
     value.stopAnimation();
     value.setValue(0);
 
@@ -34,8 +37,12 @@ function usePulseLoop(
       ]),
     );
 
+    loopRef.current = loop;
     loop.start();
-    return () => loop.stop();
+    return () => {
+      loop.stop();
+      loopRef.current = null;
+    };
   }, [value, shouldAnimate, duration, easing, useNativeDriver]);
 
   return value;

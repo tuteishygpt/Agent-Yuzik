@@ -120,7 +120,7 @@ export function createDefaultVoiceRecorderAdapter(): VoiceRecorderAdapter {
 export function createVoiceRecorderAdapter(
   _injectedRecorder?: unknown,
 ): VoiceRecorderAdapter {
-  type RecorderState = "idle" | "preparing" | "prepared" | "recording" | "stopping";
+  type RecorderState = "idle" | "prepared" | "recording" | "stopping";
   let state: RecorderState = "idle";
   let pcmChunks: Uint8Array[] = [];
   let totalPcmBytes = 0;
@@ -128,37 +128,37 @@ export function createVoiceRecorderAdapter(
   let lastMeteringAt = 0;
   let peakSinceLastEmit = -160;
   let activeStream: LiveAudioStream | null = null;
+  let permissionGranted = false;
 
   return {
     async prepare() {
       if (state !== "idle") return;
-      state = "preparing";
 
-      try {
-        await ensureMicrophonePermission();
-
-        const stream = loadLiveAudioStream();
-        stream.init({
-          sampleRate: SAMPLE_RATE,
-          channels: CHANNELS,
-          bitsPerSample: BITS_PER_SAMPLE,
-          audioSource: 6,
-        });
-        activeStream = stream;
-        state = "prepared";
-      } catch (e) {
-        state = "idle";
-        throw e;
-      }
+      await ensureMicrophonePermission();
+      permissionGranted = true;
+      state = "prepared";
     },
     async start(onMetering?: MeteringCallback) {
       if (state !== "prepared") return;
+
+      if (!permissionGranted) {
+        await ensureMicrophonePermission();
+        permissionGranted = true;
+      }
 
       pcmChunks = [];
       totalPcmBytes = 0;
       meteringCb = onMetering ?? null;
 
-      const stream = activeStream ?? loadLiveAudioStream();
+      const stream = loadLiveAudioStream();
+      stream.init({
+        sampleRate: SAMPLE_RATE,
+        channels: CHANNELS,
+        bitsPerSample: BITS_PER_SAMPLE,
+        audioSource: 6,
+      });
+      activeStream = stream;
+
       stream.on("data", (base64: string) => {
         const chunk = new Uint8Array(Buffer.from(base64, "base64"));
         pcmChunks.push(chunk);
@@ -185,12 +185,15 @@ export function createVoiceRecorderAdapter(
       }
 
       state = "stopping";
-      const stream = activeStream ?? loadLiveAudioStream();
+      const stream = activeStream;
       activeStream = null;
-      await stopLiveAudioStream(stream);
+
+      if (stream) {
+        await stopLiveAudioStream(stream);
+      }
 
       if (totalPcmBytes === 0) {
-        state = "idle";
+        state = "prepared";
         return { uri: null, wavBytes: null };
       }
 
@@ -205,7 +208,7 @@ export function createVoiceRecorderAdapter(
 
       pcmChunks = [];
       totalPcmBytes = 0;
-      state = "idle";
+      state = "prepared";
 
       return { uri: null, wavBytes };
     },

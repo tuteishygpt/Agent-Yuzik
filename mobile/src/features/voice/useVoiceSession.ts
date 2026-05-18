@@ -8,6 +8,11 @@ import type {
 import { useTeacherMode } from "@/features/teacher/useTeacherMode";
 import type { VoicePlaybackAdapter } from "@/lib/audio-playback";
 import type { VoiceRecorderAdapter } from "@/lib/audio-recording";
+import {
+  DEFAULT_LOCAL_PCM_EMPTY_GRACE_MS,
+  getLocalPcmSampleCount,
+  isLocalPcmFrame,
+} from "@/lib/audio-pcm-format";
 import type { VadConfig } from "@/lib/vad";
 import { toErrorMessage } from "@/lib/errors";
 
@@ -73,8 +78,8 @@ export type VoiceSession = VoiceSessionState & {
 };
 
 const RESUME_AFTER_RESPONSE_MS = 900;
-const RESUME_AFTER_AUDIO_IDLE_MS = 900;
-const CLIENT_PLAYBACK_MIN_BUFFER_MS = 480;
+const NON_STREAMING_AUDIO_IDLE_FALLBACK_MS = 900;
+const CLIENT_PLAYBACK_MIN_BUFFER_MS = 1200;
 const MIN_SUBMIT_SEGMENT_FRAMES = 10;
 const MIN_SUBMIT_PEAK_DB = -36;
 
@@ -124,14 +129,14 @@ export function useVoiceSession(
   });
   const vadRecordingActiveRef = useRef(false);
   const vadRestartingRef = useRef(false);
+  const playbackSequenceRef = useRef(0);
+  const playbackQueueEndAtRef = useRef(0);
 
   const recording = useVoiceRecording(options.recording);
   const playback = useVoicePlayback(options.playback);
   const vad = useVoiceVad(options.vadConfig);
 
-  function update(
-    updater: (current: VoiceSessionState) => VoiceSessionState,
-  ) {
+  function update(updater: (current: VoiceSessionState) => VoiceSessionState) {
     const next = updater(stateRef.current);
     stateRef.current = next;
     setState(next);
@@ -232,20 +237,33 @@ export function useVoiceSession(
   }
 
   function startVadRecording() {
-    return recording.start((db) => feedVadMeteringFrame(db)).then(() => {
-      vadRecordingActiveRef.current = true;
-    });
+    return recording
+      .start((db) => feedVadMeteringFrame(db))
+      .then(() => {
+        vadRecordingActiveRef.current = true;
+      });
   }
+
+  const stopVadRecordingInFlight = useRef<Promise<{ wavBytes: Uint8Array | null }> | null>(null);
 
   function stopVadRecording() {
     if (!vadRecordingActiveRef.current) {
       return Promise.resolve({ wavBytes: null });
     }
 
+    if (stopVadRecordingInFlight.current) {
+      return stopVadRecordingInFlight.current;
+    }
+
     vadRecordingActiveRef.current = false;
-    return recording
+    const promise = recording
       .stop()
-      .catch(() => ({ wavBytes: null }) as { wavBytes: null });
+      .catch(() => ({ wavBytes: null }) as { wavBytes: Uint8Array | null })
+      .finally(() => {
+        stopVadRecordingInFlight.current = null;
+      });
+    stopVadRecordingInFlight.current = promise;
+    return promise;
   }
 
   function suspendVadRecording() {
@@ -261,16 +279,32 @@ export function useVoiceSession(
     }
   }
 
-  function scheduleResumeListening(delayMs: number) {
+  function scheduleResumeListening(delayMs: number, sequence?: number) {
     clearResumeListeningTimer();
     resumeListeningTimerRef.current = setTimeout(() => {
+      if (
+        typeof sequence === "number" &&
+        sequence !== playbackSequenceRef.current
+      ) {
+        return;
+      }
+
       resumeListeningTimerRef.current = null;
-      update((s) => ({ ...s, isPlaying: false, connectionStatus: "connected" }));
+      update((s) => ({
+        ...s,
+        isPlaying: false,
+        connectionStatus: "connected",
+      }));
       if (stateRef.current.isListening) {
         startVadSession();
         void startVadRecording().catch((error: unknown) => {
           const msg = toErrorMessage(error);
-          update((s) => ({ ...s, connectionStatus: "error", error: msg, isListening: false }));
+          update((s) => ({
+            ...s,
+            connectionStatus: "error",
+            error: msg,
+            isListening: false,
+          }));
         });
       }
     }, delayMs);
@@ -279,26 +313,81 @@ export function useVoiceSession(
   useEffect(() => clearResumeListeningTimer, []);
 
   function getPlaybackMinBufferMs(configuredMs: number | undefined): number {
-    return configuredMs && configuredMs > 0
+    return configuredMs !== undefined && configuredMs >= 0
       ? configuredMs
       : CLIENT_PLAYBACK_MIN_BUFFER_MS;
+  }
+
+  function getPlaybackEndGraceMs(configuredMs: number | undefined): number {
+    return configuredMs && configuredMs > 0
+      ? configuredMs
+      : DEFAULT_LOCAL_PCM_EMPTY_GRACE_MS;
+  }
+
+  function getAudioChunkDurationMs(
+    bytes: Uint8Array,
+    sampleRate: number | undefined,
+  ): number | null {
+    if (!isLocalPcmFrame(bytes)) {
+      return null;
+    }
+
+    const effectiveSampleRate =
+      sampleRate && sampleRate > 0 ? sampleRate : 24000;
+    return (getLocalPcmSampleCount(bytes) / effectiveSampleRate) * 1000;
+  }
+
+  function scheduleResumeAfterAudioChunk(bytes: Uint8Array): void {
+    const playbackSequence = playbackSequenceRef.current + 1;
+    playbackSequenceRef.current = playbackSequence;
+
+    const now = Date.now();
+    const sampleRate = stateRef.current.voiceConfig?.sample_rate;
+    const chunkDurationMs = getAudioChunkDurationMs(bytes, sampleRate);
+
+    if (chunkDurationMs === null) {
+      playbackQueueEndAtRef.current =
+        now + NON_STREAMING_AUDIO_IDLE_FALLBACK_MS;
+      scheduleResumeListening(
+        NON_STREAMING_AUDIO_IDLE_FALLBACK_MS,
+        playbackSequence,
+      );
+      return;
+    }
+
+    const minBufferMs = getPlaybackMinBufferMs(
+      stateRef.current.voiceConfig?.playback_min_buffer_ms,
+    );
+    const graceMs = getPlaybackEndGraceMs(
+      stateRef.current.voiceConfig?.playback_empty_grace_ms,
+    );
+    const queueStartAt =
+      playbackQueueEndAtRef.current > now
+        ? playbackQueueEndAtRef.current
+        : now + minBufferMs;
+
+    playbackQueueEndAtRef.current = queueStartAt + chunkDurationMs;
+    scheduleResumeListening(
+      Math.max(0, playbackQueueEndAtRef.current - now + graceMs),
+      playbackSequence,
+    );
   }
 
   function handleMessage(message: VoiceSocketMessage) {
     if (message.type === "audio") {
       if (vadRestartingRef.current) return;
       clearResumeListeningTimer();
-      suspendVadRecording();
-      update((s) => ({ ...s, isPlaying: true }));
+      if (!stateRef.current.isPlaying) {
+        suspendVadRecording();
+        update((s) => ({ ...s, isPlaying: true }));
+      }
+      scheduleResumeAfterAudioChunk(message.bytes);
       void playback
         .play(message.bytes, {
           sampleRate: stateRef.current.voiceConfig?.sample_rate,
           playbackMinBufferMs: getPlaybackMinBufferMs(
             stateRef.current.voiceConfig?.playback_min_buffer_ms,
           ),
-        })
-        .then(() => {
-          scheduleResumeListening(RESUME_AFTER_AUDIO_IDLE_MS);
         })
         .catch((error: unknown) => {
           const msg = toErrorMessage(error);
@@ -311,7 +400,12 @@ export function useVoiceSession(
           if (stateRef.current.isListening) {
             startVadSession();
             void startVadRecording().catch((e: unknown) => {
-              update((s) => ({ ...s, connectionStatus: "error", error: toErrorMessage(e), isListening: false }));
+              update((s) => ({
+                ...s,
+                connectionStatus: "error",
+                error: toErrorMessage(e),
+                isListening: false,
+              }));
             });
           }
         });
@@ -346,9 +440,7 @@ export function useVoiceSession(
       update((s) => ({
         ...s,
         connectionStatus: "connected",
-        retryNotice: message.fallback_reason
-          ? "reconnected"
-          : s.retryNotice,
+        retryNotice: message.fallback_reason ? "reconnected" : s.retryNotice,
       }));
       scheduleResumeListening(RESUME_AFTER_RESPONSE_MS);
       return;
@@ -381,18 +473,29 @@ export function useVoiceSession(
     if (message.type === "interruption_handshake") {
       clearResumeListeningTimer();
       playback.stop();
-      update((s) => ({ ...s, connectionStatus: "connected", isPlaying: false }));
+      update((s) => ({
+        ...s,
+        connectionStatus: "connected",
+        isPlaying: false,
+      }));
       stopVadSession();
       if (stateRef.current.isListening) {
         vadRestartingRef.current = true;
         void stopVadRecording().then(() =>
-          startVadRecording().then(() => {
-            vadRestartingRef.current = false;
-            startVadSession();
-          }).catch((e: unknown) => {
-            vadRestartingRef.current = false;
-            update((s) => ({ ...s, connectionStatus: "error", error: toErrorMessage(e), isListening: false }));
-          }),
+          startVadRecording()
+            .then(() => {
+              vadRestartingRef.current = false;
+              startVadSession();
+            })
+            .catch((e: unknown) => {
+              vadRestartingRef.current = false;
+              update((s) => ({
+                ...s,
+                connectionStatus: "error",
+                error: toErrorMessage(e),
+                isListening: false,
+              }));
+            }),
         );
       }
     }
@@ -468,7 +571,9 @@ export function useVoiceSession(
     }
 
     update((s) => ({ ...s, isListening: true }));
-    console.log("[VoiceSession] startListening: recording started, VAD starting");
+    console.log(
+      "[VoiceSession] startListening: recording started, VAD starting",
+    );
 
     startVadSession();
   }
@@ -490,7 +595,12 @@ export function useVoiceSession(
       startVadSession();
       void stopVadRecording().then(() =>
         startVadRecording().catch((e: unknown) => {
-          update((s) => ({ ...s, connectionStatus: "error", error: toErrorMessage(e), isListening: false }));
+          update((s) => ({
+            ...s,
+            connectionStatus: "error",
+            error: toErrorMessage(e),
+            isListening: false,
+          }));
         }),
       );
     }

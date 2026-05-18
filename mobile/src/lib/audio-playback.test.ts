@@ -163,7 +163,10 @@ describe("audio playback adapter", () => {
     });
 
     await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
     jest.advanceTimersByTime(120);
+    await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
     await started;

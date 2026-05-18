@@ -37,7 +37,6 @@ export function useVoiceRecording(
         return { wavBytes: null };
       }
       const result = await recorder.stop();
-      preparedRef.current = false;
       return { wavBytes: result.wavBytes ?? null };
     },
   };
