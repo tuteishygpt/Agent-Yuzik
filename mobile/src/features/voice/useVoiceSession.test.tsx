@@ -88,10 +88,10 @@ function createRecorder() {
 
 function createPlayback() {
   return {
-    play: jest.fn().mockResolvedValue(undefined),
+    playBytes: jest.fn().mockResolvedValue(undefined),
     stop: jest.fn(),
     release: jest.fn(),
-    isPlaying: false,
+    isPlaying: jest.fn(() => false),
   };
 }
 
@@ -232,6 +232,151 @@ describe("useVoiceSession", () => {
 
     expect(playback.stop).toHaveBeenCalledTimes(1);
     expect(socket.sendInterrupt).toHaveBeenCalledTimes(1);
+  });
+
+  it("passes voice config playback buffering to audio playback", async () => {
+    jest.useFakeTimers();
+
+    const socket = createSocketClient();
+    const playback = createPlayback();
+    let latestSession: ReturnType<typeof useVoiceSession> | null = null;
+    let renderer!: TestRenderer.ReactTestRenderer;
+
+    function Probe() {
+      latestSession = useVoiceSession({
+        backendUrl: "https://api.yuzik.example",
+        getAccessToken: async () => "token-123",
+        teacherMode: mockTeacherMode as never,
+        socketClientFactory: () => socket,
+        playback: playback as never,
+      });
+
+      return <Text>{latestSession.connectionStatus}</Text>;
+    }
+
+    await act(async () => {
+      renderer = TestRenderer.create(<Probe />);
+    });
+
+    await act(async () => {
+      await latestSession?.connect();
+      socket.emit({
+        type: "voice_config",
+        sample_rate: 24000,
+        playback_min_buffer_ms: 420,
+      });
+      socket.emit({ type: "audio", bytes: new Uint8Array([1, 2, 3]) });
+    });
+
+    expect(playback.playBytes).toHaveBeenCalledWith(new Uint8Array([1, 2, 3]), {
+      sampleRate: 24000,
+      playbackMinBufferMs: 420,
+    });
+
+    await act(async () => {
+      renderer.unmount();
+    });
+    jest.useRealTimers();
+  });
+
+  it("fully stops recording during playback and restarts a fresh VAD session afterwards", async () => {
+    jest.useFakeTimers();
+
+    const socket = createSocketClient();
+    const recorder = createRecorder();
+    const playback = createPlayback();
+    let latestSession: ReturnType<typeof useVoiceSession> | null = null;
+    let renderer!: TestRenderer.ReactTestRenderer;
+
+    function Probe() {
+      latestSession = useVoiceSession({
+        backendUrl: "https://api.yuzik.example",
+        getAccessToken: async () => "token-123",
+        teacherMode: mockTeacherMode as never,
+        socketClientFactory: () => socket,
+        recording: recorder as never,
+        playback: playback as never,
+        vadConfig: {
+          redemptionFrames: 3,
+        },
+      });
+
+      return <Text>{latestSession.status}</Text>;
+    }
+
+    await act(async () => {
+      renderer = TestRenderer.create(<Probe />);
+    });
+
+    await act(async () => {
+      await latestSession?.connect();
+      await latestSession?.startListening();
+      socket.emit({ type: "audio", bytes: new Uint8Array([9, 8, 7]) });
+      await Promise.resolve();
+    });
+
+    expect(recorder.stop).toHaveBeenCalledTimes(1);
+    expect(socket.sendAudio).not.toHaveBeenCalled();
+
+    const oldMetering = recorder.start.mock.calls[0][0] as (db: number) => void;
+    await act(async () => {
+      [
+        -32.2,
+        -33.43,
+        -35.69,
+        -34.1,
+        -33.8,
+        -34.4,
+        -35.2,
+        -34.7,
+        -33.9,
+        -35.1,
+        -34.8,
+        -35.4,
+      ].forEach(oldMetering);
+      [-45, -45, -45].forEach(oldMetering);
+      await Promise.resolve();
+    });
+
+    expect(recorder.stop).toHaveBeenCalledTimes(1);
+    expect(socket.sendAudio).not.toHaveBeenCalled();
+
+    await act(async () => {
+      jest.advanceTimersByTime(900);
+      await Promise.resolve();
+    });
+
+    expect(recorder.start).toHaveBeenCalledTimes(2);
+
+    const freshMetering = recorder.start.mock.calls[1][0] as (db: number) => void;
+    await act(async () => {
+      [
+        -32.2,
+        -33.43,
+        -35.69,
+        -34.1,
+        -33.8,
+        -34.4,
+        -35.2,
+        -34.7,
+        -33.9,
+        -35.1,
+        -34.8,
+        -35.4,
+      ].forEach(freshMetering);
+      [-45, -45, -45].forEach(freshMetering);
+      await Promise.resolve();
+    });
+
+    expect(recorder.stop).toHaveBeenCalledTimes(2);
+    expect(socket.sendAudio).toHaveBeenCalledWith({
+      wavBytes: new Uint8Array([1, 2, 3]),
+    });
+
+    await act(async () => {
+      renderer.unmount();
+    });
+    jest.useRealTimers();
   });
 
   it("shows a recoverable error when voice socket connect fails", async () => {
@@ -384,5 +529,114 @@ describe("useVoiceSession", () => {
 
     expect(readRenderedText(renderer)).toContain("Recorder failed to start.");
     expect(session.isRecording).toBe(false);
+  });
+
+  it("sends the VAD recording after speech falls back to the Android live-stream noise floor", async () => {
+    const socket = createSocketClient();
+    const recorder = createRecorder();
+    let latestSession: ReturnType<typeof useVoiceSession> | null = null;
+
+    function Probe() {
+      latestSession = useVoiceSession({
+        backendUrl: "https://api.yuzik.example",
+        getAccessToken: async () => "token-123",
+        teacherMode: mockTeacherMode as never,
+        socketClientFactory: () => socket,
+        recording: recorder as never,
+        vadConfig: {
+          redemptionFrames: 3,
+        },
+      });
+
+      return <Text>{latestSession.status}</Text>;
+    }
+
+    await act(async () => {
+      TestRenderer.create(<Probe />);
+    });
+
+    await act(async () => {
+      await latestSession?.connect();
+      await latestSession?.startListening();
+    });
+
+    const onMetering = recorder.start.mock.calls[0][0] as (db: number) => void;
+
+    await act(async () => {
+      [
+        -32.2,
+        -33.43,
+        -35.69,
+        -34.1,
+        -33.8,
+        -34.4,
+        -35.2,
+        -34.7,
+        -33.9,
+        -35.1,
+        -34.8,
+        -35.4,
+      ].forEach(onMetering);
+      [-45, -45, -45].forEach(onMetering);
+      await Promise.resolve();
+    });
+
+    expect(recorder.stop).toHaveBeenCalledTimes(1);
+    expect(socket.sendAudio).toHaveBeenCalledWith({
+      wavBytes: new Uint8Array([1, 2, 3]),
+    });
+    expect(recorder.start).toHaveBeenCalledTimes(1);
+  });
+
+  it("drops short low-confidence VAD segments without sending silence to the backend", async () => {
+    jest.useFakeTimers();
+
+    const socket = createSocketClient();
+    const recorder = createRecorder();
+    let latestSession: ReturnType<typeof useVoiceSession> | null = null;
+
+    function Probe() {
+      latestSession = useVoiceSession({
+        backendUrl: "https://api.yuzik.example",
+        getAccessToken: async () => "token-123",
+        teacherMode: mockTeacherMode as never,
+        socketClientFactory: () => socket,
+        recording: recorder as never,
+        vadConfig: {
+          redemptionFrames: 3,
+        },
+      });
+
+      return <Text>{latestSession.status}</Text>;
+    }
+
+    await act(async () => {
+      TestRenderer.create(<Probe />);
+    });
+
+    await act(async () => {
+      await latestSession?.connect();
+      await latestSession?.startListening();
+    });
+
+    const onMetering = recorder.start.mock.calls[0][0] as (db: number) => void;
+
+    await act(async () => {
+      [-39, -38.5, -39.2].forEach(onMetering);
+      [-45, -45, -45].forEach(onMetering);
+      await Promise.resolve();
+    });
+
+    expect(recorder.stop).toHaveBeenCalledTimes(1);
+    expect(socket.sendAudio).not.toHaveBeenCalled();
+
+    await act(async () => {
+      jest.advanceTimersByTime(900);
+      await Promise.resolve();
+    });
+
+    expect(recorder.start).toHaveBeenCalledTimes(2);
+
+    jest.useRealTimers();
   });
 });

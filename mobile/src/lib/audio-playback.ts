@@ -25,6 +25,7 @@ export type VoicePlaybackAdapter = {
 
 export type VoicePlaybackBytesOptions = {
   sampleRate?: number;
+  playbackMinBufferMs?: number;
 };
 
 type VoicePlaybackSound = {
@@ -212,6 +213,7 @@ export function createVoicePlaybackAdapter(
         await nativePcm?.pushFloat32Pcm(
           bytes.slice(LOCAL_PCM_FRAME_HEADER_SIZE),
           sampleRate,
+          playbackOptions.playbackMinBufferMs ?? 0,
         );
         playing = true;
         return;

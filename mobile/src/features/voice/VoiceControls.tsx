@@ -34,11 +34,11 @@ export function VoiceControls({
   onStopTeacherLesson,
 }: VoiceControlsProps) {
   const statusLabel = isRecording
-    ? "Слухаю"
-    : isListening
-      ? "VAD актыўны"
-      : status === "processing"
-        ? "Думаю"
+    ? "Слухаю фразу"
+    : status === "processing"
+      ? "Думаю"
+      : isListening
+        ? "Чакаю голас"
         : status === "connected"
           ? "Гатова"
           : status;

@@ -31,20 +31,20 @@ export type VoiceUiState = {
 };
 
 function resolvePhase(input: VoiceUiInput): VoiceUiPhase {
-  if (input.isRecording) {
-    return "recording";
-  }
-
-  if (input.isListening && !input.isRecording) {
-    return "listening";
-  }
-
   if (input.isPlaying) {
     return "speaking";
   }
 
   if (input.status === "processing") {
     return "processing";
+  }
+
+  if (input.isRecording) {
+    return "recording";
+  }
+
+  if (input.isListening && !input.isRecording) {
+    return "listening";
   }
 
   if (input.status === "connecting" || input.status === "reconnecting") {
@@ -84,7 +84,7 @@ export function resolveVoiceUiState(input: VoiceUiInput): VoiceUiState {
     return {
       phase,
       connectionLabel: "Падключана",
-      statusLabel: "Слухаю...",
+      statusLabel: "Слухаю фразу...",
       accentColor: webTheme.colors.listening,
       haloColor: webTheme.colors.listeningGlow,
       icon: "🎙",
@@ -113,7 +113,7 @@ export function resolveVoiceUiState(input: VoiceUiInput): VoiceUiState {
   if (phase === "speaking") {
     return {
       phase,
-      connectionLabel: "Падключана",
+      connectionLabel: "Адказваю",
       statusLabel: "Юзік адказвае...",
       accentColor: webTheme.colors.speaking,
       haloColor: webTheme.colors.speakingGlow,

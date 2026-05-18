@@ -30,10 +30,10 @@ export type VadInstance = {
 };
 
 const DEFAULT_CONFIG: VadConfig = {
-  positiveSpeechThreshold: -35,
-  negativeSpeechThreshold: -50,
+  positiveSpeechThreshold: -40,
+  negativeSpeechThreshold: -42,
   redemptionFrames: 8,
-  minSpeechFrames: 5,
+  minSpeechFrames: 3,
 };
 
 export function createVad(

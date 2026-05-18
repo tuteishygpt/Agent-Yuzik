@@ -82,4 +82,24 @@ describe("createVad", () => {
     vad.processFrame(-20);
     expect(onSpeechStart).toHaveBeenCalledTimes(1);
   });
+
+  it("detects the short Android live-stream speech burst seen in device logs", () => {
+    const onSpeechStart = jest.fn();
+    const vad = createVad({ onSpeechStart, onSpeechEnd: jest.fn() });
+
+    [
+      -67.62,
+      -67.42,
+      -66.11,
+      -68.02,
+      -45.93,
+      -32.2,
+      -33.43,
+      -35.69,
+      -40.72,
+      -44.97,
+    ].forEach((db) => vad.processFrame(db));
+
+    expect(onSpeechStart).toHaveBeenCalledTimes(1);
+  });
 });

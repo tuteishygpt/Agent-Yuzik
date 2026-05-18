@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 
 import type {
   VoiceConfigMessage,
@@ -72,7 +72,11 @@ export type VoiceSession = VoiceSessionState & {
   stopTeacherLesson: () => Promise<void>;
 };
 
-const ANTI_ECHO_DELAY_MS = 350;
+const RESUME_AFTER_RESPONSE_MS = 900;
+const RESUME_AFTER_AUDIO_IDLE_MS = 900;
+const CLIENT_PLAYBACK_MIN_BUFFER_MS = 480;
+const MIN_SUBMIT_SEGMENT_FRAMES = 10;
+const MIN_SUBMIT_PEAK_DB = -36;
 
 const initialState: VoiceSessionState = {
   connectionStatus: "idle",
@@ -96,6 +100,12 @@ function createTranscriptEntry(
   };
 }
 
+type VadSegmentStats = {
+  active: boolean;
+  frames: number;
+  peakDb: number;
+};
+
 export function useVoiceSession(
   options: VoiceSessionOptions = {},
 ): VoiceSession {
@@ -103,6 +113,16 @@ export function useVoiceSession(
   const teacherMode = options.teacherMode ?? teacherModeFromHook;
   const [state, setState] = useState<VoiceSessionState>(initialState);
   const stateRef = useRef<VoiceSessionState>(initialState);
+  const resumeListeningTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const latestVadDbRef = useRef(-160);
+  const speechSegmentRef = useRef<VadSegmentStats>({
+    active: false,
+    frames: 0,
+    peakDb: -160,
+  });
+  const vadRecordingActiveRef = useRef(false);
 
   const recording = useVoiceRecording(options.recording);
   const playback = useVoicePlayback(options.playback);
@@ -111,38 +131,149 @@ export function useVoiceSession(
   function update(
     updater: (current: VoiceSessionState) => VoiceSessionState,
   ) {
-    setState((current) => {
-      const next = updater(current);
-      stateRef.current = next;
-      return next;
-    });
+    const next = updater(stateRef.current);
+    stateRef.current = next;
+    setState(next);
   }
 
   function appendTranscript(entry: VoiceTranscriptEntry) {
     update((s) => ({ ...s, transcript: [...s.transcript, entry] }));
   }
 
-  function resumeAfterPlayback() {
-    update((s) => ({ ...s, isPlaying: false, connectionStatus: "connected" }));
-    setTimeout(() => {
-      vad.resume();
-      if (stateRef.current.isListening && !stateRef.current.isPlaying) {
-        void recording.stop().catch(() => {}).then(() =>
-          recording
-            .start((db) => vad.feedMeteringFrame(db))
-            .catch(() => {}),
-        );
+  function resetSpeechSegment(active = false) {
+    speechSegmentRef.current = {
+      active,
+      frames: 0,
+      peakDb: latestVadDbRef.current,
+    };
+  }
+
+  function feedVadMeteringFrame(db: number) {
+    latestVadDbRef.current = db;
+    vad.feedMeteringFrame(db);
+
+    const segment = speechSegmentRef.current;
+    if (segment.active) {
+      segment.frames += 1;
+      segment.peakDb = Math.max(segment.peakDb, db);
+    }
+  }
+
+  function shouldSubmitSpeechSegment(segment: VadSegmentStats) {
+    return (
+      segment.frames >= MIN_SUBMIT_SEGMENT_FRAMES &&
+      segment.peakDb >= MIN_SUBMIT_PEAK_DB
+    );
+  }
+
+  function handleSpeechStart() {
+    console.log("[VoiceSession] VAD: speech start");
+    resetSpeechSegment(true);
+    update((s) => ({ ...s, isRecording: true }));
+  }
+
+  function handleSpeechEnd() {
+    vad.stop();
+    const completedSegment = { ...speechSegmentRef.current };
+    resetSpeechSegment(false);
+    update((s) => ({ ...s, isRecording: false }));
+
+    if (stateRef.current.isPlaying) {
+      return;
+    }
+
+    void stopVadRecording()
+      .then((result) => {
+        if (result.wavBytes && shouldSubmitSpeechSegment(completedSegment)) {
+          try {
+            update((s) => ({ ...s, connectionStatus: "processing" }));
+            socket.sendAudio({ wavBytes: result.wavBytes });
+          } catch (error) {
+            const msg = toErrorMessage(error);
+            update((s) => ({
+              ...s,
+              connectionStatus: "error",
+              error: msg,
+            }));
+          }
+          return;
+        }
+        update((s) => ({ ...s, connectionStatus: "connected" }));
+        scheduleResumeListening(RESUME_AFTER_RESPONSE_MS);
+      });
+  }
+
+  function startVadSession() {
+    resetSpeechSegment(false);
+    vad.start(handleSpeechStart, handleSpeechEnd);
+  }
+
+  function stopVadSession() {
+    vad.stop();
+    resetSpeechSegment(false);
+  }
+
+  function startVadRecording() {
+    return recording.start((db) => feedVadMeteringFrame(db)).then(() => {
+      vadRecordingActiveRef.current = true;
+    });
+  }
+
+  function stopVadRecording() {
+    if (!vadRecordingActiveRef.current) {
+      return Promise.resolve({ wavBytes: null });
+    }
+
+    vadRecordingActiveRef.current = false;
+    return recording
+      .stop()
+      .catch(() => ({ wavBytes: null }) as { wavBytes: null });
+  }
+
+  function suspendVadRecording() {
+    stopVadSession();
+    update((s) => ({ ...s, isRecording: false }));
+    void stopVadRecording();
+  }
+
+  function clearResumeListeningTimer() {
+    if (resumeListeningTimerRef.current) {
+      clearTimeout(resumeListeningTimerRef.current);
+      resumeListeningTimerRef.current = null;
+    }
+  }
+
+  function scheduleResumeListening(delayMs: number) {
+    clearResumeListeningTimer();
+    resumeListeningTimerRef.current = setTimeout(() => {
+      resumeListeningTimerRef.current = null;
+      update((s) => ({ ...s, isPlaying: false, connectionStatus: "connected" }));
+      if (stateRef.current.isListening) {
+        startVadSession();
+        void startVadRecording().catch(() => {});
       }
-    }, ANTI_ECHO_DELAY_MS);
+    }, delayMs);
+  }
+
+  useEffect(() => clearResumeListeningTimer, []);
+
+  function getPlaybackMinBufferMs(configuredMs: number | undefined): number {
+    return configuredMs && configuredMs > 0
+      ? configuredMs
+      : CLIENT_PLAYBACK_MIN_BUFFER_MS;
   }
 
   function handleMessage(message: VoiceSocketMessage) {
     if (message.type === "audio") {
-      vad.pause();
+      clearResumeListeningTimer();
+      suspendVadRecording();
       update((s) => ({ ...s, isPlaying: true }));
       void playback
         .play(message.bytes, {
           sampleRate: stateRef.current.voiceConfig?.sample_rate,
+          playbackMinBufferMs: getPlaybackMinBufferMs(
+            stateRef.current.voiceConfig?.playback_min_buffer_ms,
+          ),
         })
         .catch((error: unknown) => {
           const msg = toErrorMessage(error);
@@ -152,8 +283,12 @@ export function useVoiceSession(
             error: msg,
             isPlaying: false,
           }));
-          vad.resume();
+          if (stateRef.current.isListening) {
+            startVadSession();
+            void startVadRecording().catch(() => {});
+          }
         });
+      scheduleResumeListening(RESUME_AFTER_AUDIO_IDLE_MS);
       return;
     }
 
@@ -168,7 +303,8 @@ export function useVoiceSession(
     }
 
     if (message.type === "processing") {
-      vad.pause();
+      clearResumeListeningTimer();
+      stopVadSession();
       appendTranscript(createTranscriptEntry("system", "processing"));
       update((s) => ({ ...s, connectionStatus: "processing" }));
       return;
@@ -188,7 +324,7 @@ export function useVoiceSession(
           ? "reconnected, please retry"
           : s.retryNotice,
       }));
-      resumeAfterPlayback();
+      scheduleResumeListening(RESUME_AFTER_RESPONSE_MS);
       return;
     }
 
@@ -217,14 +353,14 @@ export function useVoiceSession(
     }
 
     if (message.type === "interruption_handshake") {
+      clearResumeListeningTimer();
       playback.stop();
       update((s) => ({ ...s, connectionStatus: "connected", isPlaying: false }));
-      vad.resume();
+      stopVadSession();
       if (stateRef.current.isListening) {
-        void recording.stop().catch(() => {}).then(() =>
-          recording
-            .start((db) => vad.feedMeteringFrame(db))
-            .catch(() => {}),
+        startVadSession();
+        void stopVadRecording().then(() =>
+          startVadRecording().catch(() => {}),
         );
       }
     }
@@ -287,7 +423,7 @@ export function useVoiceSession(
 
   async function startListening() {
     try {
-      await recording.start((db) => vad.feedMeteringFrame(db));
+      await startVadRecording();
     } catch (error) {
       const msg = toErrorMessage(error);
       update((s) => ({
@@ -302,52 +438,26 @@ export function useVoiceSession(
     update((s) => ({ ...s, isListening: true }));
     console.log("[VoiceSession] startListening: recording started, VAD starting");
 
-    vad.start(
-      () => {
-        console.log("[VoiceSession] VAD: speech start");
-        update((s) => ({ ...s, isRecording: true }));
-      },
-      () => {
-        update((s) => ({ ...s, isRecording: false }));
-
-        if (stateRef.current.isPlaying) {
-          return;
-        }
-
-        void recording
-          .stop()
-          .catch(() => ({ wavBytes: null }) as { wavBytes: null })
-          .then((result) => {
-            if (result.wavBytes) {
-              socket.sendAudio({ wavBytes: result.wavBytes });
-            }
-            const s = stateRef.current;
-            if (s.isListening && !s.isPlaying && s.connectionStatus !== "processing") {
-              recording
-                .start((db) => vad.feedMeteringFrame(db))
-                .catch(() => {});
-            }
-          });
-      },
-    );
+    startVadSession();
   }
 
   function stopListening() {
-    vad.stop();
-    void recording.stop();
+    clearResumeListeningTimer();
+    stopVadSession();
+    void stopVadRecording();
     update((s) => ({ ...s, isListening: false, isRecording: false }));
   }
 
   async function interrupt() {
+    clearResumeListeningTimer();
     playback.stop();
     socket.sendInterrupt();
     update((s) => ({ ...s, isPlaying: false, retryNotice: null }));
-    vad.resume();
+    stopVadSession();
     if (stateRef.current.isListening) {
-      void recording.stop().catch(() => {}).then(() =>
-        recording
-          .start((db) => vad.feedMeteringFrame(db))
-          .catch(() => {}),
+      startVadSession();
+      void stopVadRecording().then(() =>
+        startVadRecording().catch(() => {}),
       );
     }
   }

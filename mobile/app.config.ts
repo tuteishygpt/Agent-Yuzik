@@ -127,7 +127,7 @@ export default ({ config }: ConfigContext): ExpoConfigWithLegacyArchitecture => 
     newArchEnabled: false,
     orientation: "portrait",
     userInterfaceStyle: "automatic",
-    plugins: ["expo-router", "expo-secure-store", "expo-asset", "expo-audio"],
+    plugins: ["expo-router", "expo-secure-store", "expo-asset"],
     experiments: {
       typedRoutes: true,
     },

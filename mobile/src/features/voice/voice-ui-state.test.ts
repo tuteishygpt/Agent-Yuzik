@@ -14,7 +14,7 @@ describe("resolveVoiceUiState", () => {
     ).toMatchObject({
       phase: "recording",
       connectionLabel: "Падключана",
-      statusLabel: "Слухаю...",
+      statusLabel: "Слухаю фразу...",
       accentColor: webTheme.colors.listening,
       icon: "🎙",
       shouldAnimateVisualizer: true,
@@ -26,7 +26,7 @@ describe("resolveVoiceUiState", () => {
       resolveVoiceUiState({
         status: "processing",
         isRecording: false,
-        isListening: false,
+        isListening: true,
         isPlaying: false,
       }),
     ).toMatchObject({
@@ -49,6 +49,7 @@ describe("resolveVoiceUiState", () => {
       }),
     ).toMatchObject({
       phase: "speaking",
+      connectionLabel: "Адказваю",
       statusLabel: "Юзік адказвае...",
       accentColor: webTheme.colors.speaking,
       icon: "🔊",

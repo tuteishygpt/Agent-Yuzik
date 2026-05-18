@@ -8,7 +8,7 @@ import {
 export type VoicePlaybackControls = {
   play: (
     bytes: Uint8Array,
-    options?: { sampleRate?: number },
+    options?: { sampleRate?: number; playbackMinBufferMs?: number },
   ) => Promise<void>;
   stop: () => void;
   release: () => void;

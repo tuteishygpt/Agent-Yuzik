@@ -117,12 +117,14 @@ describe("audio playback adapter", () => {
 
     await playback.playBytes(createLocalPcmFrame([0.1, 0.2]), {
       sampleRate: 24000,
+      playbackMinBufferMs: 420,
     });
 
     expect(nativePcm.pushFloat32Pcm).toHaveBeenCalledTimes(1);
     expect(nativePcm.pushFloat32Pcm).toHaveBeenCalledWith(
       expect.any(Uint8Array),
       24000,
+      420,
     );
     const pushedBytes = nativePcm.pushFloat32Pcm.mock.calls[0][0] as Uint8Array;
     const view = new DataView(

@@ -2,14 +2,22 @@ import { Buffer } from "buffer";
 import { NativeModules, Platform } from "react-native";
 
 type NativePcmPlayerModule = {
-  pushFloat32Pcm: (base64Pcm: string, sampleRate: number) => Promise<void>;
+  pushFloat32Pcm: (
+    base64Pcm: string,
+    sampleRate: number,
+    minBufferMs: number,
+  ) => Promise<void>;
   reset: () => Promise<void>;
   stop: () => Promise<void>;
 };
 
 export type NativePcmPlayer = {
   isAvailable: () => boolean;
-  pushFloat32Pcm: (bytes: Uint8Array, sampleRate: number) => Promise<void>;
+  pushFloat32Pcm: (
+    bytes: Uint8Array,
+    sampleRate: number,
+    minBufferMs: number,
+  ) => Promise<void>;
   reset: () => Promise<void>;
   stop: () => Promise<void>;
 };
@@ -37,7 +45,11 @@ export function createNativePcmPlayer(): NativePcmPlayer {
     isAvailable() {
       return Platform.OS === "android" && getNativeModule() !== null;
     },
-    async pushFloat32Pcm(bytes: Uint8Array, sampleRate: number) {
+    async pushFloat32Pcm(
+      bytes: Uint8Array,
+      sampleRate: number,
+      minBufferMs: number,
+    ) {
       const nativeModule = getNativeModule();
 
       if (Platform.OS !== "android" || !nativeModule) {
@@ -47,6 +59,7 @@ export function createNativePcmPlayer(): NativePcmPlayer {
       await nativeModule.pushFloat32Pcm(
         Buffer.from(bytes).toString("base64"),
         sampleRate,
+        minBufferMs,
       );
     },
     async reset() {

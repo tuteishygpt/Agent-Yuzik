@@ -4,6 +4,8 @@ import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioTrack
+import android.os.Handler
+import android.os.Looper
 import android.util.Base64
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
@@ -17,16 +19,30 @@ import java.util.concurrent.atomic.AtomicInteger
 class NativePcmPlayerModule(
   reactContext: ReactApplicationContext
 ) : ReactContextBaseJavaModule(reactContext) {
+  companion object {
+    private const val DEFAULT_MIN_BUFFER_MS = 480
+    private const val MAX_MIN_BUFFER_MS = 2000
+    private const val TRACK_BUFFER_MS = 2000
+  }
+
   private val executor = Executors.newSingleThreadExecutor()
+  private val mainHandler = Handler(Looper.getMainLooper())
   private val generation = AtomicInteger(0)
   private val trackLock = Any()
   private var audioTrack: AudioTrack? = null
   private var currentSampleRate: Int? = null
+  private var pendingPlaySamples = 0
+  private var delayedStartRunnable: Runnable? = null
 
   override fun getName(): String = "NativePcmPlayer"
 
   @ReactMethod
-  fun pushFloat32Pcm(base64Pcm: String, sampleRate: Int, promise: Promise) {
+  fun pushFloat32Pcm(
+    base64Pcm: String,
+    sampleRate: Int,
+    minBufferMs: Int,
+    promise: Promise
+  ) {
     if (sampleRate <= 0) {
       promise.reject("E_PCM_SAMPLE_RATE", "Sample rate must be greater than zero.")
       return
@@ -56,6 +72,7 @@ class NativePcmPlayerModule(
       .get(floats)
 
     val writeGeneration = generation.get()
+    val effectiveMinBufferMs = normalizeMinBufferMs(minBufferMs)
     executor.execute {
       try {
         if (writeGeneration != generation.get()) {
@@ -64,10 +81,13 @@ class NativePcmPlayerModule(
         }
 
         val track = ensureTrack(sampleRate)
-        if (track.playState != AudioTrack.PLAYSTATE_PLAYING) {
-          track.play()
+        val writtenSamples = track.write(floats, 0, floats.size, AudioTrack.WRITE_BLOCKING)
+
+        if (writtenSamples < 0) {
+          throw IllegalStateException("AudioTrack.write failed with code $writtenSamples.")
         }
-        track.write(floats, 0, floats.size, AudioTrack.WRITE_BLOCKING)
+
+        maybeStartPlayback(track, sampleRate, effectiveMinBufferMs, writtenSamples, writeGeneration)
         promise.resolve(null)
       } catch (error: Exception) {
         promise.reject("E_PCM_WRITE", "Failed to write PCM audio.", error)
@@ -122,6 +142,7 @@ class NativePcmPlayerModule(
       }
 
       releaseTrack()
+      pendingPlaySamples = 0
 
       val minBufferSize = AudioTrack.getMinBufferSize(
         sampleRate,
@@ -129,9 +150,9 @@ class NativePcmPlayerModule(
         AudioFormat.ENCODING_PCM_FLOAT
       )
       val bufferSize = if (minBufferSize > 0) {
-        maxOf(minBufferSize, 4096)
+        maxOf(minBufferSize, sampleRate * 4 * TRACK_BUFFER_MS / 1000)
       } else {
-        sampleRate * 4 / 10
+        sampleRate * 4 * TRACK_BUFFER_MS / 1000
       }
       val format = AudioFormat.Builder()
         .setEncoding(AudioFormat.ENCODING_PCM_FLOAT)
@@ -164,6 +185,7 @@ class NativePcmPlayerModule(
 
   private fun releaseTrack() {
     synchronized(trackLock) {
+      cancelDelayedStartLocked()
       audioTrack?.let { track ->
         try {
           if (track.playState != AudioTrack.PLAYSTATE_STOPPED) {
@@ -177,6 +199,76 @@ class NativePcmPlayerModule(
       }
       audioTrack = null
       currentSampleRate = null
+      pendingPlaySamples = 0
     }
+  }
+
+  private fun normalizeMinBufferMs(minBufferMs: Int): Int =
+    when {
+      minBufferMs <= 0 -> DEFAULT_MIN_BUFFER_MS
+      minBufferMs > MAX_MIN_BUFFER_MS -> MAX_MIN_BUFFER_MS
+      else -> minBufferMs
+    }
+
+  private fun maybeStartPlayback(
+    track: AudioTrack,
+    sampleRate: Int,
+    minBufferMs: Int,
+    writtenSamples: Int,
+    writeGeneration: Int
+  ) {
+    synchronized(trackLock) {
+      if (audioTrack !== track || writeGeneration != generation.get()) {
+        return
+      }
+
+      if (track.playState == AudioTrack.PLAYSTATE_PLAYING) {
+        return
+      }
+
+      pendingPlaySamples += writtenSamples
+      val minBufferSamples = sampleRate * minBufferMs / 1000
+      if (pendingPlaySamples >= minBufferSamples) {
+        cancelDelayedStartLocked()
+        track.play()
+        pendingPlaySamples = 0
+        return
+      }
+
+      scheduleDelayedStartLocked(writeGeneration, minBufferMs)
+    }
+  }
+
+  private fun scheduleDelayedStartLocked(writeGeneration: Int, minBufferMs: Int) {
+    if (delayedStartRunnable != null) {
+      return
+    }
+
+    val runnable = Runnable {
+      executor.execute {
+        synchronized(trackLock) {
+          delayedStartRunnable = null
+          val track = audioTrack
+          if (track != null) {
+            if (
+              writeGeneration == generation.get() &&
+              pendingPlaySamples > 0 &&
+              track.playState != AudioTrack.PLAYSTATE_PLAYING
+            ) {
+              track.play()
+              pendingPlaySamples = 0
+            }
+          }
+        }
+      }
+    }
+
+    delayedStartRunnable = runnable
+    mainHandler.postDelayed(runnable, minBufferMs.toLong())
+  }
+
+  private fun cancelDelayedStartLocked() {
+    delayedStartRunnable?.let { mainHandler.removeCallbacks(it) }
+    delayedStartRunnable = null
   }
 }
