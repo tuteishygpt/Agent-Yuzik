@@ -4,6 +4,26 @@ import { render } from "@/test/render";
 
 import SettingsScreen from "../../../app/(tabs)/settings";
 
+jest.mock("@/lib/i18n", () => ({
+  useI18n: () => ({
+    locale: "en",
+    setLocale: jest.fn(),
+    t: (key: string) => {
+      const map: Record<string, string> = {
+        "settings.eyebrow": "Settings",
+        "settings.title": "Settings",
+        "settings.subtitle": "Environment and build diagnostics.",
+        "settings.language": "Language",
+        "settings.authLoading": "Loading auth",
+        "settings.signedOut": "Signed out",
+        "settings.guest": "Guest session",
+        "settings.email": "Email account",
+      };
+      return map[key] ?? key;
+    },
+  }),
+}));
+
 jest.mock("expo-constants", () => ({
   __esModule: true,
   default: {

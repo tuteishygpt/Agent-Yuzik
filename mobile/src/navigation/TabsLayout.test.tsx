@@ -11,6 +11,24 @@ jest.mock("@/providers/AuthProvider", () => ({
   useAuth: () => mockUseAuth(),
 }));
 
+jest.mock("@/lib/i18n", () => ({
+  useI18n: () => ({
+    locale: "en",
+    setLocale: jest.fn(),
+    t: (key: string) => {
+      const map: Record<string, string> = {
+        "tab.chat": "Chat",
+        "tab.voice": "Voice",
+        "tab.settings": "Settings",
+        "auth.unavailable": "Auth unavailable",
+        "auth.preparing": "Preparing secure session",
+        "auth.errorDefault": "Unable to prepare a Supabase session.",
+      };
+      return map[key] ?? key;
+    },
+  }),
+}));
+
 jest.mock("expo-router", () => {
   const React = require("react");
   const { Text } = require("react-native");

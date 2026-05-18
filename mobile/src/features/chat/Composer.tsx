@@ -1,7 +1,18 @@
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { useRef } from "react";
+import {
+  NativeSyntheticEvent,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  TextInputKeyPressEventData,
+  View,
+} from "react-native";
 
 import type { ChatAttachment } from "@/lib/file-picker";
-import { webGlassPanel, webTheme } from "@/theme/webTheme";
+import { useI18n } from "@/lib/i18n";
+import { webTheme } from "@/theme/webTheme";
 
 import { AttachmentTray } from "./AttachmentTray";
 
@@ -24,28 +35,58 @@ export function Composer({
   attachment,
   isSending,
 }: ComposerProps) {
+  const { t } = useI18n();
+  const inputRef = useRef<TextInput>(null);
+
+  const handleSubmitEditing = () => {
+    if (draftText.trim() && !isSending) {
+      void onSend();
+    }
+  };
+
+  const handleKeyPress = (e: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
+    if (Platform.OS === "web" && e.nativeEvent.key === "Enter" && !(e as any).nativeEvent.shiftKey) {
+      e.preventDefault();
+      handleSubmitEditing();
+    }
+  };
+
   return (
     <View style={styles.container}>
       <AttachmentTray attachment={attachment} onClear={onClearAttachment} />
-      <View style={styles.row}>
+      <View style={styles.inputContainer}>
         <Pressable onPress={onAttach} style={styles.attachButton}>
-          <Text style={styles.attachText}>Attach</Text>
+          <Text style={styles.iconText}>📎</Text>
         </Pressable>
         <TextInput
-          placeholder="Type a message"
-          placeholderTextColor={webTheme.colors.textDim}
+          ref={inputRef}
+          placeholder={t("chat.placeholder")}
+          placeholderTextColor={webTheme.colors.textMuted}
           style={styles.input}
           multiline
+          blurOnSubmit={false}
+          returnKeyType="send"
+          enablesReturnKeyAutomatically
+          onSubmitEditing={handleSubmitEditing}
+          onKeyPress={handleKeyPress}
           value={draftText}
           onChangeText={onChangeDraftText}
         />
         <Pressable
-          onPress={() => void onSend()}
-          style={[styles.sendButton, isSending && styles.sendButtonDisabled]}
+          onPress={() => {
+            void onSend();
+            inputRef.current?.focus();
+          }}
+          disabled={isSending || !draftText.trim()}
+          style={[
+            styles.sendButton,
+            (isSending || !draftText.trim()) && styles.sendButtonDisabled,
+          ]}
         >
-          <Text style={styles.sendText}>{isSending ? "Sending" : "Send"}</Text>
+          <Text style={styles.sendIcon}>➤</Text>
         </Pressable>
       </View>
+      <Text style={styles.footer}>{t("chat.footer")}</Text>
     </View>
   );
 }
@@ -54,46 +95,57 @@ const styles = StyleSheet.create({
   container: {
     borderTopColor: webTheme.colors.border,
     borderTopWidth: 1,
-    backgroundColor: "rgba(12, 14, 24, 0.96)",
+    paddingHorizontal: 12,
+    paddingTop: 12,
+    paddingBottom: 16,
   },
-  row: {
-    alignItems: "flex-end",
+  inputContainer: {
     flexDirection: "row",
+    alignItems: "flex-end",
     gap: 10,
-    padding: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    backgroundColor: webTheme.colors.glassBg,
+    borderWidth: 1,
+    borderColor: webTheme.colors.border,
+    borderRadius: 30,
+  },
+  attachButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  iconText: {
+    fontSize: 20,
   },
   input: {
     flex: 1,
-    minHeight: 48,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: webTheme.colors.borderStrong,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
     color: webTheme.colors.text,
-    backgroundColor: "rgba(255, 255, 255, 0.04)",
-  },
-  attachButton: {
-    borderRadius: 16,
-    ...webGlassPanel,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-  },
-  attachText: {
-    color: webTheme.colors.text,
-    fontWeight: "700",
+    fontSize: 15,
+    maxHeight: 120,
+    paddingVertical: 10,
   },
   sendButton: {
-    borderRadius: 16,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: webTheme.colors.primary,
-    paddingHorizontal: 18,
-    paddingVertical: 14,
+    alignItems: "center",
+    justifyContent: "center",
   },
   sendButtonDisabled: {
-    opacity: 0.7,
+    opacity: 0.4,
   },
-  sendText: {
+  sendIcon: {
     color: "#ffffff",
-    fontWeight: "700",
+    fontSize: 18,
+  },
+  footer: {
+    textAlign: "center",
+    fontSize: 12,
+    color: webTheme.colors.textMuted,
+    marginTop: 10,
   },
 });

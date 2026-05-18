@@ -1,10 +1,21 @@
-import { KeyboardAvoidingView, Platform, Pressable, SafeAreaView, StyleSheet, Text, View } from "react-native";
+import { useRef } from "react";
+import {
+  FlatList,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  SafeAreaView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 
+import { useI18n } from "@/lib/i18n";
 import { createChatApiClient } from "@/lib/api";
 import { getRuntimeEnv } from "@/lib/env";
 import { getSupabaseSession } from "@/lib/supabase";
 import { pickSingleAttachment } from "@/lib/file-picker";
-import { webGlassPanel, webTextStyles, webTheme } from "@/theme/webTheme";
+import { webTheme } from "@/theme/webTheme";
 
 import { Composer } from "./Composer";
 import { MessageList } from "./MessageList";
@@ -20,36 +31,56 @@ function createDefaultApi() {
 const defaultChatApi = createDefaultApi();
 
 export default function ChatScreen() {
+  const { t } = useI18n();
   const controller = useChatController({
     api: defaultChatApi,
     pickAttachment: pickSingleAttachment,
   });
+  const listRef = useRef<FlatList>(null);
+
+  const handleSelectPrompt = (prompt: string) => {
+    controller.setDraftText(prompt);
+  };
+
+  const scrollToEnd = () => {
+    if (controller.messages.length > 0) {
+      listRef.current?.scrollToEnd({ animated: true });
+    }
+  };
 
   return (
     <SafeAreaView style={styles.screen}>
       <View style={styles.bgGlowTop} />
       <View style={styles.bgGlowBottom} />
       <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
         style={styles.flex}
       >
         <View style={styles.header}>
-          <View style={styles.titleBlock}>
-            <Text style={styles.kicker}>Chat</Text>
-            <Text style={styles.title}>Ask, upload, and keep context</Text>
+          <View style={styles.headerTitle}>
+            <Text style={styles.logo}>🤖</Text>
+            <Text style={styles.title}>Юзік</Text>
           </View>
-          <Pressable onPress={() => void controller.clearHistory()} style={styles.clearButton}>
-            <Text style={styles.clearText}>Clear</Text>
-          </Pressable>
+          <View style={styles.headerActions}>
+            <Pressable onPress={() => void controller.clearHistory()} style={styles.iconBtn}>
+              <Text style={styles.iconBtnText}>🗑️</Text>
+            </Pressable>
+          </View>
         </View>
 
         {controller.error ? <Text style={styles.error}>{controller.error}</Text> : null}
         {controller.isLoadingHistory ? (
-          <Text style={styles.loading}>Loading history...</Text>
+          <Text style={styles.loading}>{t("chat.loadingHistory")}</Text>
         ) : null}
 
         <View style={styles.messages}>
-          <MessageList messages={controller.messages} />
+          <MessageList
+            ref={listRef}
+            messages={controller.messages}
+            onSelectPrompt={handleSelectPrompt}
+            onContentSizeChange={scrollToEnd}
+          />
         </View>
 
         <Composer
@@ -78,7 +109,7 @@ const styles = StyleSheet.create({
     width: 260,
     height: 260,
     borderRadius: 130,
-    backgroundColor: "rgba(78, 130, 238, 0.13)",
+    backgroundColor: webTheme.colors.bgGlowPrimary,
   },
   bgGlowBottom: {
     position: "absolute",
@@ -87,44 +118,53 @@ const styles = StyleSheet.create({
     width: 270,
     height: 270,
     borderRadius: 135,
-    backgroundColor: "rgba(130, 78, 238, 0.12)",
+    backgroundColor: webTheme.colors.bgGlowSecondary,
   },
   flex: {
     flex: 1,
   },
   header: {
-    alignItems: "flex-start",
     flexDirection: "row",
+    alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 12,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: webTheme.colors.border,
   },
-  titleBlock: {
-    flex: 1,
-    gap: 4,
+  headerTitle: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
   },
-  kicker: {
-    ...webTextStyles.eyebrow,
+  logo: {
+    fontSize: 28,
   },
   title: {
-    color: webTheme.colors.text,
-    fontSize: 24,
-    fontWeight: "800",
-    lineHeight: 30,
+    fontSize: 22,
+    fontWeight: "600",
+    color: webTheme.colors.primary,
   },
-  clearButton: {
-    borderRadius: 999,
-    ...webGlassPanel,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
   },
-  clearText: {
-    color: webTheme.colors.text,
-    fontWeight: "700",
+  iconBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: webTheme.colors.glassBg,
+    borderWidth: 1,
+    borderColor: webTheme.colors.border,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  iconBtnText: {
+    fontSize: 18,
   },
   error: {
-    color: webTheme.colors.danger,
+    color: "#ff6688",
     paddingHorizontal: 16,
     paddingBottom: 8,
   },
