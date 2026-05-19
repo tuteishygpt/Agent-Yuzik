@@ -89,6 +89,7 @@ export type VoiceSocketClient = {
 type VoiceSocketOptions = {
   url: string;
   getAccessToken: () => Promise<string | null>;
+  getInstallId?: () => Promise<string | null>;
   WebSocketImpl?: typeof WebSocket;
   onUnexpectedClose?: () => void;
 };
@@ -196,12 +197,14 @@ export function parseVoiceSocketMessage(
 export function createVoiceSocketClient({
   url,
   getAccessToken,
+  getInstallId,
   WebSocketImpl = WebSocket,
   onUnexpectedClose,
 }: VoiceSocketOptions): VoiceSocketClient {
   let socket: WebSocket | null = null;
   let authenticated = false;
   let authToken: string | null = null;
+  let installId: string | null = null;
   const listeners = new Set<VoiceSocketListener>();
 
   function emit(message: VoiceSocketMessage) {
@@ -226,6 +229,7 @@ export function createVoiceSocketClient({
 
   async function connect(): Promise<void> {
     authToken = await getAccessToken();
+    installId = (await getInstallId?.()) ?? null;
 
     if (!authToken) {
       throw new Error("Missing Supabase access token.");
@@ -276,8 +280,14 @@ export function createVoiceSocketClient({
         sendJson(socket, {
           type: "auth",
           access_token: authToken,
+          ...(installId ? { install_id: installId } : {}),
         });
-        logVoiceSocket("sent auth", { url });
+        try {
+          const claims = JSON.parse(atob(authToken!.split(".")[1]));
+          logVoiceSocket("sent auth", { url, sub: claims.sub, installId });
+        } catch {
+          logVoiceSocket("sent auth", { url });
+        }
         authenticated = true;
         subscribeAppState();
         settleConnect(resolve);

@@ -9,8 +9,10 @@ import {
   type VoiceSocketClient,
   type VoiceSocketMessage,
 } from "@/lib/voice-socket";
+import { Platform } from "react-native";
 import { VoiceError, toErrorMessage } from "@/lib/errors";
 import { getRuntimeEnv } from "@/lib/env";
+import { getOrCreateInstallId } from "@/lib/install-id";
 import { getSupabaseSession } from "@/lib/supabase";
 
 import type { VoiceSessionOptions } from "./useVoiceSession";
@@ -70,10 +72,16 @@ export function useVoiceSocket(
     socketRef.current?.disconnect();
     onStatusChangeRef.current(isReconnect ? "reconnecting" : "connecting");
 
+    const platformPrefix = Platform.OS === "ios" ? "ios" : "and";
+
     const wsUrl = buildVoiceSocketUrl(backendUrl);
     const socket = socketFactory({
       url: wsUrl,
       getAccessToken,
+      getInstallId: async () => {
+        const id = await getOrCreateInstallId();
+        return `voice-user-${platformPrefix}-${id.slice(0, 5)}`;
+      },
       onUnexpectedClose: () => {
         if (socketRef.current === socket) {
           socketRef.current = null;
