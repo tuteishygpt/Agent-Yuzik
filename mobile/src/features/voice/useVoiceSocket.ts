@@ -73,15 +73,14 @@ export function useVoiceSocket(
     onStatusChangeRef.current(isReconnect ? "reconnecting" : "connecting");
 
     const platformPrefix = Platform.OS === "ios" ? "ios" : "and";
+    const installId = await getOrCreateInstallId();
+    const voiceUserId = `voice-user-${platformPrefix}-${installId.slice(0, 5)}`;
 
-    const wsUrl = buildVoiceSocketUrl(backendUrl);
+    const wsUrl = buildVoiceSocketUrl(backendUrl) + `?user_id=${voiceUserId}`;
     const socket = socketFactory({
       url: wsUrl,
       getAccessToken,
-      getInstallId: async () => {
-        const id = await getOrCreateInstallId();
-        return `voice-user-${platformPrefix}-${id.slice(0, 5)}`;
-      },
+      getInstallId: async () => voiceUserId,
       onUnexpectedClose: () => {
         if (socketRef.current === socket) {
           socketRef.current = null;
