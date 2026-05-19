@@ -90,6 +90,7 @@ type VoiceSocketOptions = {
   url: string;
   getAccessToken: () => Promise<string | null>;
   WebSocketImpl?: typeof WebSocket;
+  onUnexpectedClose?: () => void;
 };
 
 const END_MARKER = new Uint8Array([0x45, 0x4e, 0x44, 0x00]);
@@ -196,6 +197,7 @@ export function createVoiceSocketClient({
   url,
   getAccessToken,
   WebSocketImpl = WebSocket,
+  onUnexpectedClose,
 }: VoiceSocketOptions): VoiceSocketClient {
   let socket: WebSocket | null = null;
   let authenticated = false;
@@ -313,7 +315,9 @@ export function createVoiceSocketClient({
         authenticated = false;
         unsubscribeAppState();
         settleConnect(() => reject(new Error(message)));
-        try { deadSocket?.close(); } catch {}
+        try {
+          deadSocket?.close();
+        } catch {}
       };
 
       socket.onclose = (event?: CloseEvent) => {
@@ -323,29 +327,54 @@ export function createVoiceSocketClient({
           reason: event?.reason,
           wasClean: event?.wasClean,
         });
+        const wasAuthenticated = authenticated;
         authenticated = false;
+        socket = null;
         unsubscribeAppState();
-        settleConnect(() =>
-          reject(new Error("Voice socket closed before opening.")),
-        );
+        if (settled && wasAuthenticated) {
+          onUnexpectedClose?.();
+        } else {
+          settleConnect(() =>
+            reject(new Error("Voice socket closed before opening.")),
+          );
+        }
       };
     });
   }
 
-  let appStateSubscription: ReturnType<typeof AppState.addEventListener> | null = null;
+  let appStateSubscription: ReturnType<
+    typeof AppState.addEventListener
+  > | null = null;
+  let backgroundDisconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const BACKGROUND_DISCONNECT_DELAY_MS = 3000;
 
   function handleAppStateChange(state: AppStateStatus): void {
-    if (state === "background" || state === "inactive") {
-      if (socket) {
-        logVoiceSocket("backgrounded, disconnecting");
-        disconnect();
+    if (state === "background") {
+      if (socket && !backgroundDisconnectTimer) {
+        backgroundDisconnectTimer = setTimeout(() => {
+          backgroundDisconnectTimer = null;
+          if (socket) {
+            logVoiceSocket("backgrounded, disconnecting");
+            disconnect();
+          }
+        }, BACKGROUND_DISCONNECT_DELAY_MS);
+      }
+    } else if (state === "active") {
+      if (backgroundDisconnectTimer) {
+        clearTimeout(backgroundDisconnectTimer);
+        backgroundDisconnectTimer = null;
+        logVoiceSocket("returned from background, keeping connection");
       }
     }
   }
 
   function subscribeAppState(): void {
     if (!appStateSubscription) {
-      appStateSubscription = AppState.addEventListener("change", handleAppStateChange);
+      appStateSubscription = AppState.addEventListener(
+        "change",
+        handleAppStateChange,
+      );
     }
   }
 
@@ -356,6 +385,10 @@ export function createVoiceSocketClient({
 
   function disconnect(): void {
     logVoiceSocket("disconnect");
+    if (backgroundDisconnectTimer) {
+      clearTimeout(backgroundDisconnectTimer);
+      backgroundDisconnectTimer = null;
+    }
     unsubscribeAppState();
     socket?.close();
     socket = null;

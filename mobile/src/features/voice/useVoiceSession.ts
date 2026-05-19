@@ -51,6 +51,7 @@ export type VoiceSessionOptions = {
   socketClientFactory?: (options: {
     url: string;
     getAccessToken: () => Promise<string | null>;
+    onUnexpectedClose?: () => void;
   }) => VoiceSocketClient;
   recording?: VoiceRecorderAdapter;
   playback?: VoicePlaybackAdapter;

@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import {
   Animated,
   SafeAreaView,
@@ -85,11 +85,20 @@ export default function VoiceScreen() {
   const { styles: animatedStyles, visualizerPulse } =
     useVoiceAnimations(uiState);
 
-  const isConnected =
-    uiState.phase === "connected" ||
-    uiState.phase === "recording" ||
-    uiState.phase === "processing" ||
-    uiState.phase === "speaking";
+  const isReconnecting =
+    voiceSession.status === "connecting" || voiceSession.status === "reconnecting";
+  const isDisconnected =
+    voiceSession.status === "idle" || voiceSession.status === "error";
+  const badgeLabel = isReconnecting
+    ? "Перападключэнне..."
+    : isDisconnected
+      ? "Адключана"
+      : "Падключана";
+  const badgeColor = isReconnecting
+    ? webTheme.colors.processing
+    : isDisconnected
+      ? webTheme.colors.danger
+      : webTheme.colors.speaking;
 
   useEffect(() => {
     void (async () => {
@@ -107,11 +116,39 @@ export default function VoiceScreen() {
     })();
   }, [teacherMode]);
 
+  const isAuthenticated = auth.status === "ready" && !!auth.session;
+  const shouldAutoConnect =
+    isAuthenticated &&
+    (voiceSession.status === "idle" || voiceSession.status === "error");
+  const retryCountRef = useRef(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
-    if (auth.status === "ready" && auth.session) {
-      void voiceSession.connect();
+    if (!shouldAutoConnect) {
+      retryCountRef.current = 0;
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
+      return;
     }
-  }, [auth.status, auth.session]);
+
+    const attempt = retryCountRef.current;
+    const delayMs = attempt === 0 ? 0 : Math.min(1000 * 2 ** (attempt - 1), 10000);
+
+    retryTimerRef.current = setTimeout(() => {
+      retryTimerRef.current = null;
+      retryCountRef.current = attempt + 1;
+      void voiceSession.connect();
+    }, delayMs);
+
+    return () => {
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
+    };
+  }, [shouldAutoConnect]);
 
   return (
     <SafeAreaView style={styles.screen}>
@@ -121,18 +158,17 @@ export default function VoiceScreen() {
         <View
           style={[
             styles.connectionStatus,
-            isConnected ? styles.connected : styles.disconnected,
-            { borderColor: uiState.accentColor },
+            { borderColor: badgeColor },
           ]}
         >
           <Animated.View
             style={[
               styles.statusDot,
-              { backgroundColor: uiState.accentColor },
-              animatedStyles.dot,
+              { backgroundColor: badgeColor },
+              isReconnecting ? animatedStyles.dot : null,
             ]}
           />
-          <Text style={styles.connectionText}>{uiState.connectionLabel}</Text>
+          <Text style={styles.connectionText}>{badgeLabel}</Text>
         </View>
 
         <View style={styles.hero}>

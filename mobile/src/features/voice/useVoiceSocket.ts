@@ -40,6 +40,7 @@ export function useVoiceSocket(
 ): VoiceSocketControls {
   const socketRef = useRef<VoiceSocketClient | null>(null);
   const unsubMessageRef = useRef<(() => void) | null>(null);
+  const connectingRef = useRef(false);
   const onMessageRef = useRef(onMessage);
   onMessageRef.current = onMessage;
   const onStatusChangeRef = useRef(onStatusChange);
@@ -53,6 +54,9 @@ export function useVoiceSocket(
   }, []);
 
   async function establishSocket(isReconnect: boolean) {
+    if (connectingRef.current) return;
+    connectingRef.current = true;
+
     const backendUrl = options.backendUrl ?? getRuntimeEnv().backendUrl;
     const getAccessToken =
       options.getAccessToken ??
@@ -70,6 +74,12 @@ export function useVoiceSocket(
     const socket = socketFactory({
       url: wsUrl,
       getAccessToken,
+      onUnexpectedClose: () => {
+        if (socketRef.current === socket) {
+          socketRef.current = null;
+        }
+        onStatusChangeRef.current("idle");
+      },
     });
 
     unsubMessageRef.current = socket.onMessage((msg) => onMessageRef.current(msg));
@@ -84,6 +94,8 @@ export function useVoiceSocket(
       }
       onStatusChangeRef.current("error", toErrorMessage(error));
       return;
+    } finally {
+      connectingRef.current = false;
     }
 
     onStatusChangeRef.current("connected");
