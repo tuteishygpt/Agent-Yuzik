@@ -30,6 +30,7 @@ export function render(element: ReactElement) {
   });
 
   return {
+    renderer,
     getTextContent() {
       return renderer.root
         .findAllByType(Text)

@@ -303,7 +303,7 @@ async def handle_simple_voice(
     websocket: WebSocket,
     audio_queue: asyncio.Queue,
     perf: PerfLogger,
-    user_id: str = "voice_user",
+    user_id: str,
     ws_session_id: str = "",
 ):
     """Process audio via Simple Voice Agent (direct Gemini → TTS streaming)."""

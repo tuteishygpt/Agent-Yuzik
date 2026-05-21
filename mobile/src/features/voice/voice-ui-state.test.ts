@@ -21,6 +21,20 @@ describe("resolveVoiceUiState", () => {
     });
   });
 
+  it("uses a concise listening label while waiting for speech", () => {
+    expect(
+      resolveVoiceUiState({
+        status: "connected",
+        isRecording: false,
+        isListening: true,
+        isPlaying: false,
+      }),
+    ).toMatchObject({
+      phase: "listening",
+      statusLabel: "Слухаю...",
+    });
+  });
+
   it("keeps processing amber even when audio is not playing", () => {
     expect(
       resolveVoiceUiState({

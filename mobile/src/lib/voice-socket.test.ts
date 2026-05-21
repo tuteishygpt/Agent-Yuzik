@@ -1,8 +1,12 @@
+import { AppState, type AppStateStatus } from "react-native";
+
 import {
   buildVoiceAudioFrame,
   createVoiceSocketClient,
   parseVoiceSocketMessage,
 } from "./voice-socket";
+
+let appStateListener: ((state: AppStateStatus) => void) | null = null;
 
 class FakeWebSocket {
   static instances: FakeWebSocket[] = [];
@@ -51,6 +55,25 @@ function toBytes(input: string | Uint8Array): Uint8Array {
 describe("voice socket protocol", () => {
   beforeEach(() => {
     FakeWebSocket.instances = [];
+    appStateListener = null;
+    jest
+      .spyOn(AppState, "addEventListener")
+      .mockImplementation((event, listener) => {
+        if (event === "change") {
+          appStateListener = listener;
+        }
+        return {
+          remove: jest.fn(() => {
+            if (appStateListener === listener) {
+              appStateListener = null;
+            }
+          }),
+        } as never;
+      });
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
   it("frames outgoing audio as WAV + END\\0 + uint32 timestamp", () => {
@@ -181,5 +204,28 @@ describe("voice socket protocol", () => {
         mode: "teacher",
       },
     ]);
+  });
+
+  it("keeps the socket open while Android permission UI makes the app inactive", async () => {
+    const client = createVoiceSocketClient({
+      url: "wss://api.yuzik.example/api/voice",
+      getAccessToken: async () => "token-123",
+      WebSocketImpl: FakeWebSocket as never,
+    });
+
+    const connectPromise = client.connect();
+    await Promise.resolve();
+    const socket = FakeWebSocket.instances[0];
+    socket.emitOpen();
+    await connectPromise;
+
+    appStateListener?.("inactive");
+
+    client.sendAudio({
+      wavBytes: new Uint8Array([1, 2, 3]),
+      timestamp: 456,
+    });
+
+    expect(socket.sent[1]).toBeInstanceOf(Uint8Array);
   });
 });

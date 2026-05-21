@@ -9,9 +9,11 @@ import {
   TextInputKeyPressEventData,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import type { ChatAttachment } from "@/lib/file-picker";
 import { useI18n } from "@/lib/i18n";
+import { BottomMenuButton } from "@/navigation/BottomMenuButton";
 import { webTheme } from "@/theme/webTheme";
 
 import { AttachmentTray } from "./AttachmentTray";
@@ -24,6 +26,7 @@ type ComposerProps = {
   onClearAttachment: () => void;
   attachment: ChatAttachment | null;
   isSending: boolean;
+  onOpenMenu?: () => void;
 };
 
 export function Composer({
@@ -34,8 +37,10 @@ export function Composer({
   onClearAttachment,
   attachment,
   isSending,
+  onOpenMenu,
 }: ComposerProps) {
   const { t } = useI18n();
+  const insets = useSafeAreaInsets();
   const inputRef = useRef<TextInput>(null);
 
   const handleSubmitEditing = () => {
@@ -52,39 +57,47 @@ export function Composer({
   };
 
   return (
-    <View style={styles.container}>
+    <View
+      style={[
+        styles.container,
+        { paddingBottom: Math.max(insets.bottom, 12) + 8 },
+      ]}
+    >
       <AttachmentTray attachment={attachment} onClear={onClearAttachment} />
-      <View style={styles.inputContainer}>
-        <Pressable onPress={onAttach} style={styles.attachButton}>
-          <Text style={styles.iconText}>📎</Text>
-        </Pressable>
-        <TextInput
-          ref={inputRef}
-          placeholder={t("chat.placeholder")}
-          placeholderTextColor={webTheme.colors.textMuted}
-          style={styles.input}
-          multiline
-          blurOnSubmit={false}
-          returnKeyType="send"
-          enablesReturnKeyAutomatically
-          onSubmitEditing={handleSubmitEditing}
-          onKeyPress={handleKeyPress}
-          value={draftText}
-          onChangeText={onChangeDraftText}
-        />
-        <Pressable
-          onPress={() => {
-            void onSend();
-            inputRef.current?.focus();
-          }}
-          disabled={isSending || !draftText.trim()}
-          style={[
-            styles.sendButton,
-            (isSending || !draftText.trim()) && styles.sendButtonDisabled,
-          ]}
-        >
-          <Text style={styles.sendIcon}>➤</Text>
-        </Pressable>
+      <View style={styles.bottomRow}>
+        {onOpenMenu ? <BottomMenuButton onPress={onOpenMenu} /> : null}
+        <View style={styles.inputContainer}>
+          <Pressable onPress={onAttach} style={styles.attachButton}>
+            <Text style={styles.iconText}>📎</Text>
+          </Pressable>
+          <TextInput
+            ref={inputRef}
+            placeholder={t("chat.placeholder")}
+            placeholderTextColor={webTheme.colors.textMuted}
+            style={styles.input}
+            multiline
+            blurOnSubmit={false}
+            returnKeyType="send"
+            enablesReturnKeyAutomatically
+            onSubmitEditing={handleSubmitEditing}
+            onKeyPress={handleKeyPress}
+            value={draftText}
+            onChangeText={onChangeDraftText}
+          />
+          <Pressable
+            onPress={() => {
+              void onSend();
+              inputRef.current?.focus();
+            }}
+            disabled={isSending || !draftText.trim()}
+            style={[
+              styles.sendButton,
+              (isSending || !draftText.trim()) && styles.sendButtonDisabled,
+            ]}
+          >
+            <Text style={styles.sendIcon}>➤</Text>
+          </Pressable>
+        </View>
       </View>
       <Text style={styles.footer}>{t("chat.footer")}</Text>
     </View>
@@ -99,10 +112,18 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 16,
   },
+  bottomRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
   inputContainer: {
+    flex: 1,
+    flexShrink: 1,
     flexDirection: "row",
     alignItems: "flex-end",
     gap: 10,
+    minHeight: 56,
     paddingHorizontal: 14,
     paddingVertical: 8,
     backgroundColor: webTheme.colors.glassBg,

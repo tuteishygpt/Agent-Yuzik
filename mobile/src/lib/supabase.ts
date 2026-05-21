@@ -6,13 +6,15 @@ import { getRuntimeEnv } from "./env";
 import {
   AUTH_LINK_IN_PROGRESS_STORAGE_KEY,
   clearAuthLinkInProgress,
-  createSecureSessionStorage,
+  getSharedSessionStorage,
   isAuthLinkInProgress,
   markAuthLinkInProgress,
 } from "./session-storage";
 
 let supabaseClient: SupabaseClient | null = null;
 let anonymousBootstrapPromise: Promise<Session | null> | null = null;
+
+export const MOBILE_SUPABASE_AUTH_STORAGE_KEY = "yuzik.mobile.supabase.session.v2";
 
 function createSupabaseClient(): SupabaseClient {
   const env = getRuntimeEnv();
@@ -23,7 +25,8 @@ function createSupabaseClient(): SupabaseClient {
       detectSessionInUrl: false,
       persistSession: true,
       flowType: "pkce",
-      storage: createSecureSessionStorage(),
+      storageKey: MOBILE_SUPABASE_AUTH_STORAGE_KEY,
+      storage: getSharedSessionStorage(),
     },
   });
 }

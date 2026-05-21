@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import inspect
+
 import pytest
 from fastapi.testclient import TestClient
 from jwt import PyJWKClientError
@@ -97,6 +99,14 @@ def test_first_valid_auth_message_establishes_authenticated_context(
         assert websocket.receive_json() == {"type": "interruption_handshake"}
 
     assert fake_service.session_users == ["auth-user-123"]
+
+
+def test_simple_voice_handler_requires_authenticated_user_id() -> None:
+    from api.voice_simple import handle_simple_voice
+
+    signature = inspect.signature(handle_simple_voice)
+
+    assert signature.parameters["user_id"].default is inspect.Parameter.empty
 
 
 def test_invalid_token_closes_socket_deterministically(

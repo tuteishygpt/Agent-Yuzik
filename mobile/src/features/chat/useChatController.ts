@@ -170,6 +170,7 @@ export function useChatController({
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const mountedRef = useRef(true);
+  const sendingRef = useRef(false);
 
   if (!apiRef.current) {
     apiRef.current = api ?? createDefaultApi();
@@ -223,12 +224,17 @@ export function useChatController({
   }
 
   async function handleSendMessage(): Promise<void> {
+    if (sendingRef.current) {
+      return;
+    }
+
     const trimmedDraft = draftText.trim();
 
     if (!trimmedDraft && !attachment) {
       return;
     }
 
+    sendingRef.current = true;
     setIsSending(true);
     setError(null);
 
@@ -252,6 +258,7 @@ export function useChatController({
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Unable to send message.");
     } finally {
+      sendingRef.current = false;
       setIsSending(false);
     }
   }

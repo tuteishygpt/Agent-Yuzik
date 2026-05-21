@@ -38,27 +38,34 @@ function TranscriptTurn({ entry }: { entry: VoiceTranscriptEntry }) {
         },
       ]}
     >
-      <Text style={styles.role}>
-        {entry.role === "assistant"
-          ? "Настаўнік"
-          : entry.role === "user"
-            ? "Вучань"
-            : "Сістэма"}
-      </Text>
       <Text style={styles.text}>{entry.text}</Text>
     </Animated.View>
   );
 }
 
 export function TranscriptPanel({ transcript }: TranscriptPanelProps) {
+  const scrollRef = useRef<ScrollView>(null);
+  const visibleTranscript = transcript.filter((entry) => entry.role !== "system");
+  const scrollToLatest = () => {
+    scrollRef.current?.scrollToEnd({ animated: true });
+  };
+
+  useEffect(() => {
+    scrollToLatest();
+  }, [visibleTranscript.length]);
+
   return (
     <View style={styles.panel}>
-      <Text style={styles.label}>Дыялог</Text>
-      <ScrollView contentContainerStyle={styles.content} style={styles.scroll}>
-      {transcript.length === 0 ? (
+      <ScrollView
+        ref={scrollRef}
+        contentContainerStyle={styles.content}
+        onContentSizeChange={scrollToLatest}
+        style={styles.scroll}
+      >
+      {visibleTranscript.length === 0 ? (
         <Text style={styles.empty}>Размова яшчэ не пачалася</Text>
       ) : (
-        transcript.map((entry) => (
+        visibleTranscript.map((entry) => (
           <TranscriptTurn key={entry.id} entry={entry} />
         ))
       )}
@@ -70,25 +77,17 @@ export function TranscriptPanel({ transcript }: TranscriptPanelProps) {
 const styles = StyleSheet.create({
   panel: {
     width: "100%",
-    maxHeight: 320,
-    borderRadius: webTheme.radii.xl,
-    padding: 16,
+    maxHeight: 360,
+    borderRadius: webTheme.radii.lg,
+    padding: 10,
     ...webGlassPanel,
     backgroundColor: "rgba(255, 255, 255, 0.06)",
   },
-  label: {
-    color: webTheme.colors.textMuted,
-    fontSize: 12,
-    fontWeight: "800",
-    letterSpacing: 1.5,
-    marginBottom: 12,
-    textTransform: "uppercase",
-  },
   scroll: {
-    minHeight: 130,
+    minHeight: 150,
   },
   content: {
-    gap: 12,
+    gap: 8,
     paddingBottom: 4,
   },
   empty: {
@@ -103,12 +102,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   entry: {
-    gap: 4,
-    borderRadius: 18,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: "rgba(255, 255, 255, 0.08)",
     backgroundColor: "rgba(255, 255, 255, 0.045)",
-    padding: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
   userEntry: {
     borderColor: "rgba(96, 160, 255, 0.18)",
@@ -117,12 +116,6 @@ const styles = StyleSheet.create({
   assistantEntry: {
     borderColor: "rgba(68, 255, 170, 0.16)",
     backgroundColor: "rgba(68, 255, 170, 0.08)",
-  },
-  role: {
-    color: webTheme.colors.textMuted,
-    fontSize: 12,
-    fontWeight: "700",
-    textTransform: "uppercase",
   },
   text: {
     color: webTheme.colors.text,

@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import {
   FlatList,
   KeyboardAvoidingView,
@@ -15,6 +15,7 @@ import { createChatApiClient } from "@/lib/api";
 import { getRuntimeEnv } from "@/lib/env";
 import { getSupabaseSession } from "@/lib/supabase";
 import { pickSingleAttachment } from "@/lib/file-picker";
+import { useMenu } from "@/navigation/MenuContext";
 import { webTheme } from "@/theme/webTheme";
 
 import { Composer } from "./Composer";
@@ -32,6 +33,7 @@ const defaultChatApi = createDefaultApi();
 
 export default function ChatScreen() {
   const { t } = useI18n();
+  const { openMenu } = useMenu();
   const controller = useChatController({
     api: defaultChatApi,
     pickAttachment: pickSingleAttachment,
@@ -47,6 +49,11 @@ export default function ChatScreen() {
       listRef.current?.scrollToEnd({ animated: true });
     }
   };
+
+  useEffect(() => {
+    const timer = setTimeout(scrollToEnd, 0);
+    return () => clearTimeout(timer);
+  }, [controller.messages.length]);
 
   return (
     <SafeAreaView style={styles.screen}>
@@ -91,6 +98,7 @@ export default function ChatScreen() {
           onChangeDraftText={controller.setDraftText}
           onClearAttachment={controller.clearAttachment}
           onSend={controller.sendMessage}
+          onOpenMenu={openMenu}
         />
       </KeyboardAvoidingView>
     </SafeAreaView>

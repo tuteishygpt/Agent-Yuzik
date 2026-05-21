@@ -84,6 +84,7 @@ const NON_STREAMING_AUDIO_IDLE_FALLBACK_MS = 900;
 const CLIENT_PLAYBACK_MIN_BUFFER_MS = 1200;
 const MIN_SUBMIT_SEGMENT_FRAMES = 10;
 const MIN_SUBMIT_PEAK_DB = -36;
+const PENDING_VOICE_TRANSCRIPT_TEXT = "Галасавое паведамленне";
 
 const initialState: VoiceSessionState = {
   connectionStatus: "idle",
@@ -133,6 +134,7 @@ export function useVoiceSession(
   const vadRestartingRef = useRef(false);
   const playbackSequenceRef = useRef(0);
   const playbackQueueEndAtRef = useRef(0);
+  const pendingUserTranscriptIdRef = useRef<string | null>(null);
 
   const recording = useVoiceRecording(options.recording);
   const playback = useVoicePlayback(options.playback);
@@ -146,6 +148,66 @@ export function useVoiceSession(
 
   function appendTranscript(entry: VoiceTranscriptEntry) {
     update((s) => ({ ...s, transcript: [...s.transcript, entry] }));
+  }
+
+  function appendPendingUserTranscript() {
+    const entry = createTranscriptEntry("user", PENDING_VOICE_TRANSCRIPT_TEXT);
+    pendingUserTranscriptIdRef.current = entry.id;
+    appendTranscript(entry);
+  }
+
+  function replacePendingUserTranscript(text: string) {
+    const pendingId = pendingUserTranscriptIdRef.current;
+
+    if (!pendingId) {
+      appendTranscript(createTranscriptEntry("user", text));
+      return;
+    }
+
+    update((s) => {
+      let replaced = false;
+      const transcript = s.transcript.map((entry) => {
+        if (entry.id !== pendingId) {
+          return entry;
+        }
+
+        replaced = true;
+        return {
+          ...entry,
+          text,
+        };
+      });
+
+      if (!replaced) {
+        return {
+          ...s,
+          transcript: [...s.transcript, createTranscriptEntry("user", text)],
+        };
+      }
+
+      return { ...s, transcript };
+    });
+    pendingUserTranscriptIdRef.current = null;
+  }
+
+  function upsertAssistantTranscript(text: string) {
+    update((s) => {
+      const transcript = [...s.transcript];
+      const lastEntry = transcript[transcript.length - 1];
+
+      if (lastEntry?.role === "assistant") {
+        transcript[transcript.length - 1] = {
+          ...lastEntry,
+          text,
+        };
+        return { ...s, transcript };
+      }
+
+      return {
+        ...s,
+        transcript: [...s.transcript, createTranscriptEntry("assistant", text)],
+      };
+    });
   }
 
   function resetSpeechSegment(active = false) {
@@ -427,18 +489,19 @@ export function useVoiceSession(
     if (message.type === "processing") {
       clearResumeListeningTimer();
       stopVadSession();
+      appendPendingUserTranscript();
       appendTranscript(createTranscriptEntry("system", "processing"));
       update((s) => ({ ...s, connectionStatus: "processing" }));
       return;
     }
 
     if (message.type === "transcription") {
-      appendTranscript(createTranscriptEntry("user", message.text));
+      replacePendingUserTranscript(message.text);
       return;
     }
 
     if (message.type === "response") {
-      appendTranscript(createTranscriptEntry("assistant", message.text));
+      upsertAssistantTranscript(message.text);
       update((s) => ({
         ...s,
         connectionStatus: "connected",

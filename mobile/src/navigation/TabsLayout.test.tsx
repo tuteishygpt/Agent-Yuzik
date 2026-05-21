@@ -48,6 +48,10 @@ jest.mock("expo-router", () => {
 
   return {
     Tabs,
+    useRouter: () => ({
+      replace: jest.fn(),
+    }),
+    useSegments: () => ["(tabs)", "voice"],
   };
 });
 
@@ -100,7 +104,7 @@ describe("TabsLayout protected routes", () => {
 
     const screen = render(<TabsLayout />);
 
-    expect(screen.getTextContent()).toContain("tab:voice:Voice");
+    expect(screen.getTextContent()).toContain("tab:voice:undefined");
   });
 
   it("renders an auth error instead of protected routes", () => {

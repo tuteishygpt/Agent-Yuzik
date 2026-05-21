@@ -160,4 +160,65 @@ describe("useChatController", () => {
     });
     expect(getTextContent(renderer)).toContain("file:///cache/artifact-1.png");
   });
+
+  it("ignores duplicate sends while the first response is still pending", async () => {
+    const resolvers: Array<
+      (value: { text: string; audio: null; image: null }) => void
+    > = [];
+    const sendMessage = jest.fn(
+      () =>
+        new Promise<{ text: string; audio: null; image: null }>((resolve) => {
+          resolvers.push(resolve);
+        }),
+    );
+
+    const observed: { current: ReturnType<typeof useChatController> | null } = {
+      current: null,
+    };
+
+    function Probe() {
+      observed.current = useChatController({
+        api: {
+          getHistory: jest.fn().mockResolvedValue([]),
+          clearHistory: jest.fn(),
+          sendMessage,
+        } as never,
+      });
+
+      return (
+        <Text>
+          {observed.current.messages.map((message) => message.content).join(" | ")}
+        </Text>
+      );
+    }
+
+    let renderer!: TestRenderer.ReactTestRenderer;
+
+    await act(async () => {
+      renderer = TestRenderer.create(<Probe />);
+    });
+
+    await act(async () => {
+      observed.current?.setDraftText("hello");
+    });
+
+    let firstSend!: Promise<void>;
+    let duplicateSend!: Promise<void>;
+
+    act(() => {
+      firstSend = observed.current!.sendMessage();
+      duplicateSend = observed.current!.sendMessage();
+    });
+
+    await act(async () => {
+      resolvers.forEach((resolve, index) => {
+        resolve({ text: `answer ${index + 1}`, audio: null, image: null });
+      });
+      await firstSend;
+      await duplicateSend;
+    });
+
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(getTextContent(renderer)).toBe("hello | answer 1");
+  });
 });

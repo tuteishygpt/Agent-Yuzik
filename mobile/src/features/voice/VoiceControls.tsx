@@ -1,157 +1,81 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { webGlassPanel, webTheme } from "@/theme/webTheme";
+import { BottomMenuButton } from "@/navigation/BottomMenuButton";
+import { webTheme } from "@/theme/webTheme";
 
 type VoiceControlsProps = {
   status: string;
-  isRecording: boolean;
   isListening: boolean;
-  isTeacherActive: boolean;
-  onConnect: () => Promise<void> | void;
-  onReconnect: () => Promise<void> | void;
-  onStartRecording: () => Promise<void> | void;
-  onStopRecording: () => Promise<void> | void;
+  onOpenMenu?: () => void;
   onStartListening: () => Promise<void> | void;
   onStopListening: () => void;
   onInterrupt: () => Promise<void> | void;
-  onStartTeacherLesson: () => Promise<void> | void;
-  onStopTeacherLesson: () => Promise<void> | void;
 };
 
 export function VoiceControls({
   status,
-  isRecording,
   isListening,
-  isTeacherActive,
-  onConnect,
-  onReconnect,
-  onStartRecording,
-  onStopRecording,
+  onOpenMenu,
   onStartListening,
   onStopListening,
   onInterrupt,
-  onStartTeacherLesson,
-  onStopTeacherLesson,
 }: VoiceControlsProps) {
-  const statusLabel = isRecording
-    ? "Слухаю фразу"
-    : status === "processing"
-      ? "Думаю"
-      : isListening
-        ? "Чакаю голас"
-        : status === "connected"
-          ? "Гатова"
-          : status;
+  const insets = useSafeAreaInsets();
+  const connected = status === "connected" || status === "processing" || isListening;
 
-  const connected = status === "connected" || status === "processing" || isListening || isRecording;
+  function handlePress() {
+    if (isListening) {
+      onStopListening();
+      void onInterrupt();
+    } else {
+      void onStartListening();
+    }
+  }
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.status}>Voice: {statusLabel}</Text>
-      <View style={styles.row}>
-        <Pressable
-          onPress={() => void (isListening ? onStopListening() : onStartListening())}
-          style={[styles.primaryButton, isListening ? styles.listeningButton : null]}
-          disabled={!connected}
-        >
-          <Text style={styles.primaryText}>
-            {isListening ? "■ Спыніць" : "🎙 Пачаць"}
-          </Text>
-        </Pressable>
-        <Pressable onPress={() => void onInterrupt()} style={styles.secondaryButton}>
-          <Text style={styles.secondaryText}>Interrupt</Text>
-        </Pressable>
-      </View>
-      <View style={styles.utilityRow}>
-        <Pressable onPress={() => void onReconnect()} style={styles.secondaryButton}>
-          <Text style={styles.secondaryText}>Пераканектыць</Text>
-        </Pressable>
-        <Pressable
-          onPress={() => void (isRecording ? onStopRecording() : onStartRecording())}
-          style={styles.secondaryButton}
-          disabled={!connected}
-        >
-          <Text style={styles.secondaryText}>
-            {isRecording ? "■ Спыніць ручн." : "▶ Ручны запіс"}
-          </Text>
-        </Pressable>
-      </View>
-      <View style={styles.row}>
-        <Pressable
-          onPress={() =>
-            void (isTeacherActive ? onStopTeacherLesson() : onStartTeacherLesson())
-          }
-          style={styles.teacherButton}
-        >
-          <Text style={styles.teacherText}>
-            {isTeacherActive ? "Stop lesson" : "Start lesson"}
-          </Text>
-        </Pressable>
-      </View>
+    <View style={[styles.container, { paddingBottom: Math.max(insets.bottom, 12) + 8 }]}>
+      {onOpenMenu ? (
+        <BottomMenuButton onPress={onOpenMenu} />
+      ) : null}
+      <Pressable
+        onPress={handlePress}
+        style={[styles.button, isListening ? styles.buttonActive : null]}
+        disabled={!connected}
+      >
+        <Text style={styles.buttonText}>
+          {isListening ? "■ Спыніць" : "🎙 Пачаць"}
+        </Text>
+      </Pressable>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
+    flexDirection: "row",
+    alignItems: "center",
     gap: 12,
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: webTheme.colors.border,
     backgroundColor: "rgba(12, 14, 24, 0.96)",
   },
-  status: {
-    color: webTheme.colors.textMuted,
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  utilityRow: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  row: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  primaryButton: {
+  button: {
     flex: 1,
     borderRadius: webTheme.radii.pill,
     backgroundColor: webTheme.colors.primary,
     paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingVertical: 16,
   },
-  listeningButton: {
+  buttonActive: {
     backgroundColor: webTheme.colors.listening,
   },
-  primaryText: {
+  buttonText: {
     color: "#ffffff",
     fontWeight: "700",
-    textAlign: "center",
-  },
-  secondaryButton: {
-    flex: 1,
-    borderRadius: webTheme.radii.pill,
-    ...webGlassPanel,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-  },
-  secondaryText: {
-    color: webTheme.colors.text,
-    fontWeight: "700",
-    textAlign: "center",
-  },
-  teacherButton: {
-    flex: 1,
-    borderRadius: webTheme.radii.pill,
-    backgroundColor: "rgba(168, 240, 200, 0.10)",
-    borderColor: "rgba(68, 255, 170, 0.24)",
-    borderWidth: 1,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-  },
-  teacherText: {
-    color: webTheme.colors.teacher,
-    fontWeight: "700",
+    fontSize: 16,
     textAlign: "center",
   },
 });

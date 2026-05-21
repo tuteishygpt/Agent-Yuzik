@@ -95,6 +95,13 @@ function createPlayback() {
   };
 }
 
+function createLocalPcmFrame(sampleCount: number): Uint8Array {
+  const frame = new Uint8Array(8 + sampleCount * 4);
+  frame.set([0x50, 0x43, 0x4d, 0x00], 0);
+  new DataView(frame.buffer).setUint32(4, sampleCount, true);
+  return frame;
+}
+
 function toTranscriptText(output: ReturnType<typeof useVoiceSession>) {
   return output.transcript
     .map((item) => `${item.role}:${item.text}`)
@@ -197,6 +204,125 @@ describe("useVoiceSession", () => {
 
     expect(readRenderedText(renderer)).toContain("reconnected");
     expect(readRenderedText(renderer)).toContain("lesson-1");
+  });
+
+  it("updates the current assistant transcript entry for streamed response snapshots", async () => {
+    const socket = createSocketClient();
+    let latestSession: ReturnType<typeof useVoiceSession> | null = null;
+
+    function Probe() {
+      latestSession = useVoiceSession({
+        backendUrl: "https://api.yuzik.example",
+        getAccessToken: async () => "token-123",
+        teacherMode: mockTeacherMode as never,
+        socketClientFactory: () => socket,
+      });
+
+      return <Text>{toTranscriptText(latestSession)}</Text>;
+    }
+
+    let renderer!: TestRenderer.ReactTestRenderer;
+
+    await act(async () => {
+      renderer = TestRenderer.create(<Probe />);
+    });
+
+    await act(async () => {
+      await latestSession?.connect();
+      socket.emit({ type: "transcription", text: "how are you" });
+      socket.emit({ type: "response", text: "У вас" });
+      socket.emit({
+        type: "response",
+        text: "У вас усё добра? Я чую, што вы нешта расказваеце.",
+      });
+    });
+
+    expect(readRenderedText(renderer)).toBe(
+      "user:how are you | assistant:У вас усё добра? Я чую, што вы нешта расказваеце.",
+    );
+
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
+  it("keeps a user voice turn visible when transcription is missing", async () => {
+    const socket = createSocketClient();
+    let latestSession: ReturnType<typeof useVoiceSession> | null = null;
+
+    function Probe() {
+      latestSession = useVoiceSession({
+        backendUrl: "https://api.yuzik.example",
+        getAccessToken: async () => "token-123",
+        teacherMode: mockTeacherMode as never,
+        socketClientFactory: () => socket,
+      });
+
+      return <Text>{toTranscriptText(latestSession)}</Text>;
+    }
+
+    let renderer!: TestRenderer.ReactTestRenderer;
+
+    await act(async () => {
+      renderer = TestRenderer.create(<Probe />);
+    });
+
+    await act(async () => {
+      await latestSession?.connect();
+      socket.emit({ type: "processing" });
+      socket.emit({
+        type: "response",
+        text: "Добра, давайце пагаворым пра нешта іншае.",
+      });
+    });
+
+    expect(readRenderedText(renderer)).toContain("user:Галасавое паведамленне");
+    expect(readRenderedText(renderer)).toContain(
+      "assistant:Добра, давайце пагаворым пра нешта іншае.",
+    );
+
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
+  it("replaces the pending voice turn with transcription when it arrives", async () => {
+    const socket = createSocketClient();
+    let latestSession: ReturnType<typeof useVoiceSession> | null = null;
+
+    function Probe() {
+      latestSession = useVoiceSession({
+        backendUrl: "https://api.yuzik.example",
+        getAccessToken: async () => "token-123",
+        teacherMode: mockTeacherMode as never,
+        socketClientFactory: () => socket,
+      });
+
+      return <Text>{toTranscriptText(latestSession)}</Text>;
+    }
+
+    let renderer!: TestRenderer.ReactTestRenderer;
+
+    await act(async () => {
+      renderer = TestRenderer.create(<Probe />);
+    });
+
+    await act(async () => {
+      await latestSession?.connect();
+      socket.emit({ type: "processing" });
+      socket.emit({ type: "transcription", text: "пра нешта іншае" });
+      socket.emit({
+        type: "response",
+        text: "Добра, давайце пагаворым пра нешта іншае.",
+      });
+    });
+
+    expect(readRenderedText(renderer)).not.toContain("Галасавое паведамленне");
+    expect(readRenderedText(renderer)).toContain("user:пра нешта іншае");
+
+    await act(async () => {
+      renderer.unmount();
+    });
   });
 
   it("stops playback immediately and sends the interrupt protocol message", async () => {
@@ -311,7 +437,13 @@ describe("useVoiceSession", () => {
     await act(async () => {
       await latestSession?.connect();
       await latestSession?.startListening();
-      socket.emit({ type: "audio", bytes: new Uint8Array([9, 8, 7]) });
+      socket.emit({
+        type: "voice_config",
+        sample_rate: 1000,
+        playback_min_buffer_ms: 0,
+        playback_empty_grace_ms: 120,
+      });
+      socket.emit({ type: "audio", bytes: createLocalPcmFrame(1000) });
       await Promise.resolve();
     });
 
@@ -321,18 +453,8 @@ describe("useVoiceSession", () => {
     const oldMetering = recorder.start.mock.calls[0][0] as (db: number) => void;
     await act(async () => {
       [
-        -32.2,
-        -33.43,
-        -35.69,
-        -34.1,
-        -33.8,
-        -34.4,
-        -35.2,
-        -34.7,
-        -33.9,
-        -35.1,
-        -34.8,
-        -35.4,
+        -32.2, -33.43, -35.69, -34.1, -33.8, -34.4, -35.2, -34.7, -33.9, -35.1,
+        -34.8, -35.4,
       ].forEach(oldMetering);
       [-45, -45, -45].forEach(oldMetering);
       await Promise.resolve();
@@ -342,27 +464,19 @@ describe("useVoiceSession", () => {
     expect(socket.sendAudio).not.toHaveBeenCalled();
 
     await act(async () => {
-      jest.advanceTimersByTime(900);
+      jest.advanceTimersByTime(1120);
       await Promise.resolve();
     });
 
     expect(recorder.start).toHaveBeenCalledTimes(2);
 
-    const freshMetering = recorder.start.mock.calls[1][0] as (db: number) => void;
+    const freshMetering = recorder.start.mock.calls[1][0] as (
+      db: number,
+    ) => void;
     await act(async () => {
       [
-        -32.2,
-        -33.43,
-        -35.69,
-        -34.1,
-        -33.8,
-        -34.4,
-        -35.2,
-        -34.7,
-        -33.9,
-        -35.1,
-        -34.8,
-        -35.4,
+        -32.2, -33.43, -35.69, -34.1, -33.8, -34.4, -35.2, -34.7, -33.9, -35.1,
+        -34.8, -35.4,
       ].forEach(freshMetering);
       [-45, -45, -45].forEach(freshMetering);
       await Promise.resolve();
@@ -372,6 +486,83 @@ describe("useVoiceSession", () => {
     expect(socket.sendAudio).toHaveBeenCalledWith({
       wavBytes: new Uint8Array([1, 2, 3]),
     });
+
+    await act(async () => {
+      renderer.unmount();
+    });
+    jest.useRealTimers();
+  });
+
+  it("does not restart VAD until the streamed PCM queue drains", async () => {
+    jest.useFakeTimers();
+
+    const socket = createSocketClient();
+    const recorder = createRecorder();
+    const playback = createPlayback();
+    let latestSession: ReturnType<typeof useVoiceSession> | null = null;
+    let renderer!: TestRenderer.ReactTestRenderer;
+
+    function Probe() {
+      latestSession = useVoiceSession({
+        backendUrl: "https://api.yuzik.example",
+        getAccessToken: async () => "token-123",
+        teacherMode: mockTeacherMode as never,
+        socketClientFactory: () => socket,
+        recording: recorder as never,
+        playback: playback as never,
+        vadConfig: {
+          redemptionFrames: 3,
+        },
+      });
+
+      return <Text>{latestSession.status}</Text>;
+    }
+
+    await act(async () => {
+      renderer = TestRenderer.create(<Probe />);
+    });
+
+    await act(async () => {
+      await latestSession?.connect();
+      await latestSession?.startListening();
+      socket.emit({
+        type: "voice_config",
+        sample_rate: 1000,
+        playback_min_buffer_ms: 0,
+        playback_empty_grace_ms: 120,
+      });
+      socket.emit({ type: "audio", bytes: createLocalPcmFrame(1000) });
+      await Promise.resolve();
+    });
+
+    expect(recorder.start).toHaveBeenCalledTimes(1);
+    expect(recorder.stop).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      jest.advanceTimersByTime(800);
+      await Promise.resolve();
+    });
+
+    expect(recorder.start).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      socket.emit({ type: "audio", bytes: createLocalPcmFrame(1000) });
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      jest.advanceTimersByTime(1000);
+      await Promise.resolve();
+    });
+
+    expect(recorder.start).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      jest.advanceTimersByTime(320);
+      await Promise.resolve();
+    });
+
+    expect(recorder.start).toHaveBeenCalledTimes(2);
 
     await act(async () => {
       renderer.unmount();
@@ -564,18 +755,8 @@ describe("useVoiceSession", () => {
 
     await act(async () => {
       [
-        -32.2,
-        -33.43,
-        -35.69,
-        -34.1,
-        -33.8,
-        -34.4,
-        -35.2,
-        -34.7,
-        -33.9,
-        -35.1,
-        -34.8,
-        -35.4,
+        -32.2, -33.43, -35.69, -34.1, -33.8, -34.4, -35.2, -34.7, -33.9, -35.1,
+        -34.8, -35.4,
       ].forEach(onMetering);
       [-45, -45, -45].forEach(onMetering);
       await Promise.resolve();

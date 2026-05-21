@@ -1,9 +1,17 @@
+import { useEffect } from "react";
 import Constants from "expo-constants";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { DebugInfo } from "@/components/settings/DebugInfo";
+import LessonPicker from "@/features/teacher/LessonPicker";
+import TeacherBanner from "@/features/teacher/TeacherBanner";
+import { useTeacherMode } from "@/features/teacher/useTeacherMode";
 import { useI18n, type Locale } from "@/lib/i18n";
 import { getRuntimeEnv } from "@/lib/env";
+import { getSupabaseSession } from "@/lib/supabase";
+import { BottomMenuButton } from "@/navigation/BottomMenuButton";
+import { useMenu } from "@/navigation/MenuContext";
 import { useAuth } from "@/providers/AuthProvider";
 import { webTextStyles, webTheme } from "@/theme/webTheme";
 
@@ -25,52 +33,88 @@ const LANGUAGES: { code: Locale; label: string }[] = [
 
 export default function SettingsScreen() {
   const { t, locale, setLocale } = useI18n();
+  const { openMenu } = useMenu();
+  const insets = useSafeAreaInsets();
   const expoConfig = Constants.expoConfig;
   const env = getRuntimeEnv();
   const auth = useAuth();
+  const teacherMode = useTeacherMode();
   const buildProfile =
     String(expoConfig?.extra?.buildProfile ?? "").trim() || "development";
   const appVersion = String(expoConfig?.version ?? "1.0.0");
 
+  useEffect(() => {
+    void (async () => {
+      try {
+        const session = await getSupabaseSession();
+        const accessToken = session?.access_token;
+        if (!accessToken) return;
+        await teacherMode.loadLessons({
+          backendUrl: env.backendUrl,
+          accessToken,
+        });
+      } catch (_) {}
+    })();
+  }, [teacherMode]);
+
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
-      <View style={styles.bgGlowTop} />
-      <View style={styles.bgGlowBottom} />
-      <View style={styles.hero}>
-        <Text style={styles.eyebrow}>{t("settings.eyebrow")}</Text>
-        <Text style={styles.title}>{t("settings.title")}</Text>
-        <Text style={styles.subtitle}>{t("settings.subtitle")}</Text>
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>{t("settings.language")}</Text>
-        <View style={styles.langRow}>
-          {LANGUAGES.map((lang) => (
-            <Pressable
-              key={lang.code}
-              onPress={() => setLocale(lang.code)}
-              style={[styles.langButton, locale === lang.code && styles.langButtonActive]}
-            >
-              <Text style={[styles.langLabel, locale === lang.code && styles.langLabelActive]}>
-                {lang.label}
-              </Text>
-            </Pressable>
-          ))}
+    <View style={styles.screen}>
+      <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
+        <View style={styles.bgGlowTop} />
+        <View style={styles.bgGlowBottom} />
+        <View style={styles.hero}>
+          <Text style={styles.eyebrow}>{t("settings.eyebrow")}</Text>
+          <Text style={styles.title}>{t("settings.title")}</Text>
+          <Text style={styles.subtitle}>{t("settings.subtitle")}</Text>
         </View>
-      </View>
 
-      <DebugInfo
-        appVersion={appVersion}
-        authState={getAuthStateLabel({
-          status: auth.status,
-          isAnonymous: auth.isAnonymous,
-          hasSession: Boolean(auth.session),
-          t,
-        })}
-        buildProfile={buildProfile}
-        env={env}
-      />
-    </ScrollView>
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>{t("settings.language")}</Text>
+          <View style={styles.langRow}>
+            {LANGUAGES.map((lang) => (
+              <Pressable
+                key={lang.code}
+                onPress={() => setLocale(lang.code)}
+                style={[styles.langButton, locale === lang.code && styles.langButtonActive]}
+              >
+                <Text style={[styles.langLabel, locale === lang.code && styles.langLabelActive]}>
+                  {lang.label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Рэжым настаўніка</Text>
+          <TeacherBanner
+            lesson={teacherMode.selectedLesson}
+            stepPrompt={teacherMode.currentPrompt}
+            isActive={teacherMode.isActive}
+          />
+          <LessonPicker
+            lessons={teacherMode.lessons}
+            selectedLessonId={teacherMode.selectedLesson?.id ?? null}
+            onSelectLesson={teacherMode.selectLesson}
+          />
+        </View>
+
+        <DebugInfo
+          appVersion={appVersion}
+          authState={getAuthStateLabel({
+            status: auth.status,
+            isAnonymous: auth.isAnonymous,
+            hasSession: Boolean(auth.session),
+            t,
+          })}
+          buildProfile={buildProfile}
+          env={env}
+        />
+      </ScrollView>
+      <View style={[styles.bottomMenu, { paddingBottom: Math.max(insets.bottom, 12) + 8 }]}>
+        <BottomMenuButton onPress={openMenu} />
+      </View>
+    </View>
   );
 }
 
@@ -81,8 +125,20 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 20,
+    paddingBottom: 112,
     gap: 20,
     minHeight: "100%",
+  },
+  bottomMenu: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: webTheme.colors.border,
+    backgroundColor: "rgba(12, 14, 24, 0.96)",
   },
   bgGlowTop: {
     position: "absolute",

@@ -484,8 +484,7 @@ describe("supabase pkce callback completion", () => {
       }),
     }));
 
-    jest.doMock("@supabase/supabase-js", () => ({
-      createClient: () => ({
+    const createClient = jest.fn(() => ({
         auth: {
           exchangeCodeForSession,
           getSession: async () => ({ data: { session: null }, error: null }),
@@ -495,7 +494,10 @@ describe("supabase pkce callback completion", () => {
           stopAutoRefresh: jest.fn(),
           updateUser,
         },
-      }),
+      }));
+
+    jest.doMock("@supabase/supabase-js", () => ({
+      createClient,
     }));
 
     jest.unmock("@/lib/supabase");
@@ -508,6 +510,7 @@ describe("supabase pkce callback completion", () => {
 
     return {
       secureValues,
+      createClient,
       exchangeCodeForSession,
       updateUser,
       supabaseModule,
@@ -546,6 +549,22 @@ describe("supabase pkce callback completion", () => {
     expect(
       secureValues.get(supabaseModule.AUTH_LINK_IN_PROGRESS_STORAGE_KEY),
     ).toBeUndefined();
+  });
+
+  it("uses a versioned mobile auth storage key so restored legacy sessions are ignored", async () => {
+    const { createClient, supabaseModule } = await loadRealSupabaseModule();
+
+    await supabaseModule.getSupabaseSession();
+
+    expect(createClient).toHaveBeenCalledWith(
+      "https://project.supabase.co",
+      "anon-key",
+      expect.objectContaining({
+        auth: expect.objectContaining({
+          storageKey: "yuzik.mobile.supabase.session.v2",
+        }),
+      }),
+    );
   });
 
   it("rejects callback completion when no link flow is pending", async () => {

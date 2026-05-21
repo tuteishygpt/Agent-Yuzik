@@ -69,7 +69,7 @@ export function resolveVoiceUiState(input: VoiceUiInput): VoiceUiState {
     return {
       phase,
       connectionLabel: "Падключана",
-      statusLabel: "Чакаю голас...",
+      statusLabel: "Слухаю...",
       accentColor: webTheme.colors.primary,
       haloColor: webTheme.colors.primaryGlow,
       icon: "🎙",

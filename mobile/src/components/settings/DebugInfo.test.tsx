@@ -4,6 +4,18 @@ import { render } from "@/test/render";
 
 import SettingsScreen from "../../../app/(tabs)/settings";
 
+const mockOpenMenu = jest.fn();
+
+jest.mock("@/navigation/MenuContext", () => ({
+  useMenu: () => ({
+    openMenu: mockOpenMenu,
+  }),
+}));
+
+jest.mock("react-native-safe-area-context", () => ({
+  useSafeAreaInsets: () => ({ bottom: 24, left: 0, right: 0, top: 0 }),
+}));
+
 jest.mock("@/lib/i18n", () => ({
   useI18n: () => ({
     locale: "en",
@@ -52,6 +64,7 @@ describe("SettingsScreen", () => {
     const text = screen.getTextContent();
 
     expect(text).toContain("Settings");
+    expect(text).toContain("☰");
     expect(text).toContain("https://api.yuzik.example");
     expect(text).toContain("https://project.supabase.co");
     expect(text).toContain("Build channel channel-beta");

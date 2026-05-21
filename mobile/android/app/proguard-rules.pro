@@ -11,4 +11,20 @@
 -keep class com.swmansion.reanimated.** { *; }
 -keep class com.facebook.react.turbomodule.** { *; }
 
-# Add any project specific keep options here:
+# react-native-live-audio-stream
+-keep class com.reagankm.liveaudiostream.** { *; }
+-keep class com.rnliveaudiostream.** { *; }
+
+# Expo modules
+-keep class expo.modules.** { *; }
+
+# Supabase / GoTrue
+-keep class io.supabase.** { *; }
+
+# OkHttp (used by React Native networking)
+-dontwarn okhttp3.**
+-keep class okhttp3.** { *; }
+
+# Hermes
+-keep class com.facebook.hermes.unicode.** { *; }
+-keep class com.facebook.jni.** { *; }

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import {
   Animated,
+  Pressable,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -8,16 +9,13 @@ import {
   View,
 } from "react-native";
 
-import LessonPicker from "@/features/teacher/LessonPicker";
-import TeacherBanner from "@/features/teacher/TeacherBanner";
 import { useTeacherMode } from "@/features/teacher/useTeacherMode";
 import { TranscriptPanel } from "@/features/voice/TranscriptPanel";
 import { VoiceControls } from "@/features/voice/VoiceControls";
 import { resolveVoiceUiState } from "@/features/voice/voice-ui-state";
 import { useVoiceAnimations } from "@/features/voice/useVoiceAnimations";
 import { useVoiceSession } from "@/features/voice/useVoiceSession";
-import { getRuntimeEnv } from "@/lib/env";
-import { getSupabaseSession } from "@/lib/supabase";
+import { useMenu } from "@/navigation/MenuContext";
 import { useAuth } from "@/providers/AuthProvider";
 import { webGlassPanel, webTextStyles, webTheme } from "@/theme/webTheme";
 
@@ -74,6 +72,7 @@ function VisualizerBars({
 
 export default function VoiceScreen() {
   const auth = useAuth();
+  const { openMenu } = useMenu();
   const teacherMode = useTeacherMode();
   const voiceSession = useVoiceSession({ teacherMode });
   const uiState = resolveVoiceUiState({
@@ -100,21 +99,6 @@ export default function VoiceScreen() {
       ? webTheme.colors.danger
       : webTheme.colors.speaking;
 
-  useEffect(() => {
-    void (async () => {
-      try {
-        const session = await getSupabaseSession();
-        const accessToken = session?.access_token;
-        if (!accessToken) return;
-        await teacherMode.loadLessons({
-          backendUrl: getRuntimeEnv().backendUrl,
-          accessToken,
-        });
-      } catch (e) {
-        console.warn("[Voice] Failed to load teacher lessons", e);
-      }
-    })();
-  }, [teacherMode]);
 
   const isAuthenticated = auth.status === "ready" && !!auth.session;
   const shouldAutoConnect =
@@ -181,7 +165,17 @@ export default function VoiceScreen() {
           ) : null}
         </View>
 
-        <View style={styles.micStage}>
+        <Pressable
+          style={styles.micStage}
+          onPress={() => {
+            if (voiceSession.isListening) {
+              voiceSession.stopListening();
+              void voiceSession.interrupt();
+            } else {
+              void voiceSession.startListening();
+            }
+          }}
+        >
           <Animated.View
             style={[
               styles.micHalo,
@@ -203,7 +197,7 @@ export default function VoiceScreen() {
               {uiState.icon}
             </Text>
           </Animated.View>
-        </View>
+        </Pressable>
 
         <Text
           style={[
@@ -216,35 +210,16 @@ export default function VoiceScreen() {
 
         <VisualizerBars pulse={visualizerPulse} uiState={uiState} />
 
-        <TeacherBanner
-          lesson={teacherMode.selectedLesson}
-          stepPrompt={teacherMode.currentPrompt}
-          isActive={teacherMode.isActive}
-        />
-
-        <LessonPicker
-          lessons={teacherMode.lessons}
-          selectedLessonId={teacherMode.selectedLesson?.id ?? null}
-          onSelectLesson={teacherMode.selectLesson}
-        />
-
         <TranscriptPanel transcript={voiceSession.transcript} />
       </ScrollView>
 
       <VoiceControls
         status={voiceSession.status}
-        isRecording={voiceSession.isRecording}
         isListening={voiceSession.isListening}
-        isTeacherActive={teacherMode.isActive}
-        onConnect={voiceSession.connect}
-        onReconnect={voiceSession.reconnect}
-        onStartRecording={voiceSession.startRecording}
-        onStopRecording={voiceSession.stopRecording}
+        onOpenMenu={openMenu}
         onStartListening={voiceSession.startListening}
         onStopListening={voiceSession.stopListening}
         onInterrupt={voiceSession.interrupt}
-        onStartTeacherLesson={voiceSession.startTeacherLesson}
-        onStopTeacherLesson={voiceSession.stopTeacherLesson}
       />
     </SafeAreaView>
   );

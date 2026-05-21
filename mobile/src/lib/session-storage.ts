@@ -124,20 +124,29 @@ export function createSecureSessionStorage(): SessionStorageAdapter {
   };
 }
 
+let sharedStorage: SessionStorageAdapter | null = null;
+
+export function getSharedSessionStorage(): SessionStorageAdapter {
+  if (!sharedStorage) {
+    sharedStorage = createSecureSessionStorage();
+  }
+  return sharedStorage;
+}
+
 export async function markAuthLinkInProgress(
-  storage: SessionStorageAdapter = createSecureSessionStorage(),
+  storage: SessionStorageAdapter = getSharedSessionStorage(),
 ): Promise<void> {
   await storage.setItem(AUTH_LINK_IN_PROGRESS_STORAGE_KEY, "1");
 }
 
 export async function clearAuthLinkInProgress(
-  storage: SessionStorageAdapter = createSecureSessionStorage(),
+  storage: SessionStorageAdapter = getSharedSessionStorage(),
 ): Promise<void> {
   await storage.removeItem(AUTH_LINK_IN_PROGRESS_STORAGE_KEY);
 }
 
 export async function isAuthLinkInProgress(
-  storage: SessionStorageAdapter = createSecureSessionStorage(),
+  storage: SessionStorageAdapter = getSharedSessionStorage(),
 ): Promise<boolean> {
   return (await storage.getItem(AUTH_LINK_IN_PROGRESS_STORAGE_KEY)) === "1";
 }

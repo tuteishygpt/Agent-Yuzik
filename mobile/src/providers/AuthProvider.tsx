@@ -103,9 +103,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     startSupabaseAutoRefresh();
 
-    const appStateSubscription = AppState.addEventListener("change", (state) => {
-      if (state === "active") {
+    const appStateSubscription = AppState.addEventListener("change", (nextState) => {
+      if (nextState === "active") {
         startSupabaseAutoRefresh();
+        void getSupabaseSession().then((refreshed) => {
+          if (refreshed) {
+            setSession(refreshed);
+          }
+        });
         return;
       }
 
@@ -123,12 +128,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    void registerCurrentDevice({
-      supabase: getSupabase(),
-      session,
-      appVersion: getAppVersion(),
-      platform: Platform.OS,
-    });
+    void (async () => {
+      const params = {
+        supabase: getSupabase(),
+        session,
+        appVersion: getAppVersion(),
+        platform: Platform.OS,
+      };
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          await registerCurrentDevice(params);
+          return;
+        } catch {
+          if (attempt < 2) {
+            await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
+          }
+        }
+      }
+    })();
 
     void syncProfileBootstrap({
       supabase: getSupabase(),
