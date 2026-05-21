@@ -8,7 +8,10 @@ import com.facebook.react.uimanager.ViewManager
 class NativePcmPlayerPackage : ReactPackage {
   override fun createNativeModules(
     reactContext: ReactApplicationContext
-  ): List<NativeModule> = listOf(NativePcmPlayerModule(reactContext))
+  ): List<NativeModule> = listOf(
+    NativePcmPlayerModule(reactContext),
+    TenVadModule(reactContext),
+  )
 
   override fun createViewManagers(
     reactContext: ReactApplicationContext

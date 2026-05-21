@@ -218,9 +218,9 @@ export function useVoiceSession(
     };
   }
 
-  function feedVadMeteringFrame(db: number) {
+  function feedVadMeteringFrame(db: number, pcm16?: Uint8Array) {
     latestVadDbRef.current = db;
-    vad.feedMeteringFrame(db);
+    vad.feedMeteringFrame(db, pcm16);
 
     const segment = speechSegmentRef.current;
     if (segment.active) {
@@ -302,7 +302,7 @@ export function useVoiceSession(
 
   function startVadRecording() {
     return recording
-      .start((db) => feedVadMeteringFrame(db))
+      .start((db, pcm16) => feedVadMeteringFrame(db, pcm16))
       .then(() => {
         vadRecordingActiveRef.current = true;
       });

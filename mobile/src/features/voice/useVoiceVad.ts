@@ -7,7 +7,7 @@ export type VoiceVadControls = {
   stop: () => void;
   pause: () => void;
   resume: () => void;
-  feedMeteringFrame: (db: number) => void;
+  feedMeteringFrame: (db: number, pcm16?: Uint8Array) => void;
 };
 
 export function useVoiceVad(config?: Partial<VadConfig>): VoiceVadControls {
@@ -24,7 +24,7 @@ export function useVoiceVad(config?: Partial<VadConfig>): VoiceVadControls {
   );
 
   const stop = useCallback(() => {
-    vadRef.current?.reset();
+    vadRef.current?.destroy();
     vadRef.current = null;
   }, []);
 
@@ -38,12 +38,12 @@ export function useVoiceVad(config?: Partial<VadConfig>): VoiceVadControls {
 
   const frameCountRef = useRef(0);
 
-  const feedMeteringFrame = useCallback((db: number) => {
+  const feedMeteringFrame = useCallback((db: number, pcm16?: Uint8Array) => {
     frameCountRef.current++;
     if (frameCountRef.current <= 20 || frameCountRef.current % 50 === 0) {
       console.log(`[VAD] frame #${frameCountRef.current} db=${db}`);
     }
-    vadRef.current?.processFrame(db);
+    vadRef.current?.processFrame(db, pcm16);
   }, []);
 
   return { start, stop, pause, resume, feedMeteringFrame };

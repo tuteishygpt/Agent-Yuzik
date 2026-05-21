@@ -64,7 +64,7 @@ describe("audio recording adapter (native PCM stream)", () => {
     const silentPcm = Buffer.alloc(320, 0).toString("base64");
     dataCallback(silentPcm);
 
-    expect(onMetering).toHaveBeenCalledWith(-160);
+    expect(onMetering).toHaveBeenCalledWith(-160, new Uint8Array(Buffer.alloc(320)));
   });
 
   it("does not start streaming when microphone permission is denied", async () => {

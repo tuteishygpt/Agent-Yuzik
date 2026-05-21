@@ -6,7 +6,7 @@ export type VoiceRecordingResult = {
   wavBytes: Uint8Array | null;
 };
 
-export type MeteringCallback = (db: number) => void;
+export type MeteringCallback = (db: number, pcm16: Uint8Array) => void;
 
 export type VoiceRecorderAdapter = {
   prepare: () => Promise<void>;
@@ -170,7 +170,7 @@ export function createVoiceRecorderAdapter(
           const now = Date.now();
           if (now - lastMeteringAt >= METERING_THROTTLE_MS) {
             lastMeteringAt = now;
-            meteringCb(peakSinceLastEmit);
+            meteringCb(peakSinceLastEmit, chunk);
             peakSinceLastEmit = -160;
           }
         }

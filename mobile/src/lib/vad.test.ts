@@ -1,6 +1,34 @@
-import { createVad } from "./vad";
+const mockNativeTenVad = {
+  create: jest.fn(),
+  processPcm16: jest.fn(),
+  reset: jest.fn(),
+  destroy: jest.fn(),
+};
+
+jest.mock("react-native", () => ({
+  NativeModules: {
+    TenVad: mockNativeTenVad,
+  },
+  Platform: {
+    OS: "android",
+  },
+}));
+
+const { createVad } = require("./vad") as typeof import("./vad");
+
+function flushPromises() {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
 
 describe("createVad", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockNativeTenVad.create.mockResolvedValue(null);
+    mockNativeTenVad.processPcm16.mockResolvedValue([]);
+    mockNativeTenVad.reset.mockResolvedValue(null);
+    mockNativeTenVad.destroy.mockResolvedValue(null);
+  });
+
   it("fires onSpeechStart after minSpeechFrames above threshold", () => {
     const onSpeechStart = jest.fn();
     const onSpeechEnd = jest.fn();
@@ -100,6 +128,54 @@ describe("createVad", () => {
       -44.97,
     ].forEach((db) => vad.processFrame(db));
 
+    expect(onSpeechStart).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses TEN VAD for Android PCM frames when native module is available", async () => {
+    mockNativeTenVad.processPcm16.mockResolvedValue([
+      { probability: 0.82, isSpeech: true },
+      { probability: 0.12, isSpeech: false },
+    ]);
+    const onSpeechStart = jest.fn();
+    const onSpeechEnd = jest.fn();
+    const vad = createVad(
+      { onSpeechStart, onSpeechEnd },
+      {
+        preferNativeTenVad: true,
+        minSpeechFrames: 1,
+        redemptionFrames: 1,
+        tenVadThreshold: 0.6,
+        tenVadHopSize: 256,
+      },
+    );
+    const pcm = new Uint8Array(512);
+
+    vad.processFrame(-24, pcm);
+    await flushPromises();
+
+    expect(mockNativeTenVad.create).toHaveBeenCalledWith(256, 0.6);
+    expect(mockNativeTenVad.processPcm16).toHaveBeenCalledWith(
+      Buffer.from(pcm).toString("base64"),
+    );
+    expect(onSpeechStart).toHaveBeenCalledTimes(1);
+    expect(onSpeechEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to energy VAD when native TEN VAD is disabled", () => {
+    const onSpeechStart = jest.fn();
+    const vad = createVad(
+      { onSpeechStart, onSpeechEnd: jest.fn() },
+      {
+        preferNativeTenVad: false,
+        positiveSpeechThreshold: -35,
+        minSpeechFrames: 2,
+      },
+    );
+
+    vad.processFrame(-20, new Uint8Array(512));
+    vad.processFrame(-20, new Uint8Array(512));
+
+    expect(mockNativeTenVad.processPcm16).not.toHaveBeenCalled();
     expect(onSpeechStart).toHaveBeenCalledTimes(1);
   });
 });
