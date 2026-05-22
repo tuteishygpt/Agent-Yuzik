@@ -107,9 +107,6 @@ async function stopLiveAudioStream(stream: LiveAudioStream): Promise<void> {
       Promise.resolve(stopResult).catch(() => undefined),
       new Promise((resolve) => setTimeout(() => resolve(timedOut), STOP_TIMEOUT_MS)),
     ]);
-    if (result === timedOut) {
-      try { stream.stop(); } catch {}
-    }
   } catch {}
 }
 

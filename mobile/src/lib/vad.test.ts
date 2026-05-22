@@ -146,6 +146,7 @@ describe("createVad", () => {
         redemptionFrames: 1,
         tenVadThreshold: 0.6,
         tenVadHopSize: 256,
+        nativeTenVadCalibrationFrames: 0,
       },
     );
     const pcm = new Uint8Array(512);
@@ -159,6 +160,118 @@ describe("createVad", () => {
     );
     expect(onSpeechStart).toHaveBeenCalledTimes(1);
     expect(onSpeechEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not let TEN VAD start speech on low-energy emulator noise", async () => {
+    mockNativeTenVad.processPcm16.mockResolvedValue([
+      { probability: 0.92, isSpeech: true },
+      { probability: 0.91, isSpeech: true },
+      { probability: 0.9, isSpeech: true },
+    ]);
+    const onSpeechStart = jest.fn();
+    const vad = createVad(
+      { onSpeechStart, onSpeechEnd: jest.fn() },
+      {
+        preferNativeTenVad: true,
+        minSpeechFrames: 1,
+        nativeTenVadEnergyFloorDb: -65,
+        nativeTenVadCalibrationFrames: 0,
+      },
+    );
+
+    vad.processFrame(-72, new Uint8Array(512));
+    await flushPromises();
+
+    expect(onSpeechStart).not.toHaveBeenCalled();
+  });
+
+  it("lets TEN VAD start speech below the energy VAD positive threshold", async () => {
+    mockNativeTenVad.processPcm16.mockResolvedValue([
+      { probability: 0.92, isSpeech: true },
+    ]);
+    const onSpeechStart = jest.fn();
+    const vad = createVad(
+      { onSpeechStart, onSpeechEnd: jest.fn() },
+      {
+        preferNativeTenVad: true,
+        minSpeechFrames: 1,
+        positiveSpeechThreshold: -40,
+        nativeTenVadEnergyFloorDb: -65,
+        nativeTenVadCalibrationFrames: 0,
+      },
+    );
+
+    vad.processFrame(-52, new Uint8Array(512));
+    await flushPromises();
+
+    expect(onSpeechStart).toHaveBeenCalledTimes(1);
+  });
+
+  it("adapts the TEN VAD energy floor from quiet startup frames", async () => {
+    mockNativeTenVad.processPcm16.mockResolvedValue([
+      { probability: 0.1, isSpeech: false },
+      { probability: 0.1, isSpeech: false },
+      { probability: 0.1, isSpeech: false },
+      { probability: 0.1, isSpeech: false },
+      { probability: 0.93, isSpeech: true },
+    ]);
+    const onSpeechStart = jest.fn();
+    const vad = createVad(
+      { onSpeechStart, onSpeechEnd: jest.fn() },
+      {
+        preferNativeTenVad: true,
+        minSpeechFrames: 1,
+        nativeTenVadCalibrationFrames: 4,
+        nativeTenVadNoiseMarginDb: 3,
+      },
+    );
+
+    vad.processFrame(-72, new Uint8Array(512));
+    await flushPromises();
+    vad.processFrame(-71, new Uint8Array(512));
+    await flushPromises();
+    vad.processFrame(-70, new Uint8Array(512));
+    await flushPromises();
+    vad.processFrame(-71, new Uint8Array(512));
+    await flushPromises();
+    vad.processFrame(-52, new Uint8Array(512));
+    await flushPromises();
+
+    expect(onSpeechStart).toHaveBeenCalledTimes(1);
+  });
+
+  it("raises the TEN VAD energy floor on noisy emulator startup", async () => {
+    mockNativeTenVad.processPcm16.mockResolvedValue([
+      { probability: 0.92, isSpeech: true },
+      { probability: 0.91, isSpeech: true },
+      { probability: 0.9, isSpeech: true },
+      { probability: 0.89, isSpeech: true },
+      { probability: 0.88, isSpeech: true },
+    ]);
+    const onSpeechStart = jest.fn();
+    const vad = createVad(
+      { onSpeechStart, onSpeechEnd: jest.fn() },
+      {
+        preferNativeTenVad: true,
+        minSpeechFrames: 1,
+        positiveSpeechThreshold: -40,
+        nativeTenVadCalibrationFrames: 4,
+        nativeTenVadNoiseMarginDb: 3,
+      },
+    );
+
+    vad.processFrame(-52, new Uint8Array(512));
+    await flushPromises();
+    vad.processFrame(-51, new Uint8Array(512));
+    await flushPromises();
+    vad.processFrame(-52, new Uint8Array(512));
+    await flushPromises();
+    vad.processFrame(-51, new Uint8Array(512));
+    await flushPromises();
+    vad.processFrame(-52, new Uint8Array(512));
+    await flushPromises();
+
+    expect(onSpeechStart).not.toHaveBeenCalled();
   });
 
   it("falls back to energy VAD when native TEN VAD is disabled", () => {

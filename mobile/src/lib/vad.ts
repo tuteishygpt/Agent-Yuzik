@@ -16,6 +16,18 @@ export type VadConfig = {
   tenVadThreshold: number;
   /** TEN VAD frame size in 16 kHz PCM samples. */
   tenVadHopSize: 160 | 256;
+  /** Lowest dB level where native TEN VAD may start speech. */
+  nativeTenVadEnergyFloorDb: number;
+  /** Adapt the native TEN VAD energy floor to the current microphone noise. */
+  adaptNativeTenVadEnergyFloor: boolean;
+  /** Short startup sample count used to estimate the current noise floor. */
+  nativeTenVadCalibrationFrames: number;
+  /** dB margin above measured noise before TEN VAD may start speech. */
+  nativeTenVadNoiseMarginDb: number;
+  /** Lower clamp for the adaptive TEN VAD energy floor. */
+  nativeTenVadMinEnergyFloorDb: number;
+  /** Upper clamp for the adaptive TEN VAD energy floor. */
+  nativeTenVadMaxEnergyFloorDb: number;
 };
 
 export type VadCallbacks = {
@@ -34,7 +46,7 @@ export type VadInstance = {
   readonly isPaused: boolean;
 };
 
-const DEFAULT_CONFIG: VadConfig = {
+export const DEFAULT_VAD_CONFIG: VadConfig = {
   positiveSpeechThreshold: -40,
   negativeSpeechThreshold: -42,
   redemptionFrames: 8,
@@ -42,6 +54,12 @@ const DEFAULT_CONFIG: VadConfig = {
   preferNativeTenVad: true,
   tenVadThreshold: 0.5,
   tenVadHopSize: 256,
+  nativeTenVadEnergyFloorDb: -65,
+  adaptNativeTenVadEnergyFloor: true,
+  nativeTenVadCalibrationFrames: 8,
+  nativeTenVadNoiseMarginDb: 3,
+  nativeTenVadMinEnergyFloorDb: -75,
+  nativeTenVadMaxEnergyFloorDb: -45,
 };
 
 type TenVadNativeResult = {
@@ -58,6 +76,15 @@ type TenVadNativeModule = {
 
 const nativeTenVad = NativeModules.TenVad as TenVadNativeModule | undefined;
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function median(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.floor(sorted.length / 2)] ?? -160;
+}
+
 function shouldUseNativeTenVad(cfg: VadConfig): boolean {
   return Boolean(
     cfg.preferNativeTenVad &&
@@ -71,7 +98,7 @@ export function createVad(
   callbacks: VadCallbacks,
   config: Partial<VadConfig> = {},
 ): VadInstance {
-  const cfg = { ...DEFAULT_CONFIG, ...config };
+  const cfg = { ...DEFAULT_VAD_CONFIG, ...config };
   let speechFrames = 0;
   let silenceFrames = 0;
   let speaking = false;
@@ -79,6 +106,9 @@ export function createVad(
   const useNativeTenVad = shouldUseNativeTenVad(cfg);
   let nativeReady = false;
   let nativeQueue = Promise.resolve();
+  let adaptiveNativeEnergyFloorDb = cfg.nativeTenVadEnergyFloorDb;
+  let nativeNoiseFloorDb: number | null = null;
+  let nativeCalibrationDbs: number[] = [];
 
   if (useNativeTenVad) {
     nativeQueue = nativeTenVad!
@@ -153,7 +183,43 @@ export function createVad(
       .then((results) => {
         if (!results || paused) return;
         for (const result of results) {
-          processDecision(db, result.isSpeech, !result.isSpeech);
+          const isCalibrating =
+            cfg.adaptNativeTenVadEnergyFloor &&
+            nativeCalibrationDbs.length < cfg.nativeTenVadCalibrationFrames;
+          if (isCalibrating) {
+            nativeCalibrationDbs.push(db);
+            const estimatedNoiseFloor = median(nativeCalibrationDbs);
+            nativeNoiseFloorDb = estimatedNoiseFloor;
+            adaptiveNativeEnergyFloorDb = clamp(
+              estimatedNoiseFloor + cfg.nativeTenVadNoiseMarginDb,
+              cfg.nativeTenVadMinEnergyFloorDb,
+              cfg.nativeTenVadMaxEnergyFloorDb,
+            );
+          } else if (
+            cfg.adaptNativeTenVadEnergyFloor &&
+            (!result.isSpeech || db < adaptiveNativeEnergyFloorDb)
+          ) {
+            nativeNoiseFloorDb =
+              nativeNoiseFloorDb === null
+                ? db
+                : nativeNoiseFloorDb * 0.9 + db * 0.1;
+            adaptiveNativeEnergyFloorDb = clamp(
+              nativeNoiseFloorDb + cfg.nativeTenVadNoiseMarginDb,
+              cfg.nativeTenVadMinEnergyFloorDb,
+              cfg.nativeTenVadMaxEnergyFloorDb,
+            );
+          }
+
+          const canStartDuringCalibration =
+            !isCalibrating || db >= cfg.positiveSpeechThreshold;
+          const hasEnoughEnergy =
+            db >= adaptiveNativeEnergyFloorDb && canStartDuringCalibration;
+          const isQuiet = db < cfg.negativeSpeechThreshold;
+          processDecision(
+            db,
+            result.isSpeech && hasEnoughEnergy,
+            !result.isSpeech || isQuiet,
+          );
         }
       })
       .catch((error) => {
@@ -170,6 +236,9 @@ export function createVad(
     speechFrames = 0;
     silenceFrames = 0;
     speaking = false;
+    adaptiveNativeEnergyFloorDb = cfg.nativeTenVadEnergyFloorDb;
+    nativeNoiseFloorDb = null;
+    nativeCalibrationDbs = [];
     if (useNativeTenVad) {
       nativeQueue = nativeQueue
         .then(() => nativeTenVad!.reset())
@@ -183,6 +252,9 @@ export function createVad(
     speechFrames = 0;
     silenceFrames = 0;
     speaking = false;
+    adaptiveNativeEnergyFloorDb = cfg.nativeTenVadEnergyFloorDb;
+    nativeNoiseFloorDb = null;
+    nativeCalibrationDbs = [];
     if (useNativeTenVad) {
       nativeQueue = nativeQueue
         .then(() => nativeTenVad!.destroy())

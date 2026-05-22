@@ -13,7 +13,7 @@ import {
   getLocalPcmSampleCount,
   isLocalPcmFrame,
 } from "@/lib/audio-pcm-format";
-import type { VadConfig } from "@/lib/vad";
+import { DEFAULT_VAD_CONFIG, type VadConfig } from "@/lib/vad";
 import { toErrorMessage } from "@/lib/errors";
 
 import { useVoiceSocket, type VoiceSocketControls } from "./useVoiceSocket";
@@ -82,8 +82,6 @@ export type VoiceSession = VoiceSessionState & {
 const RESUME_AFTER_RESPONSE_MS = 900;
 const NON_STREAMING_AUDIO_IDLE_FALLBACK_MS = 900;
 const CLIENT_PLAYBACK_MIN_BUFFER_MS = 1200;
-const MIN_SUBMIT_SEGMENT_FRAMES = 10;
-const MIN_SUBMIT_PEAK_DB = -36;
 const PENDING_VOICE_TRANSCRIPT_TEXT = "Галасавое паведамленне";
 
 const initialState: VoiceSessionState = {
@@ -114,6 +112,11 @@ type VadSegmentStats = {
   peakDb: number;
 };
 
+type BackgroundLevelStats = {
+  samples: number;
+  meanDb: number;
+};
+
 export function useVoiceSession(
   options: VoiceSessionOptions = {},
 ): VoiceSession {
@@ -131,14 +134,21 @@ export function useVoiceSession(
     peakDb: -160,
   });
   const vadRecordingActiveRef = useRef(false);
+  const vadRecordingStartInFlightRef = useRef<Promise<void> | null>(null);
+  const listeningStartInFlightRef = useRef<Promise<void> | null>(null);
   const vadRestartingRef = useRef(false);
   const playbackSequenceRef = useRef(0);
   const playbackQueueEndAtRef = useRef(0);
   const pendingUserTranscriptIdRef = useRef<string | null>(null);
+  const backgroundLevelRef = useRef<BackgroundLevelStats>({
+    samples: 0,
+    meanDb: -160,
+  });
 
   const recording = useVoiceRecording(options.recording);
   const playback = useVoicePlayback(options.playback);
   const vad = useVoiceVad(options.vadConfig);
+  const vadConfig = { ...DEFAULT_VAD_CONFIG, ...options.vadConfig };
 
   function update(updater: (current: VoiceSessionState) => VoiceSessionState) {
     const next = updater(stateRef.current);
@@ -218,22 +228,51 @@ export function useVoiceSession(
     };
   }
 
+  function updateBackgroundLevel(db: number) {
+    if (!Number.isFinite(db) || db >= vadConfig.positiveSpeechThreshold) {
+      return;
+    }
+
+    const current = backgroundLevelRef.current;
+    const samples = current.samples + 1;
+    const meanDb = current.meanDb + (db - current.meanDb) / samples;
+    backgroundLevelRef.current = { samples, meanDb };
+  }
+
+  function getSubmitProminenceDb() {
+    return Math.abs(
+      vadConfig.positiveSpeechThreshold - vadConfig.negativeSpeechThreshold,
+    );
+  }
+
+  function getBackgroundLevelDb() {
+    const background = backgroundLevelRef.current;
+    return background.samples > 0 ? background.meanDb : null;
+  }
+
   function feedVadMeteringFrame(db: number, pcm16?: Uint8Array) {
     latestVadDbRef.current = db;
-    vad.feedMeteringFrame(db, pcm16);
 
     const segment = speechSegmentRef.current;
     if (segment.active) {
       segment.frames += 1;
       segment.peakDb = Math.max(segment.peakDb, db);
+    } else {
+      updateBackgroundLevel(db);
     }
+
+    vad.feedMeteringFrame(db, pcm16);
   }
 
   function shouldSubmitSpeechSegment(segment: VadSegmentStats) {
-    return (
-      segment.frames >= MIN_SUBMIT_SEGMENT_FRAMES &&
-      segment.peakDb >= MIN_SUBMIT_PEAK_DB
-    );
+    const prominenceDb = getSubmitProminenceDb();
+    const backgroundDb = getBackgroundLevelDb();
+
+    if (backgroundDb === null) {
+      return segment.peakDb >= vadConfig.positiveSpeechThreshold + prominenceDb;
+    }
+
+    return segment.peakDb >= backgroundDb + prominenceDb;
   }
 
   function handleSpeechStart() {
@@ -301,11 +340,24 @@ export function useVoiceSession(
   }
 
   function startVadRecording() {
-    return recording
+    if (vadRecordingActiveRef.current) {
+      return Promise.resolve();
+    }
+
+    if (vadRecordingStartInFlightRef.current) {
+      return vadRecordingStartInFlightRef.current;
+    }
+
+    const promise = recording
       .start((db, pcm16) => feedVadMeteringFrame(db, pcm16))
       .then(() => {
         vadRecordingActiveRef.current = true;
+      })
+      .finally(() => {
+        vadRecordingStartInFlightRef.current = null;
       });
+    vadRecordingStartInFlightRef.current = promise;
+    return promise;
   }
 
   const stopVadRecordingInFlight = useRef<Promise<{ wavBytes: Uint8Array | null }> | null>(null);
@@ -622,25 +674,39 @@ export function useVoiceSession(
   }
 
   async function startListening() {
-    try {
-      await startVadRecording();
-    } catch (error) {
-      const msg = toErrorMessage(error);
-      update((s) => ({
-        ...s,
-        connectionStatus: "error",
-        error: msg,
-        isListening: false,
-      }));
+    if (stateRef.current.isListening || vadRecordingActiveRef.current) {
       return;
     }
 
-    update((s) => ({ ...s, isListening: true }));
-    console.log(
-      "[VoiceSession] startListening: recording started, VAD starting",
-    );
+    if (listeningStartInFlightRef.current) {
+      return listeningStartInFlightRef.current;
+    }
 
-    startVadSession();
+    const promise = (async () => {
+      try {
+        await startVadRecording();
+      } catch (error) {
+        const msg = toErrorMessage(error);
+        update((s) => ({
+          ...s,
+          connectionStatus: "error",
+          error: msg,
+          isListening: false,
+        }));
+        return;
+      }
+
+      update((s) => ({ ...s, isListening: true }));
+      console.log(
+        "[VoiceSession] startListening: recording started, VAD starting",
+      );
+
+      startVadSession();
+    })().finally(() => {
+      listeningStartInFlightRef.current = null;
+    });
+    listeningStartInFlightRef.current = promise;
+    return promise;
   }
 
   function stopListening() {

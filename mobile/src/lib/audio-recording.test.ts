@@ -110,7 +110,7 @@ describe("audio recording adapter (native PCM stream)", () => {
 
     const result = await adapter.stop();
 
-    expect(mockStream.stop).toHaveBeenCalled();
+    expect(mockStream.stop).toHaveBeenCalledTimes(1);
     expect(result.wavBytes).not.toBeNull();
     expect(result.wavBytes!.byteLength).toBe(44 + 320);
   });

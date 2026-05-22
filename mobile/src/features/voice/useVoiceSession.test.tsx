@@ -769,6 +769,84 @@ describe("useVoiceSession", () => {
     expect(recorder.start).toHaveBeenCalledTimes(1);
   });
 
+  it("does not start another live audio stream when listening is already active", async () => {
+    const socket = createSocketClient();
+    const recorder = createRecorder();
+    let latestSession: ReturnType<typeof useVoiceSession> | null = null;
+
+    function Probe() {
+      latestSession = useVoiceSession({
+        backendUrl: "https://api.yuzik.example",
+        getAccessToken: async () => "token-123",
+        teacherMode: mockTeacherMode as never,
+        socketClientFactory: () => socket,
+        recording: recorder as never,
+      });
+
+      return <Text>{latestSession.status}</Text>;
+    }
+
+    await act(async () => {
+      TestRenderer.create(<Probe />);
+    });
+
+    await act(async () => {
+      await latestSession?.connect();
+      await latestSession?.startListening();
+      await latestSession?.startListening();
+    });
+
+    expect(recorder.start).toHaveBeenCalledTimes(1);
+  });
+
+  it("submits a short phrase when it rises above the measured background level", async () => {
+    const socket = createSocketClient();
+    const recorder = createRecorder();
+    let latestSession: ReturnType<typeof useVoiceSession> | null = null;
+
+    function Probe() {
+      latestSession = useVoiceSession({
+        backendUrl: "https://api.yuzik.example",
+        getAccessToken: async () => "token-123",
+        teacherMode: mockTeacherMode as never,
+        socketClientFactory: () => socket,
+        recording: recorder as never,
+        vadConfig: {
+          preferNativeTenVad: false,
+          positiveSpeechThreshold: -45,
+          negativeSpeechThreshold: -48,
+          minSpeechFrames: 2,
+          redemptionFrames: 2,
+        },
+      });
+
+      return <Text>{latestSession.status}</Text>;
+    }
+
+    await act(async () => {
+      TestRenderer.create(<Probe />);
+    });
+
+    await act(async () => {
+      await latestSession?.connect();
+      await latestSession?.startListening();
+    });
+
+    const onMetering = recorder.start.mock.calls[0][0] as (db: number) => void;
+
+    await act(async () => {
+      [-58, -57, -56, -57, -58].forEach(onMetering);
+      [-43, -42.5].forEach(onMetering);
+      [-50, -51].forEach(onMetering);
+      await Promise.resolve();
+    });
+
+    expect(recorder.stop).toHaveBeenCalledTimes(1);
+    expect(socket.sendAudio).toHaveBeenCalledWith({
+      wavBytes: new Uint8Array([1, 2, 3]),
+    });
+  });
+
   it("drops short low-confidence VAD segments without sending silence to the backend", async () => {
     jest.useFakeTimers();
 
