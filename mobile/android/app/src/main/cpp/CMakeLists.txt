@@ -14,7 +14,7 @@ set(TEN_VAD_IMPORTED_LIBRARY
   ${CMAKE_CURRENT_SOURCE_DIR}/../jniLibs/${ANDROID_ABI}/libten_vad.so
 )
 
-if(EXISTS ${TEN_VAD_IMPORTED_LIBRARY})
+if(ANDROID_ABI STREQUAL "x86_64" OR EXISTS ${TEN_VAD_IMPORTED_LIBRARY})
   add_library(ten_vad SHARED IMPORTED)
   set_target_properties(
     ten_vad

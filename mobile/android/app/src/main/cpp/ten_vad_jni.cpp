@@ -1,13 +1,17 @@
 #include <jni.h>
 
+#include <android/log.h>
 #include <cstdint>
 #include <string>
+#include <unistd.h>
 
 #if HAVE_TEN_VAD
 #include "ten_vad.h"
 #endif
 
 namespace {
+
+constexpr const char *LOG_TAG = "YuzikTenVad";
 
 void throwIllegalState(JNIEnv *env, const std::string &message) {
   jclass exceptionClass = env->FindClass("java/lang/IllegalStateException");
@@ -36,6 +40,14 @@ Java_com_yuzik_mobile_dev_TenVadModule_nativeCreate(
 #else
   ten_vad_handle_t handle = nullptr;
   const int result = ten_vad_create(&handle, static_cast<size_t>(hopSize), threshold);
+  __android_log_print(
+      ANDROID_LOG_INFO,
+      LOG_TAG,
+      "ten_vad_create result=%d handle=%p hopSize=%d threshold=%f",
+      result,
+      handle,
+      hopSize,
+      threshold);
   if (result != 0 || handle == nullptr) {
     throwIllegalState(env, "ten_vad_create failed.");
     return 0;
@@ -120,4 +132,29 @@ Java_com_yuzik_mobile_dev_TenVadModule_nativeGetVersion(JNIEnv *env, jobject) {
   const char *version = ten_vad_get_version();
   return env->NewStringUTF(version == nullptr ? "" : version);
 #endif
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_yuzik_mobile_dev_TenVadModule_nativeSetWorkingDirectory(
+    JNIEnv *env,
+    jobject,
+    jstring path) {
+  const char *pathChars = env->GetStringUTFChars(path, nullptr);
+  if (pathChars == nullptr) {
+    throwIllegalState(env, "Failed to read TEN VAD model directory.");
+    return;
+  }
+
+  const int result = chdir(pathChars);
+  __android_log_print(
+      ANDROID_LOG_INFO,
+      LOG_TAG,
+      "chdir(%s) result=%d",
+      pathChars,
+      result);
+  env->ReleaseStringUTFChars(path, pathChars);
+
+  if (result != 0) {
+    throwIllegalState(env, "Failed to set TEN VAD model directory.");
+  }
 }

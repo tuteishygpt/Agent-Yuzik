@@ -110,3 +110,77 @@ def test_tts_worker_stop_waits_for_slow_active_tts(monkeypatch):
         assert await audio_queue.get() == b"audio"
 
     asyncio.run(asyncio.wait_for(scenario(), timeout=0.2))
+
+
+def test_remote_asr_sends_transcribed_text_to_llm(monkeypatch):
+    voice_simple, _ = _load_voice_simple(monkeypatch)
+    monkeypatch.setattr(voice_simple.config, "LOCAL_ASR", False)
+
+    captured = {}
+
+    class FakeModels:
+        async def generate_content_stream(self, **kwargs):
+            captured["contents"] = kwargs["contents"]
+
+            async def empty_stream():
+                if False:
+                    yield SimpleNamespace(text="")
+
+            return empty_stream()
+
+    fake_client = SimpleNamespace(aio=SimpleNamespace(models=FakeModels()))
+    monkeypatch.setattr(voice_simple, "get_genai_client", lambda: fake_client)
+
+    async def transcribe_audio(audio_data):
+        return "прывітанне"
+
+    monkeypatch.setattr(voice_simple, "_transcribe_audio_with_model", transcribe_audio)
+
+    class FakeTTSWorker:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def start(self):
+            return None
+
+        async def dispatch(self, text):
+            pass
+
+        async def stop(self):
+            pass
+
+        def cancel(self):
+            pass
+
+    class FakeWebSocket:
+        def __init__(self):
+            from fastapi.websockets import WebSocketState
+
+            self.client_state = WebSocketState.CONNECTED
+            self.messages = []
+
+        async def send_json(self, message):
+            self.messages.append(message)
+
+    class FakePerf:
+        start_ts = time.time()
+
+        async def __call__(self, *args, **kwargs):
+            pass
+
+    monkeypatch.setattr(voice_simple, "TTSWorker", FakeTTSWorker)
+
+    async def scenario():
+        await voice_simple.handle_simple_voice(
+            audio_data=b"wav",
+            websocket=FakeWebSocket(),
+            audio_queue=asyncio.Queue(),
+            perf=FakePerf(),
+            user_id="user-1",
+        )
+
+    asyncio.run(asyncio.wait_for(scenario(), timeout=0.2))
+
+    user_content = captured["contents"][-1]
+    assert user_content.parts[0].text == "прывітанне"
+    assert user_content.parts[0].inline_data is None

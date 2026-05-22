@@ -24,7 +24,7 @@ from api.deps import get_genai_client
 from api.teacher_mode.service import controller as teacher_controller
 from api.voice_history import get_voice_history
 from api.voice_perf import PerfLogger
-from api.voice_utils import LOCAL_SAMPLE_RATE, compress_wav_to_mp3
+from api.voice_utils import LOCAL_SAMPLE_RATE
 from tools.text_to_speech_tool import stream_speech, stream_speech_multi
 
 # Local ASR (imported inside handle_simple_voice if needed)
@@ -402,8 +402,8 @@ async def handle_simple_voice(
         duration_ms=round((time.time() - start_ts) * 1000),
     )
 
-    # ── Prepare user content: local ASR (text) or compressed audio ──
-    user_transcription: str | None = None  # filled when LOCAL_ASR is on
+    # ── Prepare user content: local or remote ASR text ──
+    user_transcription: str | None = None
 
     if config.LOCAL_ASR:
         from api import local_asr
@@ -466,37 +466,9 @@ async def handle_simple_voice(
                 "type": "transcription",
                 "text": user_transcription,
             })
-        # ── Compress WAV → MP3 (16kHz, 64k) to reduce Gemini upload size ──
-        log.info(_step("VOICE·COMPRESS", f"🗜️  Compressing WAV→MP3 | input={len(audio_data)}B", start_ts))
-        t_compress = time.time()
-        mp3_data = await asyncio.to_thread(compress_wav_to_mp3, audio_data)
-        compress_ms = (time.time() - t_compress) * 1000
-        ratio = len(audio_data) / len(mp3_data) if mp3_data else 0
-        log.info(_step(
-            "VOICE·COMPRESS",
-            f"   ✅ WAV→MP3: {len(audio_data)}B → {len(mp3_data)}B "
-            f"(×{ratio:.1f}) | {compress_ms:.0f}ms",
-            start_ts,
-        ))
-        await perf(
-            "audio_compressed",
-            "🗜️ Аўдыё сціснута WAV→MP3",
-            detail=f"{len(audio_data)}B → {len(mp3_data)}B (×{ratio:.1f} сцісканне) | "
-                   f"Час: {compress_ms:.0f} мс",
-            duration_ms=round(compress_ms),
-        )
-
-        # Current user turn with compressed audio
         current_user_content = types.Content(
             role="user",
-            parts=[
-                types.Part(
-                    inline_data=types.Blob(
-                        mime_type="audio/mp3",
-                        data=mp3_data,
-                    )
-                )
-            ],
+            parts=[types.Part(text=user_transcription or "")],
         )
 
     all_contents = history_contents + [current_user_content]

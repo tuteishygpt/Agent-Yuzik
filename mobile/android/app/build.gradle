@@ -80,6 +80,10 @@ def enableMinifyInReleaseBuilds = (findProperty('android.enableMinifyInReleaseBu
  * this variant is about 6MiB larger per architecture than default.
  */
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
+def reactNativeArchitectures = (findProperty('reactNativeArchitectures') ?: "armeabi-v7a,arm64-v8a,x86,x86_64")
+        .split(',')
+        .collect { it.trim() }
+        .findAll { it }
 
 android {
     ndkVersion rootProject.ext.ndkVersion
@@ -98,6 +102,9 @@ android {
             cmake {
                 cppFlags "-std=c++17"
             }
+        }
+        ndk {
+            abiFilters(*reactNativeArchitectures)
         }
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }

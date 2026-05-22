@@ -6,6 +6,7 @@ import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
+import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.Executors
@@ -49,6 +50,8 @@ class TenVadModule(
           this.hopSize = hopSize
           this.threshold = threshold.toFloat()
           this.pendingPcm = ByteArray(0)
+          prepareOnnxModel()
+          nativeSetWorkingDirectory(reactApplicationContext.filesDir.absolutePath)
           this.handle = nativeCreate(hopSize, this.threshold)
         }
         promise.resolve(null)
@@ -113,6 +116,8 @@ class TenVadModule(
         synchronized(lock) {
           destroyLocked()
           pendingPcm = ByteArray(0)
+          prepareOnnxModel()
+          nativeSetWorkingDirectory(reactApplicationContext.filesDir.absolutePath)
           handle = nativeCreate(hopSize, threshold)
         }
         promise.resolve(null)
@@ -158,7 +163,24 @@ class TenVadModule(
 
   private fun ensureHandleLocked() {
     if (handle == 0L) {
+      prepareOnnxModel()
+      nativeSetWorkingDirectory(reactApplicationContext.filesDir.absolutePath)
       handle = nativeCreate(hopSize, threshold)
+    }
+  }
+
+  private fun prepareOnnxModel() {
+    val modelDirectory = File(reactApplicationContext.filesDir, "onnx_model")
+    val modelFile = File(modelDirectory, "ten-vad.onnx")
+    if (modelFile.exists() && modelFile.length() > 0) {
+      return
+    }
+
+    modelDirectory.mkdirs()
+    reactApplicationContext.assets.open("onnx_model/ten-vad.onnx").use { input ->
+      modelFile.outputStream().use { output ->
+        input.copyTo(output)
+      }
     }
   }
 
@@ -173,4 +195,5 @@ class TenVadModule(
   private external fun nativeProcessFrame(handle: Long, frame: ShortArray): FloatArray
   private external fun nativeDestroy(handle: Long)
   private external fun nativeGetVersion(): String
+  private external fun nativeSetWorkingDirectory(path: String)
 }
