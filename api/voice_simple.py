@@ -22,7 +22,7 @@ import config
 from api.deps import get_genai_client
 from api.voice_history import get_voice_history
 from api.voice_perf import PerfLogger
-from api.voice_utils import LOCAL_SAMPLE_RATE, compress_wav_to_mp3
+from api.voice_utils import LOCAL_SAMPLE_RATE
 from tools.text_to_speech_tool import stream_speech_multi
 
 log = logging.getLogger("app.voice")
@@ -535,7 +535,7 @@ async def _transcribe_remote(
     perf: PerfLogger,
     start_ts: float,
 ) -> tuple[str | None, types.Content]:
-    """Remote ASR fallback: transcribe + compress audio → return Content for Gemini."""
+    """Remote ASR fallback: transcribe audio → return text Content for Gemini."""
     log.info(_step("VOICE·ASR", "🎙️ Remote transcription start (fallback)", start_ts))
     t_remote_asr = time.time()
     try:
@@ -558,33 +558,9 @@ async def _transcribe_remote(
             duration_ms=round(remote_asr_ms),
         )
         await websocket.send_json({"type": "transcription", "text": transcription})
-        content = types.Content(role="user", parts=[types.Part(text=transcription)])
-        return transcription, content
 
-    # Compress WAV → MP3 only when transcription failed and we need to send raw audio
-    log.info(_step("VOICE·COMPRESS", f"🗜️  Compressing WAV→MP3 | input={len(audio_data)}B", start_ts))
-    t_compress = time.time()
-    mp3_data = await asyncio.to_thread(compress_wav_to_mp3, audio_data)
-    compress_ms = (time.time() - t_compress) * 1000
-    ratio = len(audio_data) / len(mp3_data) if mp3_data else 0
-    log.info(_step(
-        "VOICE·COMPRESS",
-        f"   ✅ WAV→MP3: {len(audio_data)}B → {len(mp3_data)}B "
-        f"(×{ratio:.1f}) | {compress_ms:.0f}ms",
-        start_ts,
-    ))
-    await perf(
-        "audio_compressed",
-        "🗜️ Аўдыё сціснута WAV→MP3",
-        detail=f"{len(audio_data)}B → {len(mp3_data)}B (×{ratio:.1f} сцісканне) | "
-               f"Час: {compress_ms:.0f} мс",
-        duration_ms=round(compress_ms),
-    )
-    content = types.Content(
-        role="user",
-        parts=[types.Part(inline_data=types.Blob(mime_type="audio/mp3", data=mp3_data))],
-    )
-    return None, content
+    content = types.Content(role="user", parts=[types.Part(text=transcription or "")])
+    return transcription, content
 
 
 async def _start_llm_stream(all_contents: list, perf: PerfLogger, start_ts: float):

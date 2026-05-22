@@ -32,7 +32,6 @@ def _load_voice_simple(monkeypatch):
 
     fake_voice_utils = ModuleType("api.voice_utils")
     fake_voice_utils.LOCAL_SAMPLE_RATE = 16000
-    fake_voice_utils.compress_wav_to_mp3 = lambda audio_data: b"mp3"
     monkeypatch.setitem(sys.modules, "api.voice_utils", fake_voice_utils)
 
     fake_tts = ModuleType("tools.text_to_speech_tool")
@@ -72,6 +71,36 @@ def test_tts_worker_stop_does_not_wait_forever_on_stuck_stream(monkeypatch):
         worker.start()
         await started.wait()
         await worker.stop()
+
+    asyncio.run(asyncio.wait_for(scenario(), timeout=0.2))
+
+
+def test_remote_asr_empty_transcription_still_sends_text_to_llm(monkeypatch):
+    voice_simple, _ = _load_voice_simple(monkeypatch)
+    monkeypatch.setattr(voice_simple.config, "LOCAL_ASR", False)
+
+    async def transcribe_audio(audio_data):
+        return ""
+
+    class FakeWebSocket:
+        async def send_json(self, message):
+            pass
+
+    async def perf(*args, **kwargs):
+        pass
+
+    monkeypatch.setattr(voice_simple, "_transcribe_audio_with_model", transcribe_audio)
+
+    async def scenario():
+        transcription, content = await voice_simple._transcribe_remote(
+            audio_data=b"wav",
+            websocket=FakeWebSocket(),
+            perf=perf,
+            start_ts=time.time(),
+        )
+        assert transcription == ""
+        assert content.parts[0].text == ""
+        assert content.parts[0].inline_data is None
 
     asyncio.run(asyncio.wait_for(scenario(), timeout=0.2))
 
