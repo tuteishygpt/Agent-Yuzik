@@ -2,12 +2,15 @@ import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 
 
 import { createChatApiClient, type ChatApiClient, type ChatHistoryMessage, type ChatUploadFile } from "@/lib/api";
 import { createArtifactFetcher, type ArtifactFetcher, type ResolvedArtifact } from "@/lib/artifact-fetch";
+import { playChatAudioArtifact } from "@/lib/chat-audio-playback";
 import { type ChatAttachment, pickSingleAttachment } from "@/lib/file-picker";
 import { getRuntimeEnv } from "@/lib/env";
+import { getLegacyMobileUserId } from "@/lib/legacy-user-id";
 import { getSupabaseSession } from "@/lib/supabase";
 
 export type ChatResolvedArtifact = ResolvedArtifact & {
   kind: "image" | "audio";
+  play?: () => Promise<void>;
 };
 
 export type ChatMessage = ChatHistoryMessage & {
@@ -34,12 +37,14 @@ type UseChatControllerOptions = {
   api?: ChatApiClient;
   artifactFetcher?: ArtifactFetcher;
   pickAttachment?: () => Promise<ChatAttachment | null>;
+  playAudioArtifact?: (uri: string) => Promise<void>;
 };
 
 function createDefaultApi(): ChatApiClient {
   return createChatApiClient({
     backendUrl: getRuntimeEnv().backendUrl,
     getAccessToken: async () => (await getSupabaseSession())?.access_token ?? null,
+    getLegacyUserId: getLegacyMobileUserId,
   });
 }
 
@@ -69,9 +74,30 @@ function getArtifactId(artifactUrl: string): string | null {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
+function getSignedUrlArtifactId(artifactUrl: string): string {
+  let hash = 0;
+
+  for (let index = 0; index < artifactUrl.length; index += 1) {
+    hash = Math.imul(31, hash) + artifactUrl.charCodeAt(index);
+    hash |= 0;
+  }
+
+  return `url-${Math.abs(hash).toString(36)}`;
+}
+
+function getArtifactFilename(artifactId: string, artifactKind: "image" | "audio"): string {
+  if (/\.[a-z0-9]+$/i.test(artifactId)) {
+    return artifactId;
+  }
+
+  return `${artifactId}.${artifactKind === "image" ? "png" : "mp3"}`;
+}
+
 async function resolveAssistantArtifact(
   response: Awaited<ReturnType<ChatApiClient["sendMessage"]>>,
   artifactFetcher: ArtifactFetcher,
+  cacheKeyPrefix: string,
+  playAudioArtifact: (uri: string) => Promise<void>,
 ): Promise<{
   artifact: ChatResolvedArtifact | null;
   artifactError: string | null;
@@ -90,26 +116,25 @@ async function resolveAssistantArtifact(
     };
   }
 
-  const artifactId = getArtifactId(artifactUrl);
-
-  if (!artifactId) {
-    return {
-      artifact: null,
-      artifactError: "Assistant artifact URL could not be resolved.",
-    };
-  }
+  const artifactId = getArtifactId(artifactUrl) ?? getSignedUrlArtifactId(artifactUrl);
+  const sourceUrl = getArtifactId(artifactUrl) ? null : artifactUrl;
 
   try {
     const resolvedArtifact = await artifactFetcher.resolveArtifact({
       artifactId,
+      ...(artifactKind === "audio" ? { cacheKey: `${cacheKeyPrefix}-${artifactId}` } : {}),
+      ...(sourceUrl ? { sourceUrl } : {}),
       mimeType: artifactKind === "image" ? "image/*" : "audio/*",
-      filename: `${artifactId}.${artifactKind === "image" ? "png" : "mp3"}`,
+      filename: getArtifactFilename(artifactId, artifactKind),
     });
 
     return {
       artifact: {
         ...resolvedArtifact,
         kind: artifactKind,
+        ...(artifactKind === "audio"
+          ? { play: () => playAudioArtifact(resolvedArtifact.localUri) }
+          : {}),
       },
       artifactError: null,
     };
@@ -125,11 +150,18 @@ async function resolveAssistantArtifact(
 async function buildAssistantMessage(
   response: Awaited<ReturnType<ChatApiClient["sendMessage"]>>,
   artifactFetcher: ArtifactFetcher,
+  playAudioArtifact: (uri: string) => Promise<void>,
 ): Promise<ChatMessage> {
-  const resolvedArtifact = await resolveAssistantArtifact(response, artifactFetcher);
+  const id = createMessageId("assistant");
+  const resolvedArtifact = await resolveAssistantArtifact(
+    response,
+    artifactFetcher,
+    id,
+    playAudioArtifact,
+  );
 
   return {
-    id: createMessageId("assistant"),
+    id,
     role: "assistant",
     content: response.text ?? "",
     artifact: resolvedArtifact.artifact,
@@ -159,10 +191,12 @@ export function useChatController({
   api,
   artifactFetcher,
   pickAttachment = pickSingleAttachment,
+  playAudioArtifact = playChatAudioArtifact,
 }: UseChatControllerOptions = {}): ChatController {
   const apiRef = useRef<ChatApiClient | null>(null);
   const artifactFetcherRef = useRef<ArtifactFetcher | null>(null);
   const pickAttachmentRef = useRef(pickAttachment);
+  const playAudioArtifactRef = useRef(playAudioArtifact);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draftText, setDraftText] = useState("");
   const [attachment, setAttachment] = useState<ChatAttachment | null>(null);
@@ -182,6 +216,7 @@ export function useChatController({
   }
 
   pickAttachmentRef.current = pickAttachment;
+  playAudioArtifactRef.current = playAudioArtifact;
 
   useEffect(() => {
     mountedRef.current = true;
@@ -237,24 +272,38 @@ export function useChatController({
     sendingRef.current = true;
     setIsSending(true);
     setError(null);
+    const sentAttachment = attachment;
+    const userMessage = buildUserMessage(trimmedDraft, sentAttachment);
+    setMessages((current) => [...current, userMessage]);
+    setDraftText("");
+    setAttachment(null);
 
     try {
       const response = await apiRef.current!.sendMessage({
         text: trimmedDraft,
-        files: attachment ? [toUploadFile(attachment)] : undefined,
+        files: sentAttachment ? [toUploadFile(sentAttachment)] : undefined,
       });
       const assistantMessage = await buildAssistantMessage(
         response,
         artifactFetcherRef.current!,
+        playAudioArtifactRef.current,
       );
 
-      setMessages((current) => [
-        ...current,
-        buildUserMessage(trimmedDraft, attachment),
-        assistantMessage,
-      ]);
-      setDraftText("");
-      setAttachment(null);
+      setMessages((current) => [...current, assistantMessage]);
+
+      if (assistantMessage.artifact?.kind === "audio") {
+        void assistantMessage.artifact
+          .play?.()
+          .catch((playbackError) => {
+            if (mountedRef.current) {
+              setError(
+                playbackError instanceof Error
+                  ? playbackError.message
+                  : "Unable to play audio.",
+              );
+            }
+          });
+      }
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Unable to send message.");
     } finally {

@@ -47,11 +47,23 @@ export type ChatApiClient = {
 type ChatApiClientOptions = {
   backendUrl: string;
   getAccessToken: () => Promise<string | null>;
+  getLegacyUserId?: () => Promise<string | null>;
   fetchImpl?: typeof fetch;
 };
 
 function joinUrl(baseUrl: string, path: string): string {
   return `${baseUrl.replace(/\/+$/, "")}${path}`;
+}
+
+function withLegacyUserId(path: string, legacyUserId: string | null): string {
+  const normalizedUserId = legacyUserId?.trim();
+
+  if (!normalizedUserId) {
+    return path;
+  }
+
+  const separator = path.includes("?") ? "&" : "?";
+  return `${path}${separator}user_id=${encodeURIComponent(normalizedUserId)}`;
 }
 
 function createHeaders(accessToken: string | null, headers?: HeadersInit): Headers {
@@ -156,10 +168,6 @@ async function requestJson<T>(
 ): Promise<T> {
   const accessToken = await getAccessToken();
 
-  if (!accessToken) {
-    throw new ApiError("Missing Supabase access token.", 401, null);
-  }
-
   const url = joinUrl(backendUrl, path);
   const method = init?.method ?? "GET";
   const startedAt = Date.now();
@@ -167,7 +175,7 @@ async function requestJson<T>(
   logNetwork("HTTP request", {
     method,
     url,
-    hasAuthToken: true,
+    hasAuthToken: Boolean(accessToken),
     body: getBodySummary(init?.body),
   });
 
@@ -208,6 +216,7 @@ async function requestJson<T>(
 function createMultipartBody(
   text: string,
   files: ChatUploadFile[] | undefined,
+  legacyUserId?: string | null,
 ): FormData {
   if ((files?.length ?? 0) > 1) {
     throw new ApiError("Only one attachment is supported.", 400, null);
@@ -215,6 +224,11 @@ function createMultipartBody(
 
   const body = new FormData();
   body.append("text", text);
+
+  const normalizedUserId = legacyUserId?.trim();
+  if (normalizedUserId) {
+    body.append("user_id", normalizedUserId);
+  }
 
   for (const file of files ?? []) {
     body.append(
@@ -233,15 +247,17 @@ function createMultipartBody(
 export function createChatApiClient({
   backendUrl,
   getAccessToken,
+  getLegacyUserId,
   fetchImpl = fetch,
 }: ChatApiClientOptions): ChatApiClient {
   return {
     async getHistory() {
+      const legacyUserId = (await getLegacyUserId?.()) ?? null;
       const payload = await requestJson<{ history?: ChatHistoryMessage[] }>(
         backendUrl,
         fetchImpl,
         getAccessToken,
-        "/api/chat/history",
+        withLegacyUserId("/api/chat/history", legacyUserId),
         {
           method: "GET",
         },
@@ -250,11 +266,12 @@ export function createChatApiClient({
       return payload.history ?? [];
     },
     async clearHistory() {
+      const legacyUserId = (await getLegacyUserId?.()) ?? null;
       await requestJson<{ status?: string }>(
         backendUrl,
         fetchImpl,
         getAccessToken,
-        "/api/chat/history",
+        withLegacyUserId("/api/chat/history", legacyUserId),
         {
           method: "DELETE",
         },
@@ -262,19 +279,17 @@ export function createChatApiClient({
     },
     async createArtifactRequest(artifactId: string) {
       const accessToken = await getAccessToken();
-
-      if (!accessToken) {
-        throw new ApiError("Missing Supabase access token.", 401, null);
-      }
+      const headers: Record<string, string> = accessToken
+        ? { Authorization: `Bearer ${accessToken}` }
+        : {};
 
       return {
         url: joinUrl(backendUrl, `/api/files/${artifactId}`),
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
+        headers,
       };
     },
     async sendMessage({ text, files }) {
+      const legacyUserId = (await getLegacyUserId?.()) ?? null;
       const payload = await requestJson<ChatResponse>(
         backendUrl,
         fetchImpl,
@@ -282,9 +297,15 @@ export function createChatApiClient({
         "/api/chat",
         {
           method: "POST",
-          body: createMultipartBody(text, files),
+          body: createMultipartBody(text, files, legacyUserId),
         },
       );
+
+      logNetwork("Chat response payload", {
+        text: payload.text ?? null,
+        audio: payload.audio ?? null,
+        image: payload.image ?? null,
+      });
 
       return {
         text: payload.text ?? null,

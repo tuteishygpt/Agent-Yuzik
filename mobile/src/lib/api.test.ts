@@ -39,6 +39,88 @@ describe("chat api", () => {
     expect(headers.get("Authorization")).toBe("Bearer token-123");
   });
 
+  it("allows chat requests without a bearer token for legacy web-compatible backends", async () => {
+    const fetchImpl = jest.fn().mockResolvedValue(
+      createResponse({ text: "ok", audio: null, image: "/api/files/image-1" }),
+    );
+
+    const { createChatApi } = require("./api") as typeof import("./api");
+    const api = createChatApi({
+      backendUrl: "https://api.yuzik.example",
+      getAccessToken: async () => null,
+      fetchImpl,
+    });
+
+    await expect(api.sendMessage({ text: "hello" })).resolves.toEqual({
+      text: "ok",
+      audio: null,
+      image: "/api/files/image-1",
+    });
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://api.yuzik.example/api/chat",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.any(Headers),
+      }),
+    );
+
+    const headers = fetchImpl.mock.calls[0][1].headers as Headers;
+    expect(headers.get("Authorization")).toBeNull();
+  });
+
+  it("includes the legacy mobile user id in chat multipart requests", async () => {
+    const fetchImpl = jest.fn().mockResolvedValue(
+      createResponse({ text: "ok", audio: null, image: null }),
+    );
+    const appendSpy = jest.spyOn(FormData.prototype, "append");
+
+    const { createChatApi } = require("./api") as typeof import("./api");
+    const api = createChatApi({
+      backendUrl: "https://api.yuzik.example",
+      getAccessToken: async () => null,
+      getLegacyUserId: async () => "mobile-user-and-abc12",
+      fetchImpl,
+    });
+
+    try {
+      await api.sendMessage({ text: "hello" });
+
+      expect(appendSpy).toHaveBeenCalledWith("text", "hello");
+      expect(appendSpy).toHaveBeenCalledWith("user_id", "mobile-user-and-abc12");
+    } finally {
+      appendSpy.mockRestore();
+    }
+  });
+
+  it("includes the legacy mobile user id in history requests", async () => {
+    const fetchImpl = jest.fn().mockResolvedValue(
+      createResponse({ history: [] }),
+    );
+
+    const { createChatApi } = require("./api") as typeof import("./api");
+    const api = createChatApi({
+      backendUrl: "https://api.yuzik.example",
+      getAccessToken: async () => null,
+      getLegacyUserId: async () => "mobile-user-ios-def34",
+      fetchImpl,
+    });
+
+    await api.getHistory();
+    await api.clearHistory();
+
+    expect(fetchImpl).toHaveBeenNthCalledWith(
+      1,
+      "https://api.yuzik.example/api/chat/history?user_id=mobile-user-ios-def34",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(fetchImpl).toHaveBeenNthCalledWith(
+      2,
+      "https://api.yuzik.example/api/chat/history?user_id=mobile-user-ios-def34",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+  });
+
   it("serializes a single attachment as multipart form data", async () => {
     const fetchImpl = jest.fn().mockResolvedValue(
       createResponse({ text: "ok", audio: null, image: null }),
@@ -190,6 +272,20 @@ describe("chat api", () => {
       },
     });
   });
+
+  it("creates an unauthenticated /api/files request when no token is available", async () => {
+    const { createChatApi } = require("./api") as typeof import("./api");
+    const api = createChatApi({
+      backendUrl: "https://api.yuzik.example",
+      getAccessToken: async () => null,
+      fetchImpl: jest.fn(),
+    });
+
+    await expect(api.createArtifactRequest("artifact-1")).resolves.toEqual({
+      url: "https://api.yuzik.example/api/files/artifact-1",
+      headers: {},
+    });
+  });
 });
 
 describe("artifact fetcher", () => {
@@ -294,5 +390,93 @@ describe("artifact fetcher", () => {
 
     expect(artifact.presentation).toBe("system");
     expect(artifact.localUri).toBe("file:///cache/yuzik-artifact-def456.pdf");
+  });
+
+  it("downloads signed artifact urls directly without creating an api file request", async () => {
+    const downloadAsync = jest.fn().mockResolvedValue({
+      uri: "file:///cache/yuzik-artifact-url123.png",
+    });
+    const createArtifactRequest = jest.fn();
+    const signedUrl = "https://storage.example/object/sign/file.png?token=abc";
+
+    const { createArtifactFetcher } = require("./artifact-fetch") as typeof import("./artifact-fetch");
+    const fetcher = createArtifactFetcher({
+      api: {
+        createArtifactRequest,
+      },
+      fileSystem: {
+        cacheDirectory: "file:///cache/",
+        downloadAsync,
+        getInfoAsync: jest.fn().mockResolvedValue({ exists: false }),
+        makeDirectoryAsync: jest.fn().mockResolvedValue(undefined),
+      },
+      sharing: {
+        isAvailableAsync: async () => true,
+        shareAsync: jest.fn().mockResolvedValue(undefined),
+      },
+      openUrl: jest.fn().mockResolvedValue(undefined),
+    });
+
+    const artifact = await fetcher.resolveArtifact({
+      artifactId: "url123",
+      sourceUrl: signedUrl,
+      mimeType: "image/png",
+      filename: "signed.png",
+    });
+
+    expect(createArtifactRequest).not.toHaveBeenCalled();
+    expect(downloadAsync).toHaveBeenCalledWith(
+      signedUrl,
+      "file:///cache/yuzik-artifacts/url123.png",
+      {
+        headers: {},
+      },
+    );
+    expect(artifact.presentation).toBe("preview");
+    expect(artifact.localUri).toBe("file:///cache/yuzik-artifact-url123.png");
+  });
+
+  it("uses the cache key for local storage while preserving the remote artifact id", async () => {
+    const downloadAsync = jest.fn().mockResolvedValue({
+      uri: "file:///cache/yuzik-artifact-response-1.wav",
+    });
+    const createArtifactRequest = jest.fn(async (artifactId: string) => ({
+      url: `https://api.yuzik.example/api/files/${artifactId}`,
+      headers: {},
+    }));
+
+    const { createArtifactFetcher } = require("./artifact-fetch") as typeof import("./artifact-fetch");
+    const fetcher = createArtifactFetcher({
+      api: {
+        createArtifactRequest,
+      },
+      fileSystem: {
+        cacheDirectory: "file:///cache/",
+        downloadAsync,
+        getInfoAsync: jest.fn().mockResolvedValue({ exists: false }),
+        makeDirectoryAsync: jest.fn().mockResolvedValue(undefined),
+      },
+      sharing: {
+        isAvailableAsync: async () => true,
+        shareAsync: jest.fn().mockResolvedValue(undefined),
+      },
+      openUrl: jest.fn().mockResolvedValue(undefined),
+    });
+
+    await fetcher.resolveArtifact({
+      artifactId: "tts_output.wav",
+      cacheKey: "assistant-response-1-tts_output.wav",
+      mimeType: "audio/*",
+      filename: "tts_output.wav",
+    });
+
+    expect(createArtifactRequest).toHaveBeenCalledWith("tts_output.wav");
+    expect(downloadAsync).toHaveBeenCalledWith(
+      "https://api.yuzik.example/api/files/tts_output.wav",
+      "file:///cache/yuzik-artifacts/assistant-response-1-tts_output.wav",
+      {
+        headers: {},
+      },
+    );
   });
 });

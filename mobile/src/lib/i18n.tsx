@@ -26,6 +26,7 @@ const translations = {
     "chat.promptTranslateSub": "Тэкст на ангельскую",
     "chat.imageCached": "Выява захавана",
     "chat.audioCached": "Аўдыё захавана",
+    "chat.play": "Прайграць",
     "chat.open": "Адкрыць",
     "chat.share": "Падзяліцца",
 
@@ -76,6 +77,7 @@ const translations = {
     "chat.promptTranslateSub": "Text to English",
     "chat.imageCached": "Image cached",
     "chat.audioCached": "Audio cached",
+    "chat.play": "Play",
     "chat.open": "Open",
     "chat.share": "Share",
 

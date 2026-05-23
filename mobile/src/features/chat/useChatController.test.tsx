@@ -161,6 +161,263 @@ describe("useChatController", () => {
     expect(getTextContent(renderer)).toContain("file:///cache/artifact-1.png");
   });
 
+  it("resolves assistant artifacts returned as signed storage urls", async () => {
+    const signedUrl = "https://storage.example/object/sign/assistant-artifacts/file.png?token=abc";
+    const sendMessage = jest.fn().mockResolvedValue({
+      text: "Here is the image",
+      audio: null,
+      image: signedUrl,
+    });
+    const resolveArtifact = jest.fn().mockResolvedValue({
+      localUri: "file:///cache/signed-image.png",
+      presentation: "preview",
+      openInSystem: jest.fn(),
+      share: jest.fn(),
+    });
+
+    const observed: { current: ReturnType<typeof useChatController> | null } = {
+      current: null,
+    };
+
+    function Probe() {
+      observed.current = useChatController({
+        api: {
+          getHistory: jest.fn().mockResolvedValue([]),
+          clearHistory: jest.fn(),
+          createArtifactRequest: jest.fn(),
+          sendMessage,
+        } as never,
+        artifactFetcher: {
+          resolveArtifact,
+        },
+      });
+
+      return (
+        <Text>
+          {observed.current.messages
+            .map((message) => message.artifact?.localUri ?? message.content)
+            .join(" | ")}
+        </Text>
+      );
+    }
+
+    let renderer!: TestRenderer.ReactTestRenderer;
+
+    await act(async () => {
+      renderer = TestRenderer.create(<Probe />);
+    });
+
+    await act(async () => {
+      observed.current?.setDraftText("show me a chart");
+    });
+
+    await act(async () => {
+      await observed.current?.sendMessage();
+    });
+
+    expect(resolveArtifact).toHaveBeenCalledWith({
+      artifactId: expect.stringMatching(/^url-/),
+      sourceUrl: signedUrl,
+      mimeType: "image/*",
+      filename: expect.stringMatching(/^url-.*\.png$/),
+    });
+    expect(getTextContent(renderer)).toContain("file:///cache/signed-image.png");
+  });
+
+  it("clears the draft and shows the user message while the response is pending", async () => {
+    let resolveResponse!: (value: { text: string; audio: null; image: null }) => void;
+    const sendMessage = jest.fn(
+      () =>
+        new Promise<{ text: string; audio: null; image: null }>((resolve) => {
+          resolveResponse = resolve;
+        }),
+    );
+
+    const observed: { current: ReturnType<typeof useChatController> | null } = {
+      current: null,
+    };
+
+    function Probe() {
+      observed.current = useChatController({
+        api: {
+          getHistory: jest.fn().mockResolvedValue([]),
+          clearHistory: jest.fn(),
+          sendMessage,
+        } as never,
+      });
+
+      return (
+        <Text>
+          {[
+            `draft:${observed.current.draftText}`,
+            `sending:${observed.current.isSending}`,
+            observed.current.messages.map((message) => message.content).join(" | "),
+          ].join(" / ")}
+        </Text>
+      );
+    }
+
+    let renderer!: TestRenderer.ReactTestRenderer;
+
+    await act(async () => {
+      renderer = TestRenderer.create(<Probe />);
+    });
+
+    await act(async () => {
+      observed.current?.setDraftText("hello");
+    });
+
+    let sendPromise!: Promise<void>;
+    act(() => {
+      sendPromise = observed.current!.sendMessage();
+    });
+
+    expect(getTextContent(renderer)).toContain("draft: / sending:true / hello");
+
+    await act(async () => {
+      resolveResponse({ text: "answer", audio: null, image: null });
+      await sendPromise;
+    });
+
+    expect(getTextContent(renderer)).toContain("hello | answer");
+  });
+
+  it("plays assistant audio artifacts after they are cached", async () => {
+    const sendMessage = jest.fn().mockResolvedValue({
+      text: "",
+      audio: "/api/files/audio-1",
+      image: null,
+    });
+    const resolveArtifact = jest.fn().mockResolvedValue({
+      localUri: "file:///cache/audio-1.mp3",
+      presentation: "preview",
+      openInSystem: jest.fn(),
+      share: jest.fn(),
+    });
+    const playAudioArtifact = jest.fn().mockResolvedValue(undefined);
+
+    const observed: { current: ReturnType<typeof useChatController> | null } = {
+      current: null,
+    };
+
+    function Probe() {
+      observed.current = useChatController({
+        api: {
+          getHistory: jest.fn().mockResolvedValue([]),
+          clearHistory: jest.fn(),
+          createArtifactRequest: jest.fn(),
+          sendMessage,
+        } as never,
+        artifactFetcher: {
+          resolveArtifact,
+        },
+        playAudioArtifact,
+      });
+
+      return (
+        <Text>
+          {observed.current.messages
+            .map((message) => message.artifact?.localUri ?? message.content)
+            .join(" | ")}
+        </Text>
+      );
+    }
+
+    await act(async () => {
+      TestRenderer.create(<Probe />);
+    });
+
+    await act(async () => {
+      observed.current?.setDraftText("say this");
+    });
+
+    await act(async () => {
+      await observed.current?.sendMessage();
+    });
+
+    expect(playAudioArtifact).toHaveBeenCalledWith("file:///cache/audio-1.mp3");
+  });
+
+  it("uses a fresh cache key for repeated legacy audio artifact names", async () => {
+    const sendMessage = jest.fn().mockResolvedValue({
+      text: "",
+      audio: "/api/files/tts_output.wav",
+      image: null,
+    });
+    const resolveArtifact = jest
+      .fn()
+      .mockResolvedValueOnce({
+        localUri: "file:///cache/tts-output-first.wav",
+        presentation: "preview",
+        openInSystem: jest.fn(),
+        share: jest.fn(),
+      })
+      .mockResolvedValueOnce({
+        localUri: "file:///cache/tts-output-second.wav",
+        presentation: "preview",
+        openInSystem: jest.fn(),
+        share: jest.fn(),
+      });
+
+    const observed: { current: ReturnType<typeof useChatController> | null } = {
+      current: null,
+    };
+
+    function Probe() {
+      observed.current = useChatController({
+        api: {
+          getHistory: jest.fn().mockResolvedValue([]),
+          clearHistory: jest.fn(),
+          createArtifactRequest: jest.fn(),
+          sendMessage,
+        } as never,
+        artifactFetcher: {
+          resolveArtifact,
+        },
+        playAudioArtifact: jest.fn().mockResolvedValue(undefined),
+      });
+
+      return <Text>{observed.current.messages.length}</Text>;
+    }
+
+    await act(async () => {
+      TestRenderer.create(<Probe />);
+    });
+
+    await act(async () => {
+      observed.current?.setDraftText("first audio");
+    });
+    await act(async () => {
+      await observed.current?.sendMessage();
+    });
+
+    await act(async () => {
+      observed.current?.setDraftText("second audio");
+    });
+    await act(async () => {
+      await observed.current?.sendMessage();
+    });
+
+    expect(resolveArtifact).toHaveBeenCalledTimes(2);
+    expect(resolveArtifact).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        artifactId: "tts_output.wav",
+        cacheKey: expect.stringMatching(/^assistant-.*-tts_output\.wav$/),
+      }),
+    );
+    expect(resolveArtifact).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        artifactId: "tts_output.wav",
+        cacheKey: expect.stringMatching(/^assistant-.*-tts_output\.wav$/),
+      }),
+    );
+    expect(resolveArtifact.mock.calls[0][0].cacheKey).not.toBe(
+      resolveArtifact.mock.calls[1][0].cacheKey,
+    );
+  });
+
   it("ignores duplicate sends while the first response is still pending", async () => {
     const resolvers: Array<
       (value: { text: string; audio: null; image: null }) => void

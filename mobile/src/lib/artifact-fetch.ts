@@ -35,7 +35,9 @@ export type SharingLike = {
 
 export type ArtifactFetcher = {
   resolveArtifact: (input: {
-    artifactId: string;
+    artifactId?: string | null;
+    cacheKey?: string | null;
+    sourceUrl?: string | null;
     mimeType?: string | null;
     filename?: string | null;
   }) => Promise<ResolvedArtifact>;
@@ -106,8 +108,10 @@ function buildArtifactCachePath(
   const directory = cacheDirectory.endsWith("/")
     ? cacheDirectory
     : `${cacheDirectory}/`;
-  const extension = getExtension(filename) || getFallbackExtension(mimeType);
   const safeArtifactId = sanitizeSegment(artifactId);
+  const extension = /\.[a-z0-9]+$/i.test(safeArtifactId)
+    ? ""
+    : getExtension(filename) || getFallbackExtension(mimeType);
 
   return `${directory}yuzik-artifacts/${safeArtifactId}${extension}`;
 }
@@ -155,13 +159,15 @@ export function createArtifactFetcher({
 
   async function ensureLocalArtifact(
     artifactId: string,
+    cacheKey?: string | null,
     mimeType?: string | null,
     filename?: string | null,
+    sourceUrl?: string | null,
   ): Promise<string> {
     const fs = await resolveFileSystem();
     const cacheUri = buildArtifactCachePath(
       fs.cacheDirectory,
-      artifactId,
+      cacheKey || artifactId,
       mimeType,
       filename,
     );
@@ -177,7 +183,9 @@ export function createArtifactFetcher({
         intermediates: true,
       });
 
-      const request = await api.createArtifactRequest(artifactId);
+      const request: ArtifactRequest = sourceUrl
+        ? { url: sourceUrl, headers: {} }
+        : await api.createArtifactRequest(artifactId);
 
       const downloadResult = await fs.downloadAsync(
         request.url,
@@ -214,8 +222,18 @@ export function createArtifactFetcher({
   }
 
   return {
-    async resolveArtifact({ artifactId, mimeType, filename }) {
-      const localUri = await ensureLocalArtifact(artifactId, mimeType, filename);
+    async resolveArtifact({ artifactId, cacheKey, sourceUrl, mimeType, filename }) {
+      if (!artifactId) {
+        throw new Error("Assistant artifact ID could not be resolved.");
+      }
+
+      const localUri = await ensureLocalArtifact(
+        artifactId,
+        cacheKey,
+        mimeType,
+        filename,
+        sourceUrl,
+      );
 
       return {
         localUri,

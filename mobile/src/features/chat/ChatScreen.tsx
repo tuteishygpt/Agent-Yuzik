@@ -13,6 +13,7 @@ import {
 import { useI18n } from "@/lib/i18n";
 import { createChatApiClient } from "@/lib/api";
 import { getRuntimeEnv } from "@/lib/env";
+import { getLegacyMobileUserId } from "@/lib/legacy-user-id";
 import { getSupabaseSession } from "@/lib/supabase";
 import { pickSingleAttachment } from "@/lib/file-picker";
 import { useMenu } from "@/navigation/MenuContext";
@@ -26,6 +27,7 @@ function createDefaultApi() {
   return createChatApiClient({
     backendUrl: getRuntimeEnv().backendUrl,
     getAccessToken: async () => (await getSupabaseSession())?.access_token ?? null,
+    getLegacyUserId: getLegacyMobileUserId,
   });
 }
 
@@ -85,6 +87,7 @@ export default function ChatScreen() {
           <MessageList
             ref={listRef}
             messages={controller.messages}
+            isSending={controller.isSending}
             onSelectPrompt={handleSelectPrompt}
             onContentSizeChange={scrollToEnd}
           />

@@ -1,5 +1,5 @@
-import { forwardRef } from "react";
-import { FlatList, Image, Keyboard, Pressable, StyleSheet, Text, View } from "react-native";
+import { forwardRef, useEffect, useRef } from "react";
+import { Animated, FlatList, Image, Keyboard, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { useI18n } from "@/lib/i18n";
 import { webTheme } from "@/theme/webTheme";
@@ -7,6 +7,7 @@ import type { ChatMessage } from "./useChatController";
 
 type MessageListProps = {
   messages: ChatMessage[];
+  isSending?: boolean;
 };
 
 function MessageCard({ message }: { message: ChatMessage }) {
@@ -31,6 +32,15 @@ function MessageCard({ message }: { message: ChatMessage }) {
               {message.artifact.kind === "image" ? t("chat.imageCached") : t("chat.audioCached")}
             </Text>
             <View style={styles.actionRow}>
+              {message.artifact.kind === "audio" && message.artifact.play ? (
+                <Pressable
+                  testID="chat-audio-play-button"
+                  onPress={() => void message.artifact?.play?.()}
+                  style={styles.actionButton}
+                >
+                  <Text style={styles.actionText}>{t("chat.play")}</Text>
+                </Pressable>
+              ) : null}
               <Pressable
                 onPress={() => void message.artifact?.openInSystem()}
                 style={styles.actionButton}
@@ -55,6 +65,46 @@ function MessageCard({ message }: { message: ChatMessage }) {
           <Text style={styles.avatarEmoji}>👤</Text>
         </View>
       )}
+    </View>
+  );
+}
+
+function TypingIndicator() {
+  const opacity = useRef(new Animated.Value(0.4)).current;
+
+  useEffect(() => {
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: 420,
+          useNativeDriver: false,
+        }),
+        Animated.timing(opacity, {
+          toValue: 0.4,
+          duration: 420,
+          useNativeDriver: false,
+        }),
+      ]),
+    );
+
+    animation.start();
+
+    return () => {
+      animation.stop();
+    };
+  }, [opacity]);
+
+  return (
+    <View testID="chat-typing-indicator" style={styles.messageRow}>
+      <View style={styles.avatarBot}>
+        <Text style={styles.avatarEmoji}>ðŸ¤–</Text>
+      </View>
+      <View style={[styles.bubble, styles.botBubble, styles.typingBubble]}>
+        <Animated.View style={[styles.typingDot, { opacity }]} />
+        <Animated.View style={[styles.typingDot, { opacity }]} />
+        <Animated.View style={[styles.typingDot, { opacity }]} />
+      </View>
     </View>
   );
 }
@@ -99,7 +149,7 @@ type MessageListFullProps = MessageListProps & {
 };
 
 export const MessageList = forwardRef<FlatList, MessageListFullProps>(
-  function MessageList({ messages, onSelectPrompt, onContentSizeChange }, ref) {
+  function MessageList({ messages, isSending = false, onSelectPrompt, onContentSizeChange }, ref) {
     return (
       <FlatList
         ref={ref}
@@ -107,6 +157,7 @@ export const MessageList = forwardRef<FlatList, MessageListFullProps>(
         data={messages}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => <MessageCard message={item} />}
+        ListFooterComponent={isSending ? <TypingIndicator /> : null}
         ListEmptyComponent={<EmptyState onSelectPrompt={onSelectPrompt} />}
         keyboardDismissMode="interactive"
         keyboardShouldPersistTaps="handled"
@@ -218,6 +269,19 @@ const styles = StyleSheet.create({
     color: "#ff4444",
     fontSize: 12,
     marginTop: 8,
+  },
+  typingBubble: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    minWidth: 70,
+    minHeight: 42,
+  },
+  typingDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: webTheme.colors.textMuted,
   },
   emptyState: {
     flex: 1,
