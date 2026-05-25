@@ -52,6 +52,19 @@ function toBytes(input: string | Uint8Array): Uint8Array {
   return new TextEncoder().encode(input);
 }
 
+async function waitForFakeSocket(): Promise<FakeWebSocket> {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    await Promise.resolve();
+
+    const socket = FakeWebSocket.instances[0];
+    if (socket) {
+      return socket;
+    }
+  }
+
+  throw new Error("Expected FakeWebSocket to be created.");
+}
+
 describe("voice socket protocol", () => {
   beforeEach(() => {
     FakeWebSocket.instances = [];
@@ -108,8 +121,7 @@ describe("voice socket protocol", () => {
     });
 
     const connectPromise = client.connect();
-    await Promise.resolve();
-    const socket = FakeWebSocket.instances[0];
+    const socket = await waitForFakeSocket();
     socket.emitOpen();
     await connectPromise;
 
@@ -138,8 +150,7 @@ describe("voice socket protocol", () => {
     });
 
     const connectPromise = client.connect();
-    await Promise.resolve();
-    const socket = FakeWebSocket.instances[0];
+    const socket = await waitForFakeSocket();
 
     await expect(
       Promise.race([
@@ -165,13 +176,31 @@ describe("voice socket protocol", () => {
     });
 
     const connectPromise = client.connect();
-    await Promise.resolve();
-    const socket = FakeWebSocket.instances[0];
+    const socket = await waitForFakeSocket();
     socket.emitError({});
 
     await expect(connectPromise).rejects.toThrow(
       "Voice socket connection failed.",
     );
+  });
+
+  it("notifies unexpected close when an authenticated socket errors", async () => {
+    const onUnexpectedClose = jest.fn();
+    const client = createVoiceSocketClient({
+      url: "wss://api.yuzik.example/api/voice",
+      getAccessToken: async () => "token-123",
+      WebSocketImpl: FakeWebSocket as never,
+      onUnexpectedClose,
+    });
+
+    const connectPromise = client.connect();
+    const socket = await waitForFakeSocket();
+    socket.emitOpen();
+    await connectPromise;
+
+    socket.emitError({ message: "Connection reset" });
+
+    expect(onUnexpectedClose).toHaveBeenCalledWith("Connection reset");
   });
 
   it("forwards inbound text control messages to listeners", async () => {
@@ -187,8 +216,7 @@ describe("voice socket protocol", () => {
     });
 
     const connectPromise = client.connect();
-    await Promise.resolve();
-    const socket = FakeWebSocket.instances[0];
+    const socket = await waitForFakeSocket();
     socket.emitOpen();
     await connectPromise;
     socket.emitText(
@@ -214,8 +242,7 @@ describe("voice socket protocol", () => {
     });
 
     const connectPromise = client.connect();
-    await Promise.resolve();
-    const socket = FakeWebSocket.instances[0];
+    const socket = await waitForFakeSocket();
     socket.emitOpen();
     await connectPromise;
 

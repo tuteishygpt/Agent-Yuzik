@@ -18,6 +18,7 @@ jest.mock("@/lib/i18n", () => ({
     t: (key: string) => {
       const map: Record<string, string> = {
         "tab.chat": "Chat",
+        "tab.teacher": "Teacher",
         "tab.voice": "Voice",
         "tab.settings": "Settings",
         "auth.unavailable": "Auth unavailable",
@@ -105,6 +106,23 @@ describe("TabsLayout protected routes", () => {
     const screen = render(<TabsLayout />);
 
     expect(screen.getTextContent()).toContain("tab:voice:undefined");
+  });
+
+  it("includes the teacher tab in the protected menu routes", () => {
+    mockUseAuth.mockReturnValue({
+      status: "ready",
+      session: {
+        access_token: "access-token",
+        user: {
+          id: "user-id",
+        },
+      },
+      error: null,
+    });
+
+    const screen = render(<TabsLayout />);
+
+    expect(screen.getTextContent()).toContain("tab:teacher:undefined");
   });
 
   it("renders an auth error instead of protected routes", () => {

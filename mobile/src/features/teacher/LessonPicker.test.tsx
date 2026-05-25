@@ -3,7 +3,10 @@ import { Text } from "react-native";
 import TestRenderer, { act } from "react-test-renderer";
 
 import LessonPicker from "./LessonPicker";
-import { loadTeacherLessons, normalizeLessonCatalogResponse } from "./lesson-api";
+import {
+  loadTeacherLessons,
+  normalizeLessonCatalogResponse,
+} from "./lesson-api";
 import TeacherBanner from "./TeacherBanner";
 
 describe("lesson-api", () => {
@@ -90,29 +93,45 @@ describe("lesson-api", () => {
 });
 
 describe("LessonPicker", () => {
-  it("renders lessons and marks the selected lesson", () => {
+  const lessons = [
+    {
+      id: "intro-greetings",
+      title: "Greetings",
+      level: "A1",
+      goal: "Practice simple greetings",
+      stepsCount: 2,
+      steps: [
+        {
+          id: "step-1",
+          prompt: "Say hello.",
+          type: "dialogue",
+        },
+      ],
+    },
+    {
+      id: "travel-basics",
+      title: "Travel basics",
+      level: "A2",
+      goal: "Ask for tickets",
+      stepsCount: 1,
+      steps: [
+        {
+          id: "step-1",
+          prompt: "Ask for a ticket.",
+          type: "roleplay",
+        },
+      ],
+    },
+  ];
+
+  it("renders lessons from a collapsed dropdown", () => {
     const onSelectLesson = jest.fn();
     let renderer!: TestRenderer.ReactTestRenderer;
 
     act(() => {
       renderer = TestRenderer.create(
         <LessonPicker
-          lessons={[
-            {
-              id: "intro-greetings",
-              title: "Greetings",
-              level: "A1",
-              goal: "Practice simple greetings",
-              stepsCount: 2,
-              steps: [
-                {
-                  id: "step-1",
-                  prompt: "Say hello.",
-                  type: "dialogue",
-                },
-              ],
-            },
-          ]}
+          lessons={lessons}
           selectedLessonId="intro-greetings"
           onSelectLesson={onSelectLesson}
         />,
@@ -125,7 +144,55 @@ describe("LessonPicker", () => {
       .join(" ");
 
     expect(textContent).toContain("Greetings");
-    expect(textContent).toContain("Selected");
+    expect(textContent).not.toContain("Travel basics");
+
+    const dropdownButton = renderer.root.find(
+      (node) =>
+        typeof node.props.onPress === "function" &&
+        renderer.root
+          .findAllByType(Text)
+          .map((textNode) => String(textNode.props.children ?? ""))
+          .join(" ")
+          .includes("Greetings"),
+    );
+
+    act(() => {
+      dropdownButton.props.onPress();
+    });
+
+    const expandedTextContent = renderer.root
+      .findAllByType(Text)
+      .map((node) => String(node.props.children ?? ""))
+      .join(" ");
+
+    expect(expandedTextContent).toContain("Travel basics");
+  });
+
+  it("collapses to a compact teacher lesson panel after a lesson is selected", () => {
+    const onSelectLesson = jest.fn();
+    let renderer!: TestRenderer.ReactTestRenderer;
+
+    act(() => {
+      renderer = TestRenderer.create(
+        <LessonPicker
+          lessons={lessons}
+          selectedLessonId="intro-greetings"
+          stepPrompt="Say hello."
+          isActive
+          onSelectLesson={onSelectLesson}
+        />,
+      );
+    });
+
+    const textContent = renderer.root
+      .findAllByType(Text)
+      .map((node) => String(node.props.children ?? ""))
+      .join(" ");
+
+    expect(textContent).toContain("Greetings");
+    expect(textContent).toContain("Say hello.");
+    expect(textContent).not.toContain("Practice simple greetings");
+    expect(textContent).not.toContain("Travel basics");
   });
 });
 

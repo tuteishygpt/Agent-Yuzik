@@ -95,6 +95,16 @@ function createPlayback() {
   };
 }
 
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 function createLocalPcmFrame(sampleCount: number): Uint8Array {
   const frame = new Uint8Array(8 + sampleCount * 4);
   frame.set([0x50, 0x43, 0x4d, 0x00], 0);
@@ -204,6 +214,91 @@ describe("useVoiceSession", () => {
 
     expect(readRenderedText(renderer)).toContain("reconnected");
     expect(readRenderedText(renderer)).toContain("lesson-1");
+  });
+
+  it("uses a teacher-specific socket identity for teacher sessions", async () => {
+    const socket = createSocketClient();
+    const createdSockets: Array<{
+      url: string;
+      getInstallId?: () => Promise<string | null>;
+    }> = [];
+    let latestSession: ReturnType<typeof useVoiceSession> | null = null;
+
+    function Probe() {
+      latestSession = useVoiceSession({
+        backendUrl: "https://api.yuzik.example",
+        getAccessToken: async () => "token-123",
+        teacherMode: mockTeacherMode as never,
+        sessionKind: "teacher",
+        socketClientFactory: (options) => {
+          createdSockets.push(options);
+          return socket;
+        },
+      });
+
+      return <Text>{latestSession.status}</Text>;
+    }
+
+    await act(async () => {
+      TestRenderer.create(<Probe />);
+    });
+
+    await act(async () => {
+      await latestSession?.connect();
+    });
+
+    expect(createdSockets[0].url).toContain("session_kind=teacher");
+    await expect(createdSockets[0].getInstallId?.()).resolves.toContain(
+      "-teacher-",
+    );
+  });
+
+  it("ignores teacher websocket events when teacher mode is disabled", async () => {
+    const socket = createSocketClient();
+    let latestSession: ReturnType<typeof useVoiceSession> | null = null;
+
+    function Probe() {
+      latestSession = useVoiceSession({
+        backendUrl: "https://api.yuzik.example",
+        getAccessToken: async () => "token-123",
+        teacherMode: null,
+        socketClientFactory: () => socket,
+      });
+
+      return (
+        <Text>
+          {[
+            latestSession.teacherSelection.lessonId ?? "none",
+            latestSession.teacherSelection.stepId ?? "none",
+            latestSession.teacherSelection.prompt ?? "none",
+            latestSession.teacherSelection.active ? "active" : "inactive",
+          ].join("|")}
+        </Text>
+      );
+    }
+
+    let renderer!: TestRenderer.ReactTestRenderer;
+
+    await act(async () => {
+      renderer = TestRenderer.create(<Probe />);
+    });
+
+    await act(async () => {
+      await latestSession?.connect();
+      socket.emit({
+        type: "teacher_mode_started",
+        lesson_id: "lesson-1",
+        step_id: "step-1",
+        prompt: "Say hello",
+        mode: "teacher",
+      });
+    });
+
+    expect(readRenderedText(renderer)).toBe("none|none|none|inactive");
+
+    await act(async () => {
+      renderer.unmount();
+    });
   });
 
   it("updates the current assistant transcript entry for streamed response snapshots", async () => {
@@ -649,6 +744,200 @@ describe("useVoiceSession", () => {
     expect(teacherMode.startLesson).not.toHaveBeenCalled();
   });
 
+  it("leaves processing with an error when the connected socket closes unexpectedly", async () => {
+    const socket = createSocketClient();
+    let closeUnexpectedly: ((reason?: string) => void) | undefined;
+    let latestSession: ReturnType<typeof useVoiceSession> | null = null;
+
+    function Probe() {
+      latestSession = useVoiceSession({
+        backendUrl: "https://api.yuzik.example",
+        getAccessToken: async () => "token-123",
+        teacherMode: mockTeacherMode as never,
+        socketClientFactory: (socketOptions) => {
+          closeUnexpectedly = socketOptions.onUnexpectedClose;
+          return socket;
+        },
+      });
+
+      return (
+        <Text>{latestSession.error ?? latestSession.connectionStatus}</Text>
+      );
+    }
+
+    let renderer!: TestRenderer.ReactTestRenderer;
+
+    await act(async () => {
+      renderer = TestRenderer.create(<Probe />);
+    });
+
+    await act(async () => {
+      await latestSession?.connect();
+      socket.emit({ type: "processing" });
+    });
+
+    expect(readRenderedText(renderer)).toContain("processing");
+
+    await act(async () => {
+      closeUnexpectedly?.("Connection reset");
+    });
+
+    expect(readRenderedText(renderer)).toContain("Connection reset");
+  });
+
+  it("clears active teacher lesson state when the teacher socket closes unexpectedly", async () => {
+    const socket = createSocketClient();
+    const teacherMode = {
+      ...mockTeacherMode,
+      isActive: true,
+      stopLesson: jest.fn(),
+    };
+    let closeUnexpectedly: ((reason?: string) => void) | undefined;
+    let latestSession: ReturnType<typeof useVoiceSession> | null = null;
+
+    function Probe() {
+      latestSession = useVoiceSession({
+        backendUrl: "https://api.yuzik.example",
+        getAccessToken: async () => "token-123",
+        teacherMode: teacherMode as never,
+        sessionKind: "teacher",
+        socketClientFactory: (socketOptions) => {
+          closeUnexpectedly = socketOptions.onUnexpectedClose;
+          return socket;
+        },
+      });
+
+      return (
+        <Text>{latestSession.error ?? latestSession.connectionStatus}</Text>
+      );
+    }
+
+    let renderer!: TestRenderer.ReactTestRenderer;
+
+    await act(async () => {
+      renderer = TestRenderer.create(<Probe />);
+    });
+
+    await act(async () => {
+      await latestSession?.connect();
+      closeUnexpectedly?.("Connection reset");
+    });
+
+    expect(teacherMode.stopLesson).toHaveBeenCalledTimes(1);
+    expect(readRenderedText(renderer)).toContain("Connection reset");
+  });
+
+  it("shows a recoverable error when interrupt is requested after the socket is gone", async () => {
+    const socket = createSocketClient();
+    (socket.sendInterrupt as jest.Mock).mockImplementation(() => {
+      throw new Error("Voice socket is not connected.");
+    });
+    let latestSession: ReturnType<typeof useVoiceSession> | null = null;
+
+    function Probe() {
+      latestSession = useVoiceSession({
+        backendUrl: "https://api.yuzik.example",
+        getAccessToken: async () => "token-123",
+        teacherMode: mockTeacherMode as never,
+        socketClientFactory: () => socket,
+      });
+
+      return (
+        <Text>{latestSession.error ?? latestSession.connectionStatus}</Text>
+      );
+    }
+
+    let renderer!: TestRenderer.ReactTestRenderer;
+
+    await act(async () => {
+      renderer = TestRenderer.create(<Probe />);
+    });
+
+    await act(async () => {
+      await latestSession?.connect();
+      await latestSession?.interrupt();
+    });
+
+    expect(readRenderedText(renderer)).toContain(
+      "Voice socket is not connected.",
+    );
+  });
+
+  it("keeps the session idle when a stale connect resolves after disconnect", async () => {
+    const socket = createSocketClient();
+    const connectResult = createDeferred<void>();
+    (socket.connect as jest.Mock).mockReturnValue(connectResult.promise);
+    let latestSession: ReturnType<typeof useVoiceSession> | null = null;
+
+    function Probe() {
+      latestSession = useVoiceSession({
+        backendUrl: "https://api.yuzik.example",
+        getAccessToken: async () => "token-123",
+        teacherMode: mockTeacherMode as never,
+        socketClientFactory: () => socket,
+      });
+
+      return <Text>{latestSession.status}</Text>;
+    }
+
+    let renderer!: TestRenderer.ReactTestRenderer;
+
+    await act(async () => {
+      renderer = TestRenderer.create(<Probe />);
+    });
+
+    let connectPromise!: Promise<void>;
+    await act(async () => {
+      connectPromise = latestSession!.connect();
+      latestSession!.disconnect();
+      connectResult.resolve(undefined);
+      await connectPromise;
+    });
+
+    expect(readRenderedText(renderer)).toBe("idle");
+  });
+
+  it("disconnects the socket and stops local voice activity", async () => {
+    const socket = createSocketClient();
+    const recorder = createRecorder();
+    const playback = createPlayback();
+    let latestSession: ReturnType<typeof useVoiceSession> | null = null;
+
+    function Probe() {
+      latestSession = useVoiceSession({
+        backendUrl: "https://api.yuzik.example",
+        getAccessToken: async () => "token-123",
+        teacherMode: mockTeacherMode as never,
+        socketClientFactory: () => socket,
+        recording: recorder as never,
+        playback: playback as never,
+      });
+
+      return <Text>{latestSession.status}</Text>;
+    }
+
+    let renderer!: TestRenderer.ReactTestRenderer;
+
+    await act(async () => {
+      renderer = TestRenderer.create(<Probe />);
+    });
+
+    await act(async () => {
+      await latestSession?.connect();
+      await latestSession?.startListening();
+      latestSession?.disconnect();
+    });
+
+    expect(socket.disconnect).toHaveBeenCalledTimes(1);
+    expect(playback.stop).toHaveBeenCalledTimes(1);
+    expect(recorder.stop).toHaveBeenCalledTimes(1);
+    expect(readRenderedText(renderer)).toBe("idle");
+
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
   it("requires creating a voice socket before starting a teacher lesson", async () => {
     const teacherMode = {
       ...mockTeacherMode,
@@ -797,6 +1086,68 @@ describe("useVoiceSession", () => {
     });
 
     expect(recorder.start).toHaveBeenCalledTimes(1);
+  });
+
+  it("drops an in-flight VAD segment when listening is stopped before recorder stop resolves", async () => {
+    const socket = createSocketClient();
+    const recorder = createRecorder();
+    const stopResult = createDeferred<{
+      uri: string;
+      wavBytes: Uint8Array;
+    }>();
+    recorder.stop.mockReturnValue(stopResult.promise);
+    let latestSession: ReturnType<typeof useVoiceSession> | null = null;
+
+    function Probe() {
+      latestSession = useVoiceSession({
+        backendUrl: "https://api.yuzik.example",
+        getAccessToken: async () => "token-123",
+        teacherMode: mockTeacherMode as never,
+        socketClientFactory: () => socket,
+        recording: recorder as never,
+        vadConfig: {
+          preferNativeTenVad: false,
+          positiveSpeechThreshold: -45,
+          negativeSpeechThreshold: -48,
+          minSpeechFrames: 2,
+          redemptionFrames: 2,
+        },
+      });
+
+      return <Text>{latestSession.status}</Text>;
+    }
+
+    await act(async () => {
+      TestRenderer.create(<Probe />);
+    });
+
+    await act(async () => {
+      await latestSession?.connect();
+      await latestSession?.startListening();
+    });
+
+    const onMetering = recorder.start.mock.calls[0][0] as (db: number) => void;
+
+    await act(async () => {
+      [-58, -57, -56].forEach(onMetering);
+      [-42, -41].forEach(onMetering);
+      [-50, -51].forEach(onMetering);
+      await Promise.resolve();
+    });
+
+    expect(recorder.stop).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      latestSession?.stopListening();
+      stopResult.resolve({
+        uri: "file:///tmp/voice.wav",
+        wavBytes: new Uint8Array([1, 2, 3]),
+      });
+      await stopResult.promise;
+      await Promise.resolve();
+    });
+
+    expect(socket.sendAudio).not.toHaveBeenCalled();
   });
 
   it("submits a short phrase when it rises above the measured background level", async () => {

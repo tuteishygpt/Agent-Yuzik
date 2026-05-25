@@ -16,6 +16,7 @@ import { useAuth } from "@/providers/AuthProvider";
 
 const MENU_ITEMS = [
   { route: "voice", icon: "🎤", key: "tab.voice" },
+  { route: "teacher", icon: "📚", key: "tab.teacher" },
   { route: "chat", icon: "💬", key: "tab.chat" },
   { route: "settings", icon: "⚙️", key: "tab.settings" },
 ] as const;
@@ -94,6 +95,7 @@ export default function TabsLayout() {
           }}
         >
           <Tabs.Screen name="chat" />
+          <Tabs.Screen name="teacher" />
           <Tabs.Screen name="voice" />
           <Tabs.Screen name="settings" />
         </Tabs>

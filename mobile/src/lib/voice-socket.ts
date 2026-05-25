@@ -91,7 +91,7 @@ type VoiceSocketOptions = {
   getAccessToken: () => Promise<string | null>;
   getInstallId?: () => Promise<string | null>;
   WebSocketImpl?: typeof WebSocket;
-  onUnexpectedClose?: () => void;
+  onUnexpectedClose?: (reason?: string) => void;
 };
 
 const END_MARKER = new Uint8Array([0x45, 0x4e, 0x44, 0x00]);
@@ -320,11 +320,16 @@ export function createVoiceSocketClient({
       socket.onerror = (event: Event) => {
         const message = getWebSocketErrorMessage(event);
         logVoiceSocket("error", { url, message });
+        const wasAuthenticated = authenticated;
         const deadSocket = socket;
         socket = null;
         authenticated = false;
         unsubscribeAppState();
-        settleConnect(() => reject(new Error(message)));
+        if (settled && wasAuthenticated) {
+          onUnexpectedClose?.(message);
+        } else {
+          settleConnect(() => reject(new Error(message)));
+        }
         try {
           deadSocket?.close();
         } catch {}
@@ -342,7 +347,9 @@ export function createVoiceSocketClient({
         socket = null;
         unsubscribeAppState();
         if (settled && wasAuthenticated) {
-          onUnexpectedClose?.();
+          onUnexpectedClose?.(
+            event?.reason || "Voice socket closed unexpectedly.",
+          );
         } else {
           settleConnect(() =>
             reject(new Error("Voice socket closed before opening.")),

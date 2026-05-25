@@ -122,6 +122,7 @@ export default ({ config }: ConfigContext): ExpoConfigWithLegacyArchitecture => 
           ? "Yuzik Preview"
           : "Yuzik Dev",
     slug: "yuzik-mobile",
+    icon: "./yuzik_ico.png",
     version,
     scheme: publicEnv.appScheme,
     newArchEnabled: false,
@@ -137,6 +138,11 @@ export default ({ config }: ConfigContext): ExpoConfigWithLegacyArchitecture => 
     },
     android: {
       package: packageId,
+      icon: "./yuzik_ico.png",
+      adaptiveIcon: {
+        foregroundImage: "./yuzik_ico.png",
+        backgroundColor: "#ffffff",
+      },
       newArchEnabled: false,
       permissions: ["INTERNET", "MODIFY_AUDIO_SETTINGS", "RECORD_AUDIO", "VIBRATE"],
     },

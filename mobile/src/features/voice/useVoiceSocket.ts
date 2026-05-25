@@ -25,10 +25,13 @@ function buildVoiceSocketUrl(backendUrl: string): string {
 export type VoiceSocketControls = {
   connect: () => Promise<void>;
   reconnect: () => Promise<void>;
-  sendAudio: (data: Uint8Array | { wavBytes: Uint8Array; timestamp?: number }) => void;
+  sendAudio: (
+    data: Uint8Array | { wavBytes: Uint8Array; timestamp?: number },
+  ) => void;
   sendInterrupt: () => void;
   sendTeacherStartLesson: (payload: TeacherStartLessonPayload) => void;
   sendTeacherStopLesson: (payload: TeacherStopLessonPayload) => void;
+  disconnect: () => void;
   isConnected: () => boolean;
 };
 
@@ -43,6 +46,7 @@ export function useVoiceSocket(
   const socketRef = useRef<VoiceSocketClient | null>(null);
   const unsubMessageRef = useRef<(() => void) | null>(null);
   const connectingRef = useRef(false);
+  const connectionGenerationRef = useRef(0);
   const onMessageRef = useRef(onMessage);
   onMessageRef.current = onMessage;
   const onStatusChangeRef = useRef(onStatusChange);
@@ -50,6 +54,7 @@ export function useVoiceSocket(
 
   useEffect(() => {
     return () => {
+      connectionGenerationRef.current += 1;
       unsubMessageRef.current?.();
       socketRef.current?.disconnect();
     };
@@ -58,6 +63,8 @@ export function useVoiceSocket(
   async function establishSocket(isReconnect: boolean) {
     if (connectingRef.current) return;
     connectingRef.current = true;
+    const connectionGeneration = connectionGenerationRef.current + 1;
+    connectionGenerationRef.current = connectionGeneration;
 
     const backendUrl = options.backendUrl ?? getRuntimeEnv().backendUrl;
     const getAccessToken =
@@ -73,36 +80,60 @@ export function useVoiceSocket(
     onStatusChangeRef.current(isReconnect ? "reconnecting" : "connecting");
 
     const platformPrefix = Platform.OS === "ios" ? "ios" : "and";
+    const sessionKind = options.sessionKind ?? "voice";
     const installId = await getOrCreateInstallId();
-    const voiceUserId = `voice-user-${platformPrefix}-${installId.slice(0, 5)}`;
+    const voiceUserId = `voice-user-${platformPrefix}-${sessionKind}-${installId.slice(0, 5)}`;
 
-    const wsUrl = buildVoiceSocketUrl(backendUrl) + `?user_id=${voiceUserId}`;
+    const query = new URLSearchParams({
+      user_id: voiceUserId,
+      session_kind: sessionKind,
+    });
+    const wsUrl = `${buildVoiceSocketUrl(backendUrl)}?${query.toString()}`;
     const socket = socketFactory({
       url: wsUrl,
       getAccessToken,
       getInstallId: async () => voiceUserId,
-      onUnexpectedClose: () => {
-        if (socketRef.current === socket) {
-          socketRef.current = null;
+      onUnexpectedClose: (reason?: string) => {
+        if (socketRef.current !== socket) {
+          return;
         }
-        onStatusChangeRef.current("idle");
+
+        socketRef.current = null;
+        onStatusChangeRef.current(
+          "error",
+          reason ?? "Voice socket disconnected.",
+        );
       },
     });
 
-    unsubMessageRef.current = socket.onMessage((msg) => onMessageRef.current(msg));
+    unsubMessageRef.current = socket.onMessage((msg) =>
+      onMessageRef.current(msg),
+    );
     socketRef.current = socket;
 
     try {
       await socket.connect();
     } catch (error) {
       socket.disconnect();
-      if (socketRef.current === socket) {
-        socketRef.current = null;
+      if (connectionGenerationRef.current === connectionGeneration) {
+        if (socketRef.current === socket) {
+          socketRef.current = null;
+        }
+        onStatusChangeRef.current("error", toErrorMessage(error));
       }
-      onStatusChangeRef.current("error", toErrorMessage(error));
       return;
     } finally {
-      connectingRef.current = false;
+      if (connectionGenerationRef.current === connectionGeneration) {
+        connectingRef.current = false;
+      }
+    }
+
+    if (
+      connectionGenerationRef.current !== connectionGeneration ||
+      socketRef.current !== socket
+    ) {
+      socket.disconnect();
+      return;
     }
 
     onStatusChangeRef.current("connected");
@@ -111,24 +142,45 @@ export function useVoiceSocket(
   return {
     connect: () => establishSocket(false),
     reconnect: () => establishSocket(true),
+    disconnect: () => {
+      connectionGenerationRef.current += 1;
+      unsubMessageRef.current?.();
+      unsubMessageRef.current = null;
+      socketRef.current?.disconnect();
+      socketRef.current = null;
+      connectingRef.current = false;
+      onStatusChangeRef.current("idle");
+    },
     sendAudio: (input) => {
       if (!socketRef.current)
-        throw new VoiceError("SOCKET_NOT_CONNECTED", "Voice socket is not connected.");
+        throw new VoiceError(
+          "SOCKET_NOT_CONNECTED",
+          "Voice socket is not connected.",
+        );
       socketRef.current.sendAudio(input);
     },
     sendInterrupt: () => {
       if (!socketRef.current)
-        throw new VoiceError("SOCKET_NOT_CONNECTED", "Voice socket is not connected.");
+        throw new VoiceError(
+          "SOCKET_NOT_CONNECTED",
+          "Voice socket is not connected.",
+        );
       socketRef.current.sendInterrupt();
     },
     sendTeacherStartLesson: (payload: TeacherStartLessonPayload) => {
       if (!socketRef.current)
-        throw new VoiceError("SOCKET_NOT_CONNECTED", "Voice socket is not connected.");
+        throw new VoiceError(
+          "SOCKET_NOT_CONNECTED",
+          "Voice socket is not connected.",
+        );
       socketRef.current.sendTeacherStartLesson(payload);
     },
     sendTeacherStopLesson: (payload: TeacherStopLessonPayload) => {
       if (!socketRef.current)
-        throw new VoiceError("SOCKET_NOT_CONNECTED", "Voice socket is not connected.");
+        throw new VoiceError(
+          "SOCKET_NOT_CONNECTED",
+          "Voice socket is not connected.",
+        );
       socketRef.current.sendTeacherStopLesson(payload);
     },
     isConnected: () => socketRef.current !== null,
