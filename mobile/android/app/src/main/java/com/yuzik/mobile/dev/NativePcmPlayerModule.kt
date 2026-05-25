@@ -70,6 +70,7 @@ class NativePcmPlayerModule(
       .order(ByteOrder.LITTLE_ENDIAN)
       .asFloatBuffer()
       .get(floats)
+    sanitizeSamples(floats)
 
     val writeGeneration = generation.get()
     val effectiveMinBufferMs = normalizeMinBufferMs(minBufferMs)
@@ -209,6 +210,18 @@ class NativePcmPlayerModule(
       minBufferMs > MAX_MIN_BUFFER_MS -> MAX_MIN_BUFFER_MS
       else -> minBufferMs
     }
+
+  private fun sanitizeSamples(samples: FloatArray) {
+    for (index in samples.indices) {
+      val sample = samples[index]
+      samples[index] = when {
+        !java.lang.Float.isFinite(sample) -> 0f
+        sample > 1f -> 1f
+        sample < -1f -> -1f
+        else -> sample
+      }
+    }
+  }
 
   private fun maybeStartPlayback(
     track: AudioTrack,

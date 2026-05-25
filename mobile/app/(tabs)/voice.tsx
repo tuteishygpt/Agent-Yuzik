@@ -1,4 +1,5 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
+import { useFocusEffect } from "expo-router";
 import {
   Animated,
   Pressable,
@@ -9,7 +10,6 @@ import {
   View,
 } from "react-native";
 
-import { useTeacherMode } from "@/features/teacher/useTeacherMode";
 import { TranscriptPanel } from "@/features/voice/TranscriptPanel";
 import { VoiceControls } from "@/features/voice/VoiceControls";
 import { resolveVoiceUiState } from "@/features/voice/voice-ui-state";
@@ -17,6 +17,7 @@ import { useVoiceAnimations } from "@/features/voice/useVoiceAnimations";
 import { useVoiceSession } from "@/features/voice/useVoiceSession";
 import { useMenu } from "@/navigation/MenuContext";
 import { useAuth } from "@/providers/AuthProvider";
+import { useVoiceSettings } from "@/providers/VoiceSettingsProvider";
 import { webGlassPanel, webTextStyles, webTheme } from "@/theme/webTheme";
 
 const VISUALIZER_BAR_COUNT = 24;
@@ -73,8 +74,16 @@ function VisualizerBars({
 export default function VoiceScreen() {
   const auth = useAuth();
   const { openMenu } = useMenu();
-  const teacherMode = useTeacherMode();
-  const voiceSession = useVoiceSession({ teacherMode });
+  const { preferNativeTenVad } = useVoiceSettings();
+  const voiceSession = useVoiceSession({
+    teacherMode: null,
+    sessionKind: "voice",
+    vadConfig: {
+      preferNativeTenVad,
+    },
+  });
+  const voiceSessionRef = useRef(voiceSession);
+  const screenActiveRef = useRef(true);
   const uiState = resolveVoiceUiState({
     status: voiceSession.status,
     isRecording: voiceSession.isRecording,
@@ -106,9 +115,44 @@ export default function VoiceScreen() {
     (voiceSession.status === "idle" || voiceSession.status === "error");
   const retryCountRef = useRef(0);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const shouldAutoConnectRef = useRef(shouldAutoConnect);
+  shouldAutoConnectRef.current = shouldAutoConnect;
 
   useEffect(() => {
-    if (!shouldAutoConnect) {
+    voiceSessionRef.current = voiceSession;
+  });
+
+  useFocusEffect(
+    useCallback(() => {
+      screenActiveRef.current = true;
+      if (shouldAutoConnectRef.current) {
+        retryCountRef.current = 0;
+        if (retryTimerRef.current) {
+          clearTimeout(retryTimerRef.current);
+          retryTimerRef.current = null;
+        }
+        void voiceSessionRef.current.connect();
+      }
+      return () => {
+        screenActiveRef.current = false;
+        const session = voiceSessionRef.current;
+        session.stopListening();
+        void (async () => {
+          try {
+            if (session.status !== "idle" && session.status !== "error") {
+              await session.interrupt();
+            }
+          } catch (_) {
+          } finally {
+            session.disconnect();
+          }
+        })();
+      };
+    }, []),
+  );
+
+  useEffect(() => {
+    if (!shouldAutoConnect || !screenActiveRef.current) {
       retryCountRef.current = 0;
       if (retryTimerRef.current) {
         clearTimeout(retryTimerRef.current);
@@ -123,7 +167,10 @@ export default function VoiceScreen() {
     retryTimerRef.current = setTimeout(() => {
       retryTimerRef.current = null;
       retryCountRef.current = attempt + 1;
-      void voiceSession.connect();
+      if (!screenActiveRef.current) {
+        return;
+      }
+      void voiceSessionRef.current.connect();
     }, delayMs);
 
     return () => {

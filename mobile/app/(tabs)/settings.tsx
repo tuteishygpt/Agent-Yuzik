@@ -1,30 +1,11 @@
-import { useEffect } from "react";
-import Constants from "expo-constants";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { DebugInfo } from "@/components/settings/DebugInfo";
-import LessonPicker from "@/features/teacher/LessonPicker";
-import TeacherBanner from "@/features/teacher/TeacherBanner";
-import { useTeacherMode } from "@/features/teacher/useTeacherMode";
 import { useI18n, type Locale } from "@/lib/i18n";
-import { getRuntimeEnv } from "@/lib/env";
-import { getSupabaseSession } from "@/lib/supabase";
 import { BottomMenuButton } from "@/navigation/BottomMenuButton";
 import { useMenu } from "@/navigation/MenuContext";
-import { useAuth } from "@/providers/AuthProvider";
+import { useVoiceSettings } from "@/providers/VoiceSettingsProvider";
 import { webTextStyles, webTheme } from "@/theme/webTheme";
-
-function getAuthStateLabel(input: {
-  status: "loading" | "ready" | "error";
-  isAnonymous: boolean;
-  hasSession: boolean;
-  t: (key: any) => string;
-}): string {
-  if (input.status === "loading") return input.t("settings.authLoading");
-  if (!input.hasSession) return input.t("settings.signedOut");
-  return input.isAnonymous ? input.t("settings.guest") : input.t("settings.email");
-}
 
 const LANGUAGES: { code: Locale; label: string }[] = [
   { code: "be", label: "Беларуская" },
@@ -34,28 +15,8 @@ const LANGUAGES: { code: Locale; label: string }[] = [
 export default function SettingsScreen() {
   const { t, locale, setLocale } = useI18n();
   const { openMenu } = useMenu();
+  const { preferNativeTenVad, setPreferNativeTenVad } = useVoiceSettings();
   const insets = useSafeAreaInsets();
-  const expoConfig = Constants.expoConfig;
-  const env = getRuntimeEnv();
-  const auth = useAuth();
-  const teacherMode = useTeacherMode();
-  const buildProfile =
-    String(expoConfig?.extra?.buildProfile ?? "").trim() || "development";
-  const appVersion = String(expoConfig?.version ?? "1.0.0");
-
-  useEffect(() => {
-    void (async () => {
-      try {
-        const session = await getSupabaseSession();
-        const accessToken = session?.access_token;
-        if (!accessToken) return;
-        await teacherMode.loadLessons({
-          backendUrl: env.backendUrl,
-          accessToken,
-        });
-      } catch (_) {}
-    })();
-  }, [teacherMode]);
 
   return (
     <View style={styles.screen}>
@@ -86,30 +47,26 @@ export default function SettingsScreen() {
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Рэжым настаўніка</Text>
-          <TeacherBanner
-            lesson={teacherMode.selectedLesson}
-            stepPrompt={teacherMode.currentPrompt}
-            isActive={teacherMode.isActive}
-          />
-          <LessonPicker
-            lessons={teacherMode.lessons}
-            selectedLessonId={teacherMode.selectedLesson?.id ?? null}
-            onSelectLesson={teacherMode.selectLesson}
-          />
+          <Text style={styles.sectionTitle}>{t("settings.voice")}</Text>
+          <View style={styles.settingRow}>
+            <View style={styles.settingCopy}>
+              <Text style={styles.settingLabel}>{t("settings.nativeTenVad")}</Text>
+              <Text style={styles.settingDescription}>
+                {t("settings.nativeTenVadDescription")}
+              </Text>
+            </View>
+            <Switch
+              accessibilityLabel={t("settings.nativeTenVad")}
+              value={preferNativeTenVad}
+              onValueChange={setPreferNativeTenVad}
+              trackColor={{
+                false: "rgba(148, 163, 184, 0.36)",
+                true: "rgba(100, 149, 237, 0.48)",
+              }}
+              thumbColor={preferNativeTenVad ? webTheme.colors.primary : "#f8fafc"}
+            />
+          </View>
         </View>
-
-        <DebugInfo
-          appVersion={appVersion}
-          authState={getAuthStateLabel({
-            status: auth.status,
-            isAnonymous: auth.isAnonymous,
-            hasSession: Boolean(auth.session),
-            t,
-          })}
-          buildProfile={buildProfile}
-          env={env}
-        />
       </ScrollView>
       <View style={[styles.bottomMenu, { paddingBottom: Math.max(insets.bottom, 12) + 8 }]}>
         <BottomMenuButton onPress={openMenu} />
@@ -212,5 +169,30 @@ const styles = StyleSheet.create({
   },
   langLabelActive: {
     color: webTheme.colors.primary,
+  },
+  settingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 16,
+    padding: 16,
+    borderRadius: 16,
+    backgroundColor: webTheme.colors.surface,
+    borderWidth: 1,
+    borderColor: webTheme.colors.border,
+  },
+  settingCopy: {
+    flex: 1,
+    gap: 6,
+  },
+  settingLabel: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: webTheme.colors.text,
+  },
+  settingDescription: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: webTheme.colors.textMuted,
   },
 });

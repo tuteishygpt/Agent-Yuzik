@@ -51,7 +51,7 @@ export const DEFAULT_VAD_CONFIG: VadConfig = {
   negativeSpeechThreshold: -42,
   redemptionFrames: 8,
   minSpeechFrames: 3,
-  preferNativeTenVad: true,
+  preferNativeTenVad: false,
   tenVadThreshold: 0.5,
   tenVadHopSize: 256,
   nativeTenVadEnergyFloorDb: -65,

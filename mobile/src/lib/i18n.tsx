@@ -7,6 +7,7 @@ const translations = {
   be: {
     // Tabs
     "tab.chat": "Чат",
+    "tab.teacher": "Настаўнік",
     "tab.voice": "Голас",
     "tab.settings": "Наладкі",
 
@@ -45,6 +46,10 @@ const translations = {
     "settings.title": "Наладкі",
     "settings.subtitle": "Асяроддзе і дыягностыка зборкі.",
     "settings.language": "Мова",
+    "settings.voice": "Голас",
+    "settings.nativeTenVad": "Native TEN VAD",
+    "settings.nativeTenVadDescription":
+      "Уключае Android native TEN VAD. Адключыце на эмулятары, калі ўвод голасу ці прайграванне становяцца нестабільнымі.",
     "settings.authLoading": "Загрузка аўтэнтыфікацыі",
     "settings.signedOut": "Выйшлі",
     "settings.guest": "Гасцявая сесія",
@@ -58,6 +63,7 @@ const translations = {
   en: {
     // Tabs
     "tab.chat": "Chat",
+    "tab.teacher": "Teacher",
     "tab.voice": "Voice",
     "tab.settings": "Settings",
 
@@ -96,6 +102,10 @@ const translations = {
     "settings.title": "Settings",
     "settings.subtitle": "Environment and build diagnostics.",
     "settings.language": "Language",
+    "settings.voice": "Voice detection",
+    "settings.nativeTenVad": "Native TEN VAD",
+    "settings.nativeTenVadDescription":
+      "Use the Android native TEN VAD detector. Turn this off on emulators if voice input or playback gets unstable.",
     "settings.authLoading": "Loading auth",
     "settings.signedOut": "Signed out",
     "settings.guest": "Guest session",

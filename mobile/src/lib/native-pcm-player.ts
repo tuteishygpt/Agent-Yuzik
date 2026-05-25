@@ -40,6 +40,37 @@ function getNativeModule(): NativePcmPlayerModule | null {
   return nativeModule as NativePcmPlayerModule;
 }
 
+function sanitizeFloat32PcmBytes(bytes: Uint8Array): Uint8Array {
+  if (bytes.byteLength % 4 !== 0) {
+    return bytes;
+  }
+
+  const inputView = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let sanitizedBytes: Uint8Array | null = null;
+  let outputView: DataView | null = null;
+
+  for (let offset = 0; offset < bytes.byteLength; offset += 4) {
+    const sample = inputView.getFloat32(offset, true);
+    const sanitizedSample = Number.isFinite(sample)
+      ? Math.max(-1, Math.min(1, sample))
+      : 0;
+
+    if (sanitizedSample !== sample) {
+      if (!sanitizedBytes) {
+        sanitizedBytes = new Uint8Array(bytes);
+        outputView = new DataView(
+          sanitizedBytes.buffer,
+          sanitizedBytes.byteOffset,
+          sanitizedBytes.byteLength,
+        );
+      }
+      outputView!.setFloat32(offset, sanitizedSample, true);
+    }
+  }
+
+  return sanitizedBytes ?? bytes;
+}
+
 export function createNativePcmPlayer(): NativePcmPlayer {
   return {
     isAvailable() {
@@ -56,8 +87,9 @@ export function createNativePcmPlayer(): NativePcmPlayer {
         throw new Error("Native PCM playback is unavailable.");
       }
 
+      const playbackBytes = sanitizeFloat32PcmBytes(bytes);
       await nativeModule.pushFloat32Pcm(
-        Buffer.from(bytes).toString("base64"),
+        Buffer.from(playbackBytes).toString("base64"),
         sampleRate,
         minBufferMs,
       );
