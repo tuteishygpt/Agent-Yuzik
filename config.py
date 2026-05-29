@@ -66,6 +66,11 @@ SIMPLE_VOICE_DEBUG_TIMESTAMPS = os.getenv("SIMPLE_VOICE_DEBUG_TIMESTAMPS", "True
 LOCAL_ASR = os.getenv("LOCAL_ASR", "True").lower() == "true"
 LOCAL_ASR_MODEL = os.getenv("LOCAL_ASR_MODEL", "nvidia/stt_be_fastconformer_hybrid_large_pc")
 
+# Remote ASR side-channel (used when LOCAL_ASR=False) — cheaper/faster Gemini variant
+# runs in parallel with the main multimodal reply call to surface a transcript for the UI
+# and persist it in voice history.
+REMOTE_ASR_MODEL = os.getenv("REMOTE_ASR_MODEL", os.getenv("SIMPLE_VOICE_MODEL", "gemini-2.5-flash-lite"))
+
 # Default Bot Replies
 DEFAULT_NO_ANSWER = "🌀 Прабачце, не атрымалася сфарміраваць адказ. Паспрабуйце яшчэ раз."
 DEFAULT_ERROR = "Упс, Юзік страціў гузік ці інакш адбылася памылка! Паспрабуйце пазней."

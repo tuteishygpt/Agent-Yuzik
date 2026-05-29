@@ -7,7 +7,7 @@ import jwt
 import requests
 from jwt import InvalidTokenError, PyJWKClient, PyJWKClientError
 
-from services.supabase.config import get_supabase_settings
+from services.supabase.config import get_supabase_jwt_settings
 
 
 class SupabaseJWTVerificationError(ValueError):
@@ -21,7 +21,7 @@ class SupabaseJWTVerifier:
         issuer: str,
         audience: str,
         jwks_url: str | None = None,
-        algorithms: tuple[str, ...] = ("RS256",),
+        algorithms: tuple[str, ...] = ("RS256", "ES256"),
     ) -> None:
         self.issuer = issuer.rstrip("/")
         self.audience = audience
@@ -69,10 +69,10 @@ class SupabaseJWTVerifier:
 
 @lru_cache(maxsize=1)
 def get_jwt_verifier() -> SupabaseJWTVerifier:
-    settings = get_supabase_settings()
+    settings = get_supabase_jwt_settings()
     return SupabaseJWTVerifier(
-        issuer=settings.jwt_issuer,
-        audience=settings.jwt_audience,
+        issuer=settings.issuer,
+        audience=settings.audience,
     )
 
 

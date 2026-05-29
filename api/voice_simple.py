@@ -56,7 +56,13 @@ def _step(tag: str, msg: str, start_ts: float | None = None) -> str:
 
 
 async def _transcribe_audio_with_model(audio_data: bytes) -> str:
-    """Fallback transcription when local ASR is disabled."""
+    """Side-channel transcription used when LOCAL_ASR is disabled.
+
+    Runs in parallel with the main multimodal reply call: the audio is also
+    sent to the primary ``generate_content_stream`` (which produces the reply
+    directly from audio), and this lighter model only surfaces a transcript
+    for the UI and dialogue history.
+    """
     client = get_genai_client()
     prompt = (
         "Transcribe this short Belarusian user audio. "
@@ -64,7 +70,7 @@ async def _transcribe_audio_with_model(audio_data: bytes) -> str:
         "If speech is unclear, return an empty string."
     )
     response = await client.aio.models.generate_content(
-        model=config.SIMPLE_VOICE_MODEL,
+        model=config.REMOTE_ASR_MODEL,
         contents=[
             types.Content(
                 role="user",
@@ -402,8 +408,9 @@ async def handle_simple_voice(
         duration_ms=round((time.time() - start_ts) * 1000),
     )
 
-    # ── Prepare user content: local or remote ASR text ──
+    # ── Prepare user content: local-ASR text vs. raw audio for multimodal LLM ──
     user_transcription: str | None = None
+    remote_asr_task: asyncio.Task[str] | None = None
 
     if config.LOCAL_ASR:
         from api import local_asr
@@ -441,35 +448,47 @@ async def handle_simple_voice(
             parts=[types.Part(text=user_transcription)],
         )
     else:
-        log.info(_step("VOICE·ASR", "🎙️ Remote transcription start (fallback)", start_ts))
-        t_remote_asr = time.time()
-        try:
-            user_transcription = await _transcribe_audio_with_model(audio_data)
-        except Exception:
-            log.exception(_step("VOICE·ASR", "❌ Remote transcription failed", start_ts))
-            user_transcription = None
-        remote_asr_ms = (time.time() - t_remote_asr) * 1000
-
-        if user_transcription:
-            log.info(_step(
-                "VOICE·ASR",
-                f"   ✅ Remote transcription: «{user_transcription[:120]}» | {remote_asr_ms:.0f}ms",
-                start_ts,
-            ))
-            await perf(
-                "remote_asr_done",
-                "🎙️ Аддаленае распазнаванне голасу",
-                detail=f"Тэкст: «{user_transcription[:100]}» | Час: {remote_asr_ms:.0f} мс",
-                duration_ms=round(remote_asr_ms),
-            )
-            await websocket.send_json({
-                "type": "transcription",
-                "text": user_transcription,
-            })
+        # ── No local ASR: send raw audio straight to the main LLM (no extra round-trip)
+        # and kick off a side-channel transcription concurrently for UI/history.
+        log.info(_step(
+            "VOICE·ASR",
+            f"🎙️ Multimodal direct: audio→LLM, side-channel ASR in parallel | audio={len(audio_data)}B",
+            start_ts,
+        ))
         current_user_content = types.Content(
             role="user",
-            parts=[types.Part(text=user_transcription or "")],
+            parts=[types.Part(inline_data=types.Blob(mime_type="audio/wav", data=audio_data))],
         )
+
+        t_remote_asr = time.time()
+
+        async def _run_remote_asr() -> str:
+            try:
+                text = await _transcribe_audio_with_model(audio_data)
+            except Exception:
+                log.exception(_step("VOICE·ASR", "❌ Remote transcription failed", start_ts))
+                return ""
+            remote_asr_ms = (time.time() - t_remote_asr) * 1000
+            if text:
+                log.info(_step(
+                    "VOICE·ASR",
+                    f"   ✅ Remote transcription: «{text[:120]}» | {remote_asr_ms:.0f}ms",
+                    start_ts,
+                ))
+                await perf(
+                    "remote_asr_done",
+                    "🎙️ Аддаленае распазнаванне голасу (паралельна)",
+                    detail=f"Тэкст: «{text[:100]}» | Час: {remote_asr_ms:.0f} мс | "
+                           f"Мадэль: {config.REMOTE_ASR_MODEL}",
+                    duration_ms=round(remote_asr_ms),
+                )
+                try:
+                    await websocket.send_json({"type": "transcription", "text": text})
+                except Exception:
+                    log.exception(_step("VOICE·WS", "send_json(transcription) failed", start_ts))
+            return text
+
+        remote_asr_task = asyncio.create_task(_run_remote_asr())
 
     all_contents = history_contents + [current_user_content]
 
@@ -730,6 +749,14 @@ async def handle_simple_voice(
 
     finally:
         tts.cancel()
+
+    # ── Await side-channel ASR (LOCAL_ASR=False) so we have the transcript for history ──
+    if remote_asr_task is not None:
+        try:
+            user_transcription = await remote_asr_task
+        except Exception:
+            log.exception(_step("VOICE·ASR", "❌ remote_asr_task await failed", start_ts))
+            user_transcription = user_transcription or ""
 
     # ── Save turn to voice history ──
     if text_buffer.strip():

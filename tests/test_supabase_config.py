@@ -90,6 +90,39 @@ def test_project_and_issuer_urls_reject_invalid_shapes(monkeypatch: pytest.Monke
         config_module.load_supabase_settings()
 
 
+def test_jwt_settings_do_not_require_service_role_or_storage_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for key in REQUIRED_SUPABASE_ENV:
+        monkeypatch.delenv(key, raising=False)
+
+    monkeypatch.setenv("SUPABASE_JWT_ISSUER", "https://project-ref.supabase.co/auth/v1")
+    monkeypatch.setenv("SUPABASE_JWT_AUDIENCE", "authenticated")
+
+    config_module = importlib.import_module("services.supabase.config")
+
+    settings = config_module.load_supabase_jwt_settings()
+
+    assert settings.issuer == "https://project-ref.supabase.co/auth/v1"
+    assert settings.audience == "authenticated"
+
+
+def test_jwt_verifier_uses_lightweight_jwt_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    for key in REQUIRED_SUPABASE_ENV:
+        monkeypatch.delenv(key, raising=False)
+
+    monkeypatch.setenv("SUPABASE_JWT_ISSUER", "https://project-ref.supabase.co/auth/v1")
+    monkeypatch.setenv("SUPABASE_JWT_AUDIENCE", "authenticated")
+
+    jwt_module = importlib.import_module("services.supabase.jwt_verifier")
+    jwt_module.reset_jwt_verifier_cache()
+
+    verifier = jwt_module.get_jwt_verifier()
+
+    assert verifier.issuer == "https://project-ref.supabase.co/auth/v1"
+    assert verifier.audience == "authenticated"
+
+
 def test_explicit_empty_mapping_does_not_fall_back_to_process_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

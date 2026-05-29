@@ -28,6 +28,12 @@ class SupabaseSettings:
     mobile_callback_prod: str
 
 
+@dataclass(frozen=True)
+class SupabaseJWTSettings:
+    issuer: str
+    audience: str
+
+
 def _require(environ: Mapping[str, str], key: str) -> str:
     value = environ.get(key, "").strip()
     if not value:
@@ -130,10 +136,28 @@ def load_supabase_settings(environ: Mapping[str, str] | None = None) -> Supabase
     return settings
 
 
+def load_supabase_jwt_settings(environ: Mapping[str, str] | None = None) -> SupabaseJWTSettings:
+    env = os.environ if environ is None else environ
+
+    return SupabaseJWTSettings(
+        issuer=_validate_issuer_url(
+            "SUPABASE_JWT_ISSUER",
+            _require(env, "SUPABASE_JWT_ISSUER"),
+        ),
+        audience=_require(env, "SUPABASE_JWT_AUDIENCE"),
+    )
+
+
 @lru_cache(maxsize=1)
 def get_supabase_settings() -> SupabaseSettings:
     return load_supabase_settings()
 
 
+@lru_cache(maxsize=1)
+def get_supabase_jwt_settings() -> SupabaseJWTSettings:
+    return load_supabase_jwt_settings()
+
+
 def reset_supabase_settings_cache() -> None:
     get_supabase_settings.cache_clear()
+    get_supabase_jwt_settings.cache_clear()

@@ -112,7 +112,7 @@ def test_tts_worker_stop_waits_for_slow_active_tts(monkeypatch):
     asyncio.run(asyncio.wait_for(scenario(), timeout=0.2))
 
 
-def test_remote_asr_sends_transcribed_text_to_llm(monkeypatch):
+def test_remote_asr_sends_audio_to_llm_and_runs_side_channel(monkeypatch):
     voice_simple, _ = _load_voice_simple(monkeypatch)
     monkeypatch.setattr(voice_simple.config, "LOCAL_ASR", False)
 
@@ -131,10 +131,23 @@ def test_remote_asr_sends_transcribed_text_to_llm(monkeypatch):
     fake_client = SimpleNamespace(aio=SimpleNamespace(models=FakeModels()))
     monkeypatch.setattr(voice_simple, "get_genai_client", lambda: fake_client)
 
+    side_channel_called = asyncio.Event()
+
     async def transcribe_audio(audio_data):
+        side_channel_called.set()
+        assert audio_data == b"wav"
         return "прывітанне"
 
     monkeypatch.setattr(voice_simple, "_transcribe_audio_with_model", transcribe_audio)
+
+    history_added = {}
+
+    fake_history = SimpleNamespace(
+        turn_count=0,
+        to_gemini_contents=lambda: [],
+        add_turn=lambda **kwargs: history_added.update(kwargs),
+    )
+    monkeypatch.setattr(voice_simple, "get_voice_history", lambda user_id: fake_history)
 
     class FakeTTSWorker:
         def __init__(self, *args, **kwargs):
@@ -170,17 +183,27 @@ def test_remote_asr_sends_transcribed_text_to_llm(monkeypatch):
 
     monkeypatch.setattr(voice_simple, "TTSWorker", FakeTTSWorker)
 
+    websocket = FakeWebSocket()
+
     async def scenario():
         await voice_simple.handle_simple_voice(
             audio_data=b"wav",
-            websocket=FakeWebSocket(),
+            websocket=websocket,
             audio_queue=asyncio.Queue(),
             perf=FakePerf(),
             user_id="user-1",
         )
 
-    asyncio.run(asyncio.wait_for(scenario(), timeout=0.2))
+    asyncio.run(asyncio.wait_for(scenario(), timeout=0.5))
 
     user_content = captured["contents"][-1]
-    assert user_content.parts[0].text == "прывітанне"
-    assert user_content.parts[0].inline_data is None
+    # Audio must go straight into the main LLM call, not as transcribed text.
+    assert user_content.parts[0].text is None
+    assert user_content.parts[0].inline_data is not None
+    assert user_content.parts[0].inline_data.data == b"wav"
+    assert user_content.parts[0].inline_data.mime_type == "audio/wav"
+
+    # Side-channel transcription must run and reach the UI + history.
+    assert side_channel_called.is_set()
+    transcript_msgs = [m for m in websocket.messages if m.get("type") == "transcription"]
+    assert any(m["text"] == "прывітанне" for m in transcript_msgs)

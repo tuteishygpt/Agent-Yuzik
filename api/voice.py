@@ -296,6 +296,10 @@ async def voice_websocket(websocket: WebSocket):
                     await websocket.send_json({"type": "teacher_mode_stopped", "mode": "assistant"})
 
     except WebSocketAuthenticationError as exc:
+        log.warning(
+            f"Voice WebSocket auth rejected for session {ws_session_id}: "
+            f"{exc.message} (code={exc.close_code})"
+        )
         await websocket.send_json({"type": "error", "message": exc.message})
         await websocket.close(code=exc.close_code)
     except WebSocketDisconnect:
