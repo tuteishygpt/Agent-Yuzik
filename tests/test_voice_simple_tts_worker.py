@@ -75,34 +75,52 @@ def test_tts_worker_stop_does_not_wait_forever_on_stuck_stream(monkeypatch):
     asyncio.run(asyncio.wait_for(scenario(), timeout=0.2))
 
 
-def test_remote_asr_empty_transcription_still_sends_text_to_llm(monkeypatch):
+def test_remote_asr_sends_audio_inline_and_runs_side_channel(monkeypatch):
     voice_simple, _ = _load_voice_simple(monkeypatch)
     monkeypatch.setattr(voice_simple.config, "LOCAL_ASR", False)
 
+    side_channel_called = asyncio.Event()
+
     async def transcribe_audio(audio_data):
-        return ""
+        side_channel_called.set()
+        assert audio_data == b"wav"
+        return "прывітанне"
+
+    monkeypatch.setattr(voice_simple, "_transcribe_audio_with_model", transcribe_audio)
 
     class FakeWebSocket:
+        def __init__(self):
+            self.messages = []
+
         async def send_json(self, message):
-            pass
+            self.messages.append(message)
 
     async def perf(*args, **kwargs):
         pass
 
-    monkeypatch.setattr(voice_simple, "_transcribe_audio_with_model", transcribe_audio)
+    websocket = FakeWebSocket()
 
     async def scenario():
-        transcription, content = await voice_simple._transcribe_remote(
+        transcription, content, task = await voice_simple._transcribe_remote(
             audio_data=b"wav",
-            websocket=FakeWebSocket(),
+            websocket=websocket,
             perf=perf,
             start_ts=time.time(),
         )
-        assert transcription == ""
-        assert content.parts[0].text == ""
-        assert content.parts[0].inline_data is None
+        # Audio goes inline to the main LLM call, not as transcribed text.
+        assert transcription is None
+        assert content.parts[0].text is None
+        assert content.parts[0].inline_data is not None
+        assert content.parts[0].inline_data.data == b"wav"
+        assert content.parts[0].inline_data.mime_type == "audio/wav"
+        # Side-channel runs in parallel and is awaitable.
+        assert task is not None
+        text = await task
+        assert text == "прывітанне"
+        assert side_channel_called.is_set()
+        assert {"type": "transcription", "text": "прывітанне"} in websocket.messages
 
-    asyncio.run(asyncio.wait_for(scenario(), timeout=0.2))
+    asyncio.run(asyncio.wait_for(scenario(), timeout=0.5))
 
 
 def test_tts_worker_stop_waits_for_slow_active_tts(monkeypatch):
@@ -141,40 +159,3 @@ def test_tts_worker_stop_waits_for_slow_active_tts(monkeypatch):
     asyncio.run(asyncio.wait_for(scenario(), timeout=0.2))
 
 
-def test_remote_asr_sends_text_to_llm_and_ui(monkeypatch):
-    voice_simple, _ = _load_voice_simple(monkeypatch)
-    monkeypatch.setattr(voice_simple.config, "LOCAL_ASR", False)
-
-    async def transcribe_audio(audio_data):
-        assert audio_data == b"wav"
-        return "прывітанне"
-
-    monkeypatch.setattr(voice_simple, "_transcribe_audio_with_model", transcribe_audio)
-
-    class FakeWebSocket:
-        def __init__(self):
-            self.messages = []
-
-        async def send_json(self, message):
-            self.messages.append(message)
-
-    async def perf(*args, **kwargs):
-        pass
-
-    websocket = FakeWebSocket()
-
-    async def scenario():
-        transcription, content = await voice_simple._transcribe_remote(
-            audio_data=b"wav",
-            websocket=websocket,
-            perf=perf,
-            start_ts=time.time(),
-        )
-        assert transcription == "прывітанне"
-        # Remote ASR text must be the user content for the main LLM call.
-        assert content.parts[0].text == "прывітанне"
-        assert content.parts[0].inline_data is None
-        # Transcript must reach the UI.
-        assert {"type": "transcription", "text": "прывітанне"} in websocket.messages
-
-    asyncio.run(asyncio.wait_for(scenario(), timeout=0.2))
