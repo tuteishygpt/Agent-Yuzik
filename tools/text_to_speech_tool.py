@@ -658,4 +658,30 @@ async def _synthesize_local(
 # Рэгістрацыя ў ADK
 # ═══════════════════════════════════════════════════════════════════════
 
-synthesize_speech_tool = FunctionTool(func=synthesize_speech)
+class SynthesizeSpeechTool(FunctionTool):
+    """ADK tool wrapper with a manual declaration compatible with Vertex AI."""
+
+    def _get_declaration(self) -> types.FunctionDeclaration:
+        return types.FunctionDeclaration(
+            name=self.name,
+            description=self.description,
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "text": types.Schema(
+                        type=types.Type.STRING,
+                        description="Тэкст, які трэба агучыць.",
+                    ),
+                    "speaker_audio_path": types.Schema(
+                        type=types.Type.STRING,
+                        description=(
+                            "Неабавязковы шлях да файла з прыкладам голасу для кланавання."
+                        ),
+                    ),
+                },
+                required=["text"],
+            ),
+        )
+
+
+synthesize_speech_tool = SynthesizeSpeechTool(func=synthesize_speech)

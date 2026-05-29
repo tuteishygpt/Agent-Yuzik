@@ -149,7 +149,7 @@ def _summarize_texts(word: str, texts: list[str]) -> str:
     return f"У Verbum нічога не знойдзена для: {word}."
 
 
-async def lookup_verbum(word: str):
+async def lookup_verbum(word: str) -> types.Part:
     query = normalize_text(word)
     try:
         grammar_texts = try_grammardb_full_text(query)
@@ -172,6 +172,26 @@ async def lookup_verbum(word: str):
         return types.Part(text="Не ўдалося атрымаць даныя з Verbum. Паспрабуй крыху пазней.")
 
 
-verbum_tool = FunctionTool(lookup_verbum)
+class VerbumTool(FunctionTool):
+    """ADK tool wrapper with a manual declaration compatible with Vertex AI."""
+
+    def _get_declaration(self) -> types.FunctionDeclaration:
+        return types.FunctionDeclaration(
+            name=self.name,
+            description=self.description,
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "word": types.Schema(
+                        type=types.Type.STRING,
+                        description="Belarusian word to look up in Verbum.",
+                    ),
+                },
+                required=["word"],
+            ),
+        )
+
+
+verbum_tool = VerbumTool(lookup_verbum)
 
 __all__ = ["VerbumDependencyError", "lookup_verbum", "parse_html", "verbum_tool"]

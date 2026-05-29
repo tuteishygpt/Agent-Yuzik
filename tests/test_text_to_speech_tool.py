@@ -281,3 +281,15 @@ def test_synthesize_api_preserves_legacy_predict_signature(monkeypatch):
     assert observed["api_name"] == "/predict"
     assert observed["kwargs"]["belarusian_story"] == "Прывітанне"
     assert observed["kwargs"]["speaker_audio_file"] is None
+def test_synthesize_speech_tool_exposes_manual_adk_declaration(monkeypatch):
+    tts = _load_tts_module(monkeypatch)
+
+    declaration = tts.synthesize_speech_tool._get_declaration()
+
+    assert declaration.name == "synthesize_speech"
+    assert declaration.parameters is not None
+    assert declaration.parameters.properties is not None
+    assert set(declaration.parameters.properties.keys()) == {"text", "speaker_audio_path"}
+    assert declaration.parameters.properties["text"].type == "STRING"
+    assert declaration.parameters.properties["speaker_audio_path"].type == "STRING"
+    assert declaration.response is None

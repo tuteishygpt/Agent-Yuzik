@@ -8,10 +8,6 @@ from dotenv import load_dotenv
 # Загрузка пераменных асяроддзя
 load_dotenv()
 
-# Пераканацца, што GOOGLE_API_KEY усталяваны
-if "GEMINI_API_KEY" in os.environ and "GOOGLE_API_KEY" not in os.environ:
-    os.environ["GOOGLE_API_KEY"] = os.environ["GEMINI_API_KEY"]
-
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware

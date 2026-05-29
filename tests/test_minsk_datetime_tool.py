@@ -25,6 +25,8 @@ def _load_router_module():
         "tools.text_to_speech_tool",
         "tools.gemini_image_generator",
         "tools.minsk_datetime_tool",
+        "tools.verbum_tool",
+        "tools.weather_tool",
         "google_search_agent.agent",
         "meme_generator_agent.agent",
     ]
@@ -71,6 +73,14 @@ def _load_router_module():
     fake_datetime_module = ModuleType("tools.minsk_datetime_tool")
     fake_datetime_module.minsk_datetime_tool = SimpleNamespace(name="minsk_datetime_tool")
     sys.modules["tools.minsk_datetime_tool"] = fake_datetime_module
+
+    fake_verbum_module = ModuleType("tools.verbum_tool")
+    fake_verbum_module.verbum_tool = SimpleNamespace(name="verbum_tool")
+    sys.modules["tools.verbum_tool"] = fake_verbum_module
+
+    fake_weather_module = ModuleType("tools.weather_tool")
+    fake_weather_module.weather_tool = SimpleNamespace(name="weather_tool")
+    sys.modules["tools.weather_tool"] = fake_weather_module
 
     fake_search_module = ModuleType("google_search_agent.agent")
     fake_search_module.search_agent = fake_agent("search_agent")

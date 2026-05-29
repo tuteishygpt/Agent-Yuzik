@@ -1,5 +1,6 @@
 import re
 
+import config
 from google.adk.agents import LlmAgent
 from google.adk.models.llm_request import LlmRequest
 from google.adk.tools import BaseTool, ToolContext, agent_tool
@@ -69,7 +70,7 @@ def guard_one_call(tool: BaseTool, args: dict, tool_context: ToolContext, **kwar
 
 router_agent = LlmAgent(
     name="router_agent",
-    model="gemini-flash-latest",
+    model=config.ROUTER_AGENT_MODEL,
     description="Беларускі агент Юзік — твой беларускамоўны сябар.",
     instruction=r"""
         Ты — беларускі агент **Юзік**.

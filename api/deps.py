@@ -2,11 +2,9 @@ from __future__ import annotations
 
 import logging
 import mimetypes
-import os
 from pathlib import Path
 
 import config
-from google import genai
 from services.adk_service import ADKService
 from services.supabase.adk_session_store import ADKSessionStore
 from services.supabase.artifact_store import ArtifactStore
@@ -45,21 +43,8 @@ def append_to_history(user_id: str, entry: dict) -> None:
 
 def get_genai_client():
     global _genai_client
-    if _genai_client:
-        return _genai_client
-
-    creds_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
-    project = os.environ.get("GOOGLE_CLOUD_PROJECT")
-    location = os.environ.get("GOOGLE_CLOUD_LOCATION", "global")
-
-    if creds_path and project:
-        log.info(
-            "Initializing Vertex AI Gemini client | project=%s | location=%s | creds=%s",
-            project, location, creds_path,
-        )
-        _genai_client = genai.Client(vertexai=True, project=project, location=location)
-    else:
-        _genai_client = genai.Client(api_key=config.GEMINI_API_KEY)
+    if not _genai_client:
+        _genai_client = config.create_genai_client()
     return _genai_client
 
 

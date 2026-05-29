@@ -43,3 +43,4 @@ CLAUDE.md
 *.swo
 *~
 .worktrees/
+dialogues.txt

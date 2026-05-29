@@ -1,25 +1,46 @@
 import os
 from dotenv import load_dotenv
+from google import genai
 
 # Load environment variables from .env file
 load_dotenv()
 
-# Handle API keys (ensure both GEMINI_API_KEY and GOOGLE_API_KEY are available if one is set)
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+# Handle API keys. Vertex AI in express mode uses GOOGLE_API_KEY.
+# Keep GEMINI_API_KEY as a backward-compatible input alias, but normalize the
+# process environment to GOOGLE_API_KEY-only so ADK chooses Vertex express mode.
+_legacy_gemini_api_key = os.getenv("GEMINI_API_KEY")
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY") or _legacy_gemini_api_key
+GEMINI_API_KEY = GOOGLE_API_KEY
 
-if GEMINI_API_KEY and not GOOGLE_API_KEY:
-    os.environ["GOOGLE_API_KEY"] = GEMINI_API_KEY
-    GOOGLE_API_KEY = GEMINI_API_KEY
-elif GOOGLE_API_KEY and not GEMINI_API_KEY:
-    os.environ["GEMINI_API_KEY"] = GOOGLE_API_KEY
-    GEMINI_API_KEY = GOOGLE_API_KEY
+_HAS_SERVICE_ACCOUNT = bool(
+    os.getenv("GOOGLE_APPLICATION_CREDENTIALS") and os.getenv("GOOGLE_CLOUD_PROJECT")
+)
 
-if not GEMINI_API_KEY:
-    # Don't crash immediately, but warn or set a dummy to allow app to start for other features (optional)
-    # However, for this agent, it is critical. Let's provide a clear error message.
-    print("WARNING: GEMINI_API_KEY or GOOGLE_API_KEY not found in environment variables or .env file.")
-    # We allow it to pass as None, but functionality depending on it will fail gracefully or raise errors later.
+if GOOGLE_API_KEY:
+    os.environ["GOOGLE_API_KEY"] = GOOGLE_API_KEY
+    os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "true"
+    os.environ.pop("GEMINI_API_KEY", None)
+    # Wipe Vertex project/location only when we explicitly want express mode
+    # (no service-account creds present). Otherwise the standard Vertex flow
+    # needs project + location alongside ADC.
+    if not _HAS_SERVICE_ACCOUNT:
+        os.environ.pop("GOOGLE_CLOUD_PROJECT", None)
+        os.environ.pop("GOOGLE_CLOUD_LOCATION", None)
+
+if not GOOGLE_API_KEY:
+    print("WARNING: GOOGLE_API_KEY not found in environment variables or .env file.")
+
+
+def create_genai_client(*, api_key: str | None = None):
+    creds_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+    project = os.getenv("GOOGLE_CLOUD_PROJECT")
+    location = os.getenv("GOOGLE_CLOUD_LOCATION", "global")
+    if creds_path and project:
+        return genai.Client(vertexai=True, project=project, location=location)
+    resolved_api_key = api_key or GOOGLE_API_KEY or GEMINI_API_KEY
+    if not resolved_api_key:
+        raise RuntimeError("GOOGLE_API_KEY env var not set")
+    return genai.Client(vertexai=True, api_key=resolved_api_key)
     
 # Telegram Configuration
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -32,6 +53,10 @@ WEBHOOK_SECRET_TOKEN = os.getenv("WEBHOOK_SECRET_TOKEN")
 # Agent Configuration
 # GEMINI_API_KEY is already set above
 AGENT_TIMEOUT = int(os.getenv("AGENT_TIMEOUT", 60))
+ADK_MODEL = os.getenv("ADK_MODEL", "gemini-2.5-flash")
+ROUTER_AGENT_MODEL = os.getenv("ROUTER_AGENT_MODEL", ADK_MODEL)
+SEARCH_AGENT_MODEL = os.getenv("SEARCH_AGENT_MODEL", ADK_MODEL)
+MEME_AGENT_MODEL = os.getenv("MEME_AGENT_MODEL", ADK_MODEL)
 
 # TTS Configuration
 TTS_MODE = os.getenv("TTS_MODE", "local").lower()  # "local" or "api"
@@ -70,6 +95,9 @@ LOCAL_ASR_MODEL = os.getenv("LOCAL_ASR_MODEL", "nvidia/stt_be_fastconformer_hybr
 # runs in parallel with the main multimodal reply call to surface a transcript for the UI
 # and persist it in voice history.
 REMOTE_ASR_MODEL = os.getenv("REMOTE_ASR_MODEL", os.getenv("SIMPLE_VOICE_MODEL", "gemini-2.5-flash-lite"))
+
+# Dialogue log
+DIALOGUE_LOG_PATH = os.getenv("DIALOGUE_LOG_PATH", "dialogues.txt")
 
 # Default Bot Replies
 DEFAULT_NO_ANSWER = "🌀 Прабачце, не атрымалася сфарміраваць адказ. Паспрабуйце яшчэ раз."
