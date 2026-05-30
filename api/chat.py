@@ -7,6 +7,7 @@ from typing import Dict, List
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 
+import config
 from api.auth import AuthenticatedUser, get_current_user
 from api.deps import (
     adk_service,
@@ -17,7 +18,7 @@ from api.deps import (
     conversation_store,
     guess_mime,
 )
-from services.dialogue_logging import log_adk_turn
+from services.dialogue_logging import append_dialogue_turn, log_adk_turn
 
 log = logging.getLogger("app")
 
@@ -33,6 +34,13 @@ def _append_turn(user_id: str, conversation_id: str, user_text: str, assistant_t
         _append_history_message(user_id, conversation_id, "user", user_text)
     if assistant_text:
         _append_history_message(user_id, conversation_id, "assistant", assistant_text)
+
+
+def _authenticated_user_log_label(current_user: AuthenticatedUser) -> str | None:
+    email = current_user.claims.get("email")
+    if isinstance(email, str) and email.strip():
+        return email.strip()
+    return None
 
 
 @router.post("/chat")
@@ -126,6 +134,15 @@ async def api_chat(
             log,
             user_text=original_text,
             assistant_text=response["text"],
+        )
+        await asyncio.to_thread(
+            append_dialogue_turn,
+            config.CHAT_DIALOGUE_LOG_PATH,
+            user_id=resolved_user_id,
+            user_label=_authenticated_user_log_label(current_user),
+            user_text=history_text,
+            assistant_text=response["text"],
+            logger=log,
         )
 
     return response

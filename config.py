@@ -103,6 +103,8 @@ REMOTE_ASR_MODEL = os.getenv("REMOTE_ASR_MODEL", os.getenv("SIMPLE_VOICE_MODEL",
 
 # Dialogue log
 DIALOGUE_LOG_PATH = os.getenv("DIALOGUE_LOG_PATH", "dialogues.txt")
+CHAT_DIALOGUE_LOG_PATH = os.getenv("CHAT_DIALOGUE_LOG_PATH", "chat_dialogues.txt")
+TEACHER_DIALOGUE_LOG_PATH = os.getenv("TEACHER_DIALOGUE_LOG_PATH", "teacher_dialogues.txt")
 
 # Default Bot Replies
 DEFAULT_NO_ANSWER = "🌀 Прабачце, не атрымалася сфарміраваць адказ. Паспрабуйце яшчэ раз."

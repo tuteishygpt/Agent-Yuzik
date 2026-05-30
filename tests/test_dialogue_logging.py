@@ -5,10 +5,16 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from services.dialogue_logging import log_adk_turn
+import config
+from services.dialogue_logging import append_dialogue_turn, log_adk_turn
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_dialogue_log_paths_default_to_separate_files():
+    assert config.CHAT_DIALOGUE_LOG_PATH == "chat_dialogues.txt"
+    assert config.TEACHER_DIALOGUE_LOG_PATH == "teacher_dialogues.txt"
 
 
 def test_log_adk_turn_logs_user_and_assistant_lines(caplog):
@@ -35,11 +41,49 @@ def test_log_adk_turn_uses_non_text_placeholders(caplog):
     ]
 
 
+def test_append_dialogue_turn_writes_dialogues_txt_format(tmp_path):
+    log_path = tmp_path / "chat_dialogues.txt"
+
+    append_dialogue_turn(
+        log_path,
+        user_id="user-1",
+        user_text=" Прывітанне\nсвет ",
+        assistant_text="  Адказ   тут ",
+        timestamp="2026-05-30 12:34:56",
+    )
+
+    assert log_path.read_text(encoding="utf-8") == (
+        "[2026-05-30 12:34:56] USER (user-1): Прывітанне свет\n"
+        "[2026-05-30 12:34:56] BOT: Адказ тут\n"
+        "---\n"
+    )
+
+
+def test_append_dialogue_turn_prefers_user_label(tmp_path):
+    log_path = tmp_path / "chat_dialogues.txt"
+
+    append_dialogue_turn(
+        log_path,
+        user_id="user-1",
+        user_label="person@example.com",
+        user_text="hello",
+        assistant_text="hi",
+        timestamp="2026-05-30 12:34:56",
+    )
+
+    assert "[2026-05-30 12:34:56] USER (person@example.com): hello\n" in log_path.read_text(
+        encoding="utf-8"
+    )
+
+
 def test_chat_and_bot_import_dialogue_logging_helper():
     chat_text = (REPO_ROOT / "api" / "chat.py").read_text(encoding="utf-8")
     bot_text = (REPO_ROOT / "bot" / "handlers.py").read_text(encoding="utf-8")
 
-    assert "from services.dialogue_logging import log_adk_turn" in chat_text
+    assert "from services.dialogue_logging import append_dialogue_turn, log_adk_turn" in chat_text
     assert "log_adk_turn(" in chat_text
-    assert "from services.dialogue_logging import log_adk_turn" in bot_text
+    assert "CHAT_DIALOGUE_LOG_PATH" in chat_text
+    assert "append_dialogue_turn" in chat_text
+    assert "from services.dialogue_logging import append_dialogue_turn, log_adk_turn" in bot_text
     assert "log_adk_turn(" in bot_text
+    assert "append_dialogue_turn" in bot_text

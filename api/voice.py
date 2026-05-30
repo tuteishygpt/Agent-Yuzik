@@ -65,6 +65,13 @@ async def _receive_authenticated_user(websocket: WebSocket) -> AuthenticatedUser
     return authenticate_websocket_message(payload)
 
 
+def _authenticated_user_log_label(authenticated_user: AuthenticatedUser) -> str | None:
+    email = authenticated_user.claims.get("email")
+    if isinstance(email, str) and email.strip():
+        return email.strip()
+    return None
+
+
 # ─── Audio sender (queue → WebSocket) ───────────────────────────────
 
 async def _audio_sender(audio_queue: asyncio.Queue, websocket: WebSocket):
@@ -132,6 +139,7 @@ async def _process_voice_message(
     audio_queue: asyncio.Queue,
     session_id: str,
     user_id: str,
+    user_label: str | None = None,
 ):
     """Process a complete audio message and stream response."""
     try:
@@ -152,7 +160,15 @@ async def _process_voice_message(
 
         # ── Step 2: Dispatch to handler ──
         if config.SIMPLE_VOICE_AGENT:
-            await handle_simple_voice(audio_data, websocket, audio_queue, perf, user_id, ws_session_id=session_id)
+            await handle_simple_voice(
+                audio_data,
+                websocket,
+                audio_queue,
+                perf,
+                user_id,
+                ws_session_id=session_id,
+                user_label=user_label,
+            )
         else:
             await handle_adk_voice(audio_data, websocket, session_id, user_id, perf)
 
@@ -184,10 +200,12 @@ async def voice_websocket(websocket: WebSocket):
     ws_session_id = str(uuid.uuid4())
     sender_task: asyncio.Task | None = None
     user_id: str | None = None
+    user_label: str | None = None
 
     try:
         authenticated_user = await _receive_authenticated_user(websocket)
         user_id = authenticated_user.user_id
+        user_label = _authenticated_user_log_label(authenticated_user)
         log.info(f"Voice WebSocket authenticated for user {user_id}, session {ws_session_id}")
 
         await websocket.send_json(
@@ -220,7 +238,14 @@ async def voice_websocket(websocket: WebSocket):
 
             log.info(f"Starting request {request_id} for session {ws_session_id}")
             task = asyncio.create_task(
-                _process_voice_message(full_wav, websocket, audio_queue, session_id, user_id)
+                _process_voice_message(
+                    full_wav,
+                    websocket,
+                    audio_queue,
+                    session_id,
+                    user_id,
+                    user_label=user_label,
+                )
             )
             active_voice_tasks[ws_session_id] = task
             audio_accumulator = bytearray()

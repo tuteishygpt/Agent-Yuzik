@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 import api.voice_simple as voice_simple
 import api.voice_teacher as voice_teacher
+import config
 from api.teacher_mode.models import TeacherAction
 
 
@@ -85,6 +86,42 @@ def test_teacher_mode_uses_remote_transcription_when_local_asr_disabled(monkeypa
     asyncio.run(scenario())
 
     assert fake_controller.process_calls[0]["transcript"] == "recognized student answer"
+
+
+def test_teacher_mode_writes_separate_dialogue_log(monkeypatch, tmp_path):
+    fake_controller = _FakeTeacherController()
+    log_path = tmp_path / "teacher_dialogues.txt"
+
+    monkeypatch.setattr(config, "TEACHER_DIALOGUE_LOG_PATH", str(log_path), raising=False)
+    monkeypatch.setattr(voice_teacher, "teacher_controller", fake_controller)
+    monkeypatch.setattr(
+        voice_teacher,
+        "_transcribe_audio_with_model",
+        lambda audio: asyncio.sleep(0, result="recognized student answer"),
+    )
+    monkeypatch.setattr(voice_simple, "stream_speech_multi", _fake_stream_speech_multi)
+
+    async def scenario():
+        websocket = _FakeWebSocket()
+        audio_queue = asyncio.Queue()
+        await voice_teacher.handle_teacher_voice(
+            audio_data=b"wav-bytes",
+            websocket=websocket,
+            audio_queue=audio_queue,
+            perf=_FakePerf(),
+            start_ts=0.0,
+            session_id="session-id",
+            user_id="voice-user",
+            user_label="person@example.com",
+            teacher_state=SimpleNamespace(lesson_id="lesson-1", current_step_id="step-1"),
+        )
+
+    asyncio.run(scenario())
+
+    text = log_path.read_text(encoding="utf-8")
+    assert "USER (person@example.com): recognized student answer\n" in text
+    assert "BOT: Настаўніцкі адказ.\n" in text
+    assert text.endswith("---\n")
 
 
 def test_teacher_mode_ignores_local_asr_setting(monkeypatch):

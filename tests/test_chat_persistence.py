@@ -201,3 +201,53 @@ def test_clear_chat_history_marks_conversation_cleared_and_returns_empty_history
     assert get_response.status_code == 200
     assert get_response.json() == {"history": []}
     assert conversation_store.get_active_conversation("auth-user-123") is None
+
+
+def test_chat_dialogue_log_uses_authenticated_email_when_available(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    from api import chat as chat_module
+    from services.supabase.backend import InMemorySupabaseBackend
+    from services.supabase.chat_message_store import ChatMessageStore
+    from services.supabase.conversation_store import ConversationStore
+
+    class FakeADKService:
+        async def get_or_create_session(self, user_id: str, conversation_id: str | None = None) -> str:
+            return "session-1"
+
+        def run_agent(self, **kwargs):
+            return "reply text", {}, []
+
+    backend = InMemorySupabaseBackend()
+    log_path = tmp_path / "chat_dialogues.txt"
+
+    monkeypatch.setattr(config, "LOCAL_ASR", False)
+    monkeypatch.setattr(config, "CHAT_DIALOGUE_LOG_PATH", str(log_path))
+    monkeypatch.setattr(
+        "api.auth.get_jwt_verifier",
+        lambda: FakeVerifier(
+            {
+                "good-token": {
+                    "sub": "auth-user-123",
+                    "email": "person@example.com",
+                    "aud": "authenticated",
+                    "iss": "https://project-ref.supabase.co/auth/v1",
+                }
+            }
+        ),
+    )
+    monkeypatch.setattr(chat_module, "conversation_store", ConversationStore(backend))
+    monkeypatch.setattr(chat_module, "chat_message_store", ChatMessageStore(backend))
+    monkeypatch.setattr(chat_module, "adk_service", FakeADKService())
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/chat",
+            data={"text": "hello"},
+            headers=auth_headers("good-token"),
+        )
+
+    assert response.status_code == 200
+    assert "[20" in log_path.read_text(encoding="utf-8")
+    assert "USER (person@example.com): hello\n" in log_path.read_text(encoding="utf-8")

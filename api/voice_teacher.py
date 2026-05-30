@@ -9,9 +9,11 @@ import time
 
 from fastapi import WebSocket
 
+import config
 from api.teacher_mode.service import controller as teacher_controller
 from api.voice_perf import PerfLogger
 from api.voice_simple import TTSWorker, _step
+from services.dialogue_logging import append_dialogue_turn
 
 log = logging.getLogger("app.voice")
 
@@ -31,6 +33,7 @@ async def handle_teacher_voice(
     session_id: str,
     user_id: str,
     teacher_state,
+    user_label: str | None = None,
 ) -> None:
     """Process a voice turn in teacher mode."""
     log.info(_step("VOICE·TEACHER", f"📚 Teacher mode active | lesson={teacher_state.lesson_id}", start_ts))
@@ -73,6 +76,15 @@ async def handle_teacher_voice(
             "fallback_reason": outcome.fallback_reason,
         })
 
+        await asyncio.to_thread(
+            append_dialogue_turn,
+            config.TEACHER_DIALOGUE_LOG_PATH,
+            user_id=user_id,
+            user_label=user_label,
+            user_text=outcome.transcript or transcript,
+            assistant_text=outcome.reply_text,
+            logger=log,
+        )
         await tts.dispatch(outcome.reply_text)
         await tts.stop()
     finally:

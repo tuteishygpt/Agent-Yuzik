@@ -152,3 +152,15 @@ def test_handler_reads_adk_service_from_application_bot_data() -> None:
     context = SimpleNamespace(application=SimpleNamespace(bot_data={"adk_service": fake_service}))
 
     assert get_context_adk_service(context) is fake_service
+
+
+def test_telegram_dialogue_user_label_prefers_username() -> None:
+    from bot.handlers import _telegram_dialogue_user_label
+
+    assert _telegram_dialogue_user_label(SimpleNamespace(id=42, username="nickname")) == "@nickname"
+
+
+def test_telegram_dialogue_user_label_falls_back_to_id() -> None:
+    from bot.handlers import _telegram_dialogue_user_label
+
+    assert _telegram_dialogue_user_label(SimpleNamespace(id=42, username=None)) == "42"

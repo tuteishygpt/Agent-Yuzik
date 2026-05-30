@@ -372,6 +372,7 @@ async def handle_simple_voice(
     perf: PerfLogger,
     user_id: str,
     ws_session_id: str = "",
+    user_label: str | None = None,
 ):
     """Process audio via Simple Voice Agent (direct Gemini → TTS streaming)."""
     session_id = ws_session_id
@@ -395,7 +396,7 @@ async def handle_simple_voice(
         from api.voice_teacher import handle_teacher_voice
         await handle_teacher_voice(
             audio_data, websocket, audio_queue, perf,
-            start_ts, session_id, user_id, teacher_state,
+            start_ts, session_id, user_id, teacher_state, user_label=user_label,
         )
         return
 

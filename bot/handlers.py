@@ -10,7 +10,7 @@ from google.genai import errors as genai_errors
 
 from bot import helpers
 from services.adk_service import ADKService
-from services.dialogue_logging import log_adk_turn
+from services.dialogue_logging import append_dialogue_turn, log_adk_turn
 try:
     from chat_dataset_logger import save_message
 except ImportError:
@@ -52,6 +52,25 @@ def get_context_adk_service(context: ContextTypes.DEFAULT_TYPE) -> ADKService:
         return context.application.bot_data["adk_service"]
     except KeyError as exc:
         raise RuntimeError("ADK service is not configured for Telegram application") from exc
+
+
+def _telegram_dialogue_user_label(user) -> str:
+    username = getattr(user, "username", None)
+    if isinstance(username, str) and username.strip():
+        return f"@{username.strip()}"
+    return str(getattr(user, "id", "unknown"))
+
+
+async def _append_telegram_dialogue_turn(update: Update, user_text: str | None, assistant_text: str | None) -> None:
+    await asyncio.to_thread(
+        append_dialogue_turn,
+        config.CHAT_DIALOGUE_LOG_PATH,
+        user_id=str(update.effective_user.id),
+        user_label=_telegram_dialogue_user_label(update.effective_user),
+        user_text=user_text,
+        assistant_text=assistant_text,
+        logger=log,
+    )
 
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles the /start command."""
@@ -153,6 +172,7 @@ async def _process_message_task(update: Update, context: ContextTypes.DEFAULT_TY
                 log.warning(f"Agent timed out for user {user_id}")
                 await helpers._safe_call(context.bot.send_message(chat_id, config.DEFAULT_NO_ANSWER), action="send_message:timeout")
                 log_adk_turn(log, user_text=user_text, assistant_text=config.DEFAULT_NO_ANSWER)
+                await _append_telegram_dialogue_turn(update, user_text, config.DEFAULT_NO_ANSWER)
                 save_message(session_id=session_id, speaker="Агент", text=config.DEFAULT_NO_ANSWER)
                 return
             except genai_errors.ClientError as e:
@@ -177,6 +197,7 @@ async def _process_message_task(update: Update, context: ContextTypes.DEFAULT_TY
 
         assistant_log_text = clean_reply or (config.DEFAULT_NO_ANSWER if not responded_with_media else None)
         log_adk_turn(log, user_text=user_text, assistant_text=assistant_log_text)
+        await _append_telegram_dialogue_turn(update, user_text, assistant_log_text)
 
         save_message(
             session_id=session_id,
@@ -189,4 +210,5 @@ async def _process_message_task(update: Update, context: ContextTypes.DEFAULT_TY
     except Exception as exc:
         log.exception(f"Unhandled error in message processing task for user {user_id}: {exc}")
         log_adk_turn(log, user_text=user_text, assistant_text=config.DEFAULT_ERROR)
+        await _append_telegram_dialogue_turn(update, user_text, config.DEFAULT_ERROR)
         await helpers._safe_call(context.bot.send_message(chat_id, config.DEFAULT_ERROR), action="send_message:error")
