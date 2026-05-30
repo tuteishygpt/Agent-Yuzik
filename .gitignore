@@ -1,5 +1,7 @@
 # ── Сакрэты ──
 .env
+frontend/.env.local
+cred/
 
 # ── Python ──
 __pycache__/
@@ -7,8 +9,6 @@ __pycache__/
 *.pyo
 *.egg-info/
 dist/
-!frontend/dist/
-!frontend/dist/**
 build/
 .venv/
 venv/
@@ -44,3 +44,12 @@ CLAUDE.md
 *~
 .worktrees/
 dialogues.txt
+chat_dialogues.txt
+teacher_dialogues.txt
+server.stdout.log
+server.stderr.log
+emulator-current.png
+emulator-teacher-open.png
+emulator-teacher-started.png
+window.xml
+docs/tts-remote-server-plan.md
