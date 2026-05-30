@@ -43,6 +43,16 @@ def is_mime_type_supported(mime_type: str | None) -> bool:
     # Калі нічога не супала, тып не падтрымліваецца
     return False
 
+
+def get_context_adk_service(context: ContextTypes.DEFAULT_TYPE) -> ADKService:
+    adk_service = getattr(context.application, "adk_service", None)
+    if adk_service is not None:
+        return adk_service
+    try:
+        return context.application.bot_data["adk_service"]
+    except KeyError as exc:
+        raise RuntimeError("ADK service is not configured for Telegram application") from exc
+
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles the /start command."""
     await helpers._safe_call(
@@ -88,7 +98,7 @@ async def _process_message_task(update: Update, context: ContextTypes.DEFAULT_TY
     if not user_text and not file_to_download:
         return
 
-    adk_service: ADKService = context.application.adk_service
+    adk_service = get_context_adk_service(context)
 
     try:
         session_id = await adk_service.get_or_create_session(user_id)

@@ -44,6 +44,11 @@ from api.chat import router as chat_router
 from api.files import router as files_router
 from api.health import router as health_router
 from api.teacher import router as teacher_router
+from api.telegram import (
+    configure_telegram_application,
+    router as telegram_router,
+    shutdown_telegram_application,
+)
 from api.voice import router as voice_router
 from api.voice_history import router as voice_history_router
 
@@ -51,6 +56,7 @@ app.include_router(chat_router)
 app.include_router(files_router)
 app.include_router(health_router)
 app.include_router(teacher_router)
+app.include_router(telegram_router)
 app.include_router(voice_router)
 app.include_router(voice_history_router)
 
@@ -64,6 +70,14 @@ async def _load_local_asr():
         log.info("[STARTUP] LOCAL_ASR=True → loading ASR model in background…")
         asyncio.create_task(asyncio.to_thread(load_asr_model))
     log.info("[AUTH] REST expects bearer Supabase JWTs; /api/voice expects first-message auth.")
+    from api.deps import adk_service
+
+    await configure_telegram_application(adk_service)
+
+
+@app.on_event("shutdown")
+async def _shutdown_telegram():
+    await shutdown_telegram_application()
 
 # ---------------------------------------------------------------------
 # Падрубанне інтэрфейсу (Static Files) --------------------------------
