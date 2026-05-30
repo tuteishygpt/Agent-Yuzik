@@ -40,7 +40,9 @@ def create_genai_client(*, api_key: str | None = None, location: str | None = No
     resolved_api_key = api_key or GOOGLE_API_KEY or GEMINI_API_KEY
     if not resolved_api_key:
         raise RuntimeError("GOOGLE_API_KEY env var not set")
-    return genai.Client(vertexai=True, api_key=resolved_api_key, location=resolved_location)
+    # Vertex Express (API key) does not support project/location overrides —
+    # the region is determined by the API key itself.
+    return genai.Client(vertexai=True, api_key=resolved_api_key)
 
 
 # Voice / Teacher pipelines stay pinned to a stable region (e.g. "eu") regardless

@@ -113,7 +113,6 @@ def test_config_create_genai_client_uses_vertex_ai_express_mode(monkeypatch):
     assert captured == {
         "vertexai": True,
         "api_key": "vertex-key",
-        "location": "global",
     }
 
 
@@ -164,7 +163,6 @@ def test_image_generator_sdk_client_uses_vertex_ai_express_mode(monkeypatch):
     assert captured == {
         "vertexai": True,
         "api_key": "vertex-key",
-        "location": "global",
     }
 
 
