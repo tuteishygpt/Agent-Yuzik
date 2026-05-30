@@ -7,6 +7,8 @@ import {
     getSupabaseSession,
     getSupabaseAccessToken,
     linkAnonymousAccountWithEmail,
+    signInWithGoogle,
+    signOutUser,
     onSupabaseAuthStateChange,
 } from './supabase.js';
 
@@ -48,6 +50,7 @@ const elements = {
     downloadImage: document.getElementById('download-image'),
     authBadge: document.getElementById('auth-badge'),
     btnUpgrade: document.getElementById('btn-upgrade'),
+    btnSignOut: document.getElementById('btn-sign-out'),
     upgradeModal: document.getElementById('upgrade-modal'),
     upgradeOverlay: document.getElementById('upgrade-overlay'),
     upgradeClose: document.getElementById('upgrade-close'),
@@ -56,6 +59,7 @@ const elements = {
     upgradePassword: document.getElementById('upgrade-password'),
     upgradeSubmit: document.getElementById('upgrade-submit'),
     upgradeFeedback: document.getElementById('upgrade-feedback'),
+    btnGoogleAuth: document.getElementById('btn-google-auth'),
 };
 
 // ===========================
@@ -300,6 +304,19 @@ function closeUpgradeModal() {
     elements.upgradeModal.classList.add('hidden');
 }
 
+function getAuthDisplayName(user) {
+    if (!user || user.is_anonymous) {
+        return 'Госць';
+    }
+
+    const email = typeof user.email === 'string' ? user.email.trim() : '';
+    if (email.includes('@')) {
+        return email.split('@')[0] || 'Акаўнт';
+    }
+
+    return email || 'Акаўнт';
+}
+
 async function refreshAuthState() {
     const session = await getSupabaseSession();
     const user = session?.user ?? null;
@@ -308,12 +325,15 @@ async function refreshAuthState() {
     state.isAnonymous = Boolean(user?.is_anonymous);
 
     if (elements.authBadge) {
-        elements.authBadge.textContent = state.isAnonymous ? 'Госць' : 'Email';
+        elements.authBadge.textContent = getAuthDisplayName(user);
         elements.authBadge.title = user?.email || (state.isAnonymous ? 'Anonymous session' : 'Linked account');
     }
 
     if (elements.btnUpgrade) {
         elements.btnUpgrade.classList.toggle('hidden', !state.isAnonymous);
+    }
+    if (elements.btnSignOut) {
+        elements.btnSignOut.classList.toggle('hidden', !user || state.isAnonymous);
     }
 }
 
@@ -340,6 +360,44 @@ async function handleUpgradeSubmit(event) {
         setUpgradeFeedback(error.message || 'Не атрымалася прывязаць email.', 'error');
     } finally {
         elements.upgradeSubmit.disabled = false;
+    }
+}
+
+async function handleGoogleAuthClick() {
+    if (!state.isAnonymous || !elements.btnGoogleAuth) {
+        return;
+    }
+
+    elements.btnGoogleAuth.disabled = true;
+    setUpgradeFeedback('Перанакіроўваем у Google…');
+
+    try {
+        await signInWithGoogle();
+    } catch (error) {
+        console.error('Google link failed:', error);
+        setUpgradeFeedback(error.message || 'Не атрымалася ўвайсці праз Google.', 'error');
+        elements.btnGoogleAuth.disabled = false;
+    }
+}
+
+async function handleSignOutClick() {
+    if (!elements.btnSignOut) {
+        return;
+    }
+
+    elements.btnSignOut.disabled = true;
+    try {
+        await signOutUser();
+        state.userId = null;
+        state.isAnonymous = true;
+        closeUpgradeModal();
+        await bootstrapAnonymousSession();
+        await refreshAuthState();
+        hydrateHistory(await fetchHistory());
+    } catch (error) {
+        console.error('Sign out failed:', error);
+    } finally {
+        elements.btnSignOut.disabled = false;
     }
 }
 
@@ -635,6 +693,16 @@ function initEventListeners() {
     if (elements.upgradeForm) {
         elements.upgradeForm.addEventListener('submit', (event) => {
             void handleUpgradeSubmit(event);
+        });
+    }
+    if (elements.btnGoogleAuth) {
+        elements.btnGoogleAuth.addEventListener('click', () => {
+            void handleGoogleAuthClick();
+        });
+    }
+    if (elements.btnSignOut) {
+        elements.btnSignOut.addEventListener('click', () => {
+            void handleSignOutClick();
         });
     }
 
