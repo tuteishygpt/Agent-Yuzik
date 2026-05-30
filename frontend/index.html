@@ -20,7 +20,8 @@
       </div>
       <div class="header-actions">
         <span class="auth-badge" id="auth-badge">Госць</span>
-        <button class="upgrade-btn hidden" id="btn-upgrade" type="button">Прывязаць email</button>
+        <button class="upgrade-btn hidden" id="btn-upgrade" type="button">Увайсці</button>
+        <button class="sign-out-btn hidden" id="btn-sign-out" type="button">Выйсці</button>
         <button class="icon-btn" id="btn-voice" title="Галасавы агент">🎤</button>
         <button class="icon-btn" id="btn-clear" title="Ачысціць чат">🗑️</button>
         <button class="icon-btn" id="btn-theme" title="Змяніць тэму">🌗</button>
@@ -100,10 +101,15 @@
       <button class="modal-close" id="upgrade-close">✕</button>
       <div class="auth-card">
         <p class="auth-eyebrow">Supabase Account</p>
-        <h2 class="auth-title">Захаваць гасцявы профіль</h2>
+        <h2 class="auth-title">Увайсці або захаваць профіль</h2>
         <p class="auth-copy">
-          Прывяжыце email і пароль, каб пакінуць той жа `user_id`, гісторыю і файлы пасля апгрэйду ўліковага запісу.
+          Увайдзіце праз Google або дадайце email і пароль, каб пакінуць той жа `user_id`, гісторыю і файлы.
         </p>
+        <button class="auth-provider-btn" id="btn-google-auth" type="button">
+          <span class="auth-provider-mark">G</span>
+          Увайсці праз Google
+        </button>
+        <div class="auth-divider"><span>або</span></div>
         <form class="upgrade-form" id="upgrade-form">
           <label class="auth-field">
             <span>Email</span>
@@ -113,7 +119,7 @@
             <span>Пароль</span>
             <input id="upgrade-password" type="password" autocomplete="new-password" minlength="8" placeholder="Не менш за 8 сімвалаў" required>
           </label>
-          <button class="auth-submit" id="upgrade-submit" type="submit">Прывязаць email</button>
+          <button class="auth-submit" id="upgrade-submit" type="submit">Працягнуць з email</button>
           <p class="auth-feedback" id="upgrade-feedback">Пасля адпраўкі прыйдзе ліст для пацверджання і вяртання ў праграму.</p>
         </form>
       </div>
