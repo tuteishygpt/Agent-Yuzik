@@ -22,6 +22,21 @@ TIME_RELATED_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+TTS_REQUESTED_PATTERN = re.compile(
+    r"(?:агуч\w*|прачыта\w*\s+уголас|прачыта\w*\s+услых|зрабі\s+аўдыя|зрабі\s+голас"
+    r"|вымаў\w*|скажы\s+уголас|скажы\s+услых|озвуч\w*|прочита\w*\s+вслух"
+    r"|read\s+(?:aloud|out\s+loud)|say\s+(?:it|this)\s+(?:out\s+)?loud|speak\s+(?:it|this))",
+    re.IGNORECASE,
+)
+
+IMAGE_REQUESTED_PATTERN = re.compile(
+    r"(?:намалю\w*|нарысу\w*|згенеру\w*\s+(?:малюнак|выяв\w*|карцінк\w*|фота)"
+    r"|стварыць?\s+(?:малюнак|выяв\w*|карцінк\w*)|зрабі\s+(?:малюнак|выяв\w*|карцінк\w*|фота)"
+    r"|нарисуй|сгенерируй\s+(?:изображение|картинк\w*|фото)|создай\s+(?:изображение|картинк\w*)"
+    r"|draw|generate\s+(?:an?\s+)?(?:image|picture|photo)|create\s+(?:an?\s+)?(?:image|picture))",
+    re.IGNORECASE,
+)
+
 MINSK_TIME_INSTRUCTION = (
     "Use Europe/Minsk as the canonical timezone when Minsk time mode is enabled. "
     "Whenever the answer depends on the current date or time, including now, today, "
@@ -45,26 +60,48 @@ def enable_minsk_time_mode(callback_context, llm_request: LlmRequest):
     if llm_request.config is None:
         llm_request.config = types.GenerateContentConfig()
 
-    if TIME_RELATED_PATTERN.search(_latest_user_text(llm_request)):
+    user_text = _latest_user_text(llm_request)
+
+    if TIME_RELATED_PATTERN.search(user_text):
         callback_context.state["user:timezone"] = "Europe/Minsk"
         callback_context.state["user:minsk_time_enabled"] = True
 
     if callback_context.state.get("user:minsk_time_enabled"):
         llm_request.append_instructions([MINSK_TIME_INSTRUCTION])
 
+    callback_context.state["temp:tts_requested"] = bool(TTS_REQUESTED_PATTERN.search(user_text))
+    callback_context.state["temp:image_requested"] = bool(IMAGE_REQUESTED_PATTERN.search(user_text))
+
     return None
 
 
+_TTS_TOOL_NAME = getattr(synthesize_speech_tool, "name", "synthesize_speech")
+_IMAGE_TOOL_NAME = getattr(generate_image_tool, "name", "generate_image")
+
+
 def guard_one_call(tool: BaseTool, args: dict, tool_context: ToolContext, **kwargs) -> dict | None:
-    key = "temp:tts_called"
-    if tool.name != getattr(synthesize_speech_tool, "name", "synthesize_speech"):
+    if tool.name == _TTS_TOOL_NAME:
+        if not tool_context.state.get("temp:tts_requested"):
+            return {
+                "status": "skipped",
+                "error_message": "Карыстальнік не прасіў агучваць тэкст. Адкажы тэкстам.",
+            }
+        if tool_context.state.get("temp:tts_called"):
+            return {
+                "status": "error",
+                "error_message": f"{tool.name} ужо выкарыстоўваўся ў гэтым запыце.",
+            }
+        tool_context.state["temp:tts_called"] = True
         return None
-    if tool_context.state.get(key):
-        return {
-            "status": "error",
-            "error_message": f"{tool.name} ужо выкарыстоўваўся ў гэтым запыце.",
-        }
-    tool_context.state[key] = True
+
+    if tool.name == _IMAGE_TOOL_NAME:
+        if not tool_context.state.get("temp:image_requested"):
+            return {
+                "status": "skipped",
+                "error_message": "Карыстальнік не прасіў ствараць малюнак. Адкажы тэкстам.",
+            }
+        return None
+
     return None
 
 
@@ -81,8 +118,8 @@ router_agent = LlmAgent(
         • Калі `lookup_verbum` нічога не знайшоў у Verbum, паведам пра гэта і не пераходзь да `search_agent`.
         • Калі трэба ведаць актуальныя дату ці час па Мінску — выклікай `get_minsk_datetime`.
         • Калі пытаюцца пра надвор'е або прагноз — выклікай `get_weather`. Калі горад не названы, выкарыстоўвай Мінск.
-        • Калі трэба агучыць тэкст — выклікай `synthesize_speech`.
-        • Калі трэба стварыць малюнак — перакладзі запыт на ангельскую мову і выклікай `generate_image`.
+        • Калі карыстальнік відавочна просіць агучыць, прачытаць уголас або зрабіць аўдыя/голас з тэксту (напрыклад: «агучы...», «прачытай уголас...», «зрабі аўдыя...») — выклікай `synthesize_speech`. Ні ў якім разе не выклікай `synthesize_speech` сам сабою для звычайных тэкставых адказаў, перакладаў, тлумачэнняў або пошукавых вынікаў.
+        • Калі карыстальнік просіць намаляваць, згенераваць або стварыць малюнак (напрыклад: «намалюй...», «зрабі карцінку...», «згенеруй выяву...») — выклікай `generate_image`, перадаўшы prompt у перакладзе на ангельскую мову. Ні ў якім разе не выклікай `generate_image` для запытаў пераклада тэксту, тлумачэння, пошуку або іншых тэкставых задач.
         • Калі просяць стварыць мем — выклікай `meme_agent`.
         • Не выкарыстоўвай іншых суб-агентаў і не генеруй кодаў, калі гэта не патрэбна.
     """,

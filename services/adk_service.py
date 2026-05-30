@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Tuple
 
 from google.adk.artifacts import InMemoryArtifactService
+from google.adk.events import Event
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
@@ -15,6 +16,19 @@ from router_agent.agent import router_agent
 from services.supabase.adk_session_store import ADKSessionStore
 
 log = logging.getLogger(__name__)
+
+
+_UNKNOWN_TOOL_FALLBACK = (
+    "Прабачце, мадэль паспрабавала выклікаць інструмент, якога ў мяне няма. "
+    "Сфармулюйце запыт інакш ці паспрабуйце пазней."
+)
+
+
+def _is_unknown_tool_error(exc: BaseException) -> bool:
+    if not isinstance(exc, ValueError):
+        return False
+    msg = str(exc)
+    return "not found" in msg and ("tools_dict" in msg or "Available tools" in msg or "Tool '" in msg)
 
 
 class ADKService:
@@ -99,13 +113,19 @@ class ADKService:
         content = types.Content(role="user", parts=parts)
         final_parts, delta = [], {}
 
-        for ev in self.runner.run(
-            user_id=user_id, session_id=session_id, new_message=content
-        ):
-            if ev.is_final_response() and ev.content:
-                final_parts = ev.content.parts or []
-            if ev.actions and ev.actions.artifact_delta:
-                delta.update(ev.actions.artifact_delta)
+        try:
+            for ev in self.runner.run(
+                user_id=user_id, session_id=session_id, new_message=content
+            ):
+                if ev.is_final_response() and ev.content:
+                    final_parts = ev.content.parts or []
+                if ev.actions and ev.actions.artifact_delta:
+                    delta.update(ev.actions.artifact_delta)
+        except ValueError as exc:
+            if _is_unknown_tool_error(exc):
+                log.warning("LLM hallucinated unknown tool: %s", exc)
+                return _UNKNOWN_TOOL_FALLBACK, {}, [types.Part(text=_UNKNOWN_TOOL_FALLBACK)]
+            raise
 
         reply = "\n".join(p.text for p in final_parts if p.text)
         return reply, delta, final_parts
@@ -144,6 +164,20 @@ class ADKService:
                     user_id=user_id, session_id=session_id, new_message=content
                 ):
                     loop.call_soon_threadsafe(event_queue.put_nowait, ev)
+            except ValueError as exc:
+                if _is_unknown_tool_error(exc):
+                    log.warning("LLM hallucinated unknown tool: %s", exc)
+                    fallback_event = Event(
+                        author="router_agent",
+                        content=types.Content(
+                            role="model",
+                            parts=[types.Part(text=_UNKNOWN_TOOL_FALLBACK)],
+                        ),
+                        turnComplete=True,
+                    )
+                    loop.call_soon_threadsafe(event_queue.put_nowait, fallback_event)
+                else:
+                    log.error("Error in sync runner: %s", exc)
             except Exception as exc:
                 log.error("Error in sync runner: %s", exc)
             finally:

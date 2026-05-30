@@ -23,9 +23,17 @@ log = logging.getLogger(__name__)
 
 # --- ВЫПРАЎЛЕННЕ: Гнуткая логіка валідацыі ---
 # Спіс дазволеных прэфіксаў для медыяфайлаў
-SUPPORTED_MIME_PREFIXES = ("image/", "audio/", "video/")
+SUPPORTED_MIME_PREFIXES = ("image/", "audio/", "video/", "text/")
 # Спіс дазволеных дакладных тыпаў для дакументаў
-SUPPORTED_EXACT_MIME_TYPES = ("application/pdf", "text/plain")
+SUPPORTED_EXACT_MIME_TYPES = (
+    "application/pdf",
+    "application/json",
+    "application/xml",
+    "application/rtf",
+    "application/x-javascript",
+    "application/x-python",
+    "application/x-python-code",
+)
 
 def is_mime_type_supported(mime_type: str | None) -> bool:
     """
@@ -104,15 +112,30 @@ async def _process_message_task(update: Update, context: ContextTypes.DEFAULT_TY
         file_name = file_to_download.file_name
     elif message.photo:
         file_to_download = message.photo[-1]
-        mime_type = 'image/jpeg'
+        mime_type = "image/jpeg"
     elif message.audio:
         file_to_download = message.audio
         mime_type = file_to_download.mime_type
         file_name = file_to_download.file_name
+    elif message.voice:
+        file_to_download = message.voice
+        mime_type = file_to_download.mime_type or "audio/ogg"
     elif message.video:
         file_to_download = message.video
         mime_type = file_to_download.mime_type
         file_name = file_to_download.file_name
+    elif message.video_note:
+        file_to_download = message.video_note
+        mime_type = "video/mp4"
+    elif message.animation:
+        file_to_download = message.animation
+        mime_type = file_to_download.mime_type or "video/mp4"
+        file_name = file_to_download.file_name
+    elif message.sticker:
+        sticker = message.sticker
+        if not sticker.is_animated and not sticker.is_video:
+            file_to_download = sticker
+            mime_type = "image/webp"
 
     if not user_text and not file_to_download:
         return
