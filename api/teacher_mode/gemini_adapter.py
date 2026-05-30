@@ -123,9 +123,9 @@ class GeminiTeacherAdapter:
         lesson_payload: dict,
         session_payload: dict,
     ) -> dict:
-        from api.deps import get_genai_client
+        from api.deps import get_voice_genai_client
 
-        client = get_genai_client()
+        client = get_voice_genai_client()
         mp3_data = await self._compress_audio_for_gemini(audio_data)
         response = await client.aio.models.generate_content(
             model=config.SIMPLE_VOICE_MODEL,
@@ -170,9 +170,9 @@ class GeminiTeacherAdapter:
         lesson_payload: dict,
         session_payload: dict,
     ) -> dict:
-        from api.deps import get_genai_client
+        from api.deps import get_voice_genai_client
 
-        client = get_genai_client()
+        client = get_voice_genai_client()
         instruction = TEACHER_PHRASES["evaluate_instruction"]
         response = await client.aio.models.generate_content(
             model=config.SIMPLE_VOICE_MODEL,

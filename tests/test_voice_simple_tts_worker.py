@@ -13,6 +13,7 @@ def _load_voice_simple(monkeypatch):
 
     fake_deps = ModuleType("api.deps")
     fake_deps.get_genai_client = lambda: None
+    fake_deps.get_voice_genai_client = lambda: None
     monkeypatch.setitem(sys.modules, "api.deps", fake_deps)
 
     fake_teacher_service = ModuleType("api.teacher_mode.service")

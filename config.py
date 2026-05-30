@@ -31,16 +31,21 @@ if not GOOGLE_API_KEY:
     print("WARNING: GOOGLE_API_KEY not found in environment variables or .env file.")
 
 
-def create_genai_client(*, api_key: str | None = None):
+def create_genai_client(*, api_key: str | None = None, location: str | None = None):
     creds_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
     project = os.getenv("GOOGLE_CLOUD_PROJECT")
-    location = os.getenv("GOOGLE_CLOUD_LOCATION", "global")
+    resolved_location = location or os.getenv("GOOGLE_CLOUD_LOCATION", "global")
     if creds_path and project:
-        return genai.Client(vertexai=True, project=project, location=location)
+        return genai.Client(vertexai=True, project=project, location=resolved_location)
     resolved_api_key = api_key or GOOGLE_API_KEY or GEMINI_API_KEY
     if not resolved_api_key:
         raise RuntimeError("GOOGLE_API_KEY env var not set")
-    return genai.Client(vertexai=True, api_key=resolved_api_key)
+    return genai.Client(vertexai=True, api_key=resolved_api_key, location=resolved_location)
+
+
+# Voice / Teacher pipelines stay pinned to a stable region (e.g. "eu") regardless
+# of the chat router region in GOOGLE_CLOUD_LOCATION.
+VOICE_GOOGLE_CLOUD_LOCATION = os.getenv("VOICE_GOOGLE_CLOUD_LOCATION")
     
 # Telegram Configuration
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")

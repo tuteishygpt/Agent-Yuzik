@@ -19,7 +19,7 @@ from fastapi.websockets import WebSocketState
 from google.genai import types
 
 import config
-from api.deps import get_genai_client
+from api.deps import get_voice_genai_client as get_genai_client
 from api.voice_history import get_voice_history
 from api.voice_perf import PerfLogger
 from api.voice_utils import LOCAL_SAMPLE_RATE

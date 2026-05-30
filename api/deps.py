@@ -34,6 +34,7 @@ except Exception as exc:
 
 
 _genai_client = None
+_voice_genai_client = None
 
 
 def append_to_history(user_id: str, entry: dict) -> None:
@@ -46,6 +47,19 @@ def get_genai_client():
     if not _genai_client:
         _genai_client = config.create_genai_client()
     return _genai_client
+
+
+def get_voice_genai_client():
+    """Client pinned to VOICE_GOOGLE_CLOUD_LOCATION (falls back to default)."""
+    global _voice_genai_client
+    if not _voice_genai_client:
+        if config.VOICE_GOOGLE_CLOUD_LOCATION:
+            _voice_genai_client = config.create_genai_client(
+                location=config.VOICE_GOOGLE_CLOUD_LOCATION
+            )
+        else:
+            _voice_genai_client = get_genai_client()
+    return _voice_genai_client
 
 
 def guess_mime(p: Path) -> str:

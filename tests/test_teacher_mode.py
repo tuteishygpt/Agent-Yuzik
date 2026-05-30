@@ -78,6 +78,7 @@ class FakeGenAIClient:
 def _install_fake_deps(monkeypatch, client):
     fake_module = ModuleType("api.deps")
     fake_module.get_genai_client = lambda: client
+    fake_module.get_voice_genai_client = lambda: client
     monkeypatch.setitem(sys.modules, "api.deps", fake_module)
 
 
