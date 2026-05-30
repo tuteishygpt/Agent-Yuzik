@@ -23,6 +23,19 @@ export function LessonPicker({
   const selectedLesson =
     lessons.find((lesson) => lesson.id === selectedLessonId) ?? null;
 
+  if (isActive && selectedLesson) {
+    return (
+      <View style={[styles.panel, styles.activePanel]}>
+        <Text style={styles.activeTitle} numberOfLines={1}>
+          {selectedLesson.title}
+        </Text>
+        <Text style={styles.activeMeta} numberOfLines={1}>
+          Active
+        </Text>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.panel}>
       <View style={styles.panelHeader}>
@@ -102,6 +115,26 @@ const styles = StyleSheet.create({
     padding: 14,
     borderRadius: webTheme.radii.lg,
     ...webGlassPanel,
+  },
+  activePanel: {
+    minHeight: 48,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    paddingVertical: 10,
+  },
+  activeTitle: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: "700",
+    color: webTheme.colors.text,
+  },
+  activeMeta: {
+    color: webTheme.colors.teacher,
+    fontSize: 12,
+    fontWeight: "800",
+    textTransform: "uppercase",
   },
   panelHeader: {
     flexDirection: "row",

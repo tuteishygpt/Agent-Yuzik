@@ -1,14 +1,14 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useFocusEffect } from "expo-router";
 import {
   Animated,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 import LessonPicker from "@/features/teacher/LessonPicker";
 import { useTeacherMode } from "@/features/teacher/useTeacherMode";
@@ -84,6 +84,7 @@ export default function TeacherScreen() {
   const manualStopRef = useRef(false);
   const teacherModeRef = useRef(teacherMode);
   const voiceSessionRef = useRef(voiceSession);
+  const [startNotice, setStartNotice] = useState<string | null>(null);
   const uiState = resolveVoiceUiState({
     status: voiceSession.status,
     isRecording: voiceSession.isRecording,
@@ -119,6 +120,16 @@ export default function TeacherScreen() {
   }, []);
 
   const startTeacherSession = useCallback(() => {
+    const teacher = teacherModeRef.current;
+    const selectedLessonId = teacher.selectedLesson?.id ?? null;
+    const hasSelectedLesson = selectedLessonId != null;
+
+    if (!hasSelectedLesson) {
+      setStartNotice("Абярыце занятак са спісу.");
+    } else {
+      setStartNotice(null);
+    }
+
     manualStopRef.current = false;
     const session = voiceSessionRef.current;
 
@@ -128,6 +139,17 @@ export default function TeacherScreen() {
       }
 
       await voiceSessionRef.current.startListening();
+
+      const latestSession = voiceSessionRef.current;
+      const latestTeacher = teacherModeRef.current;
+      if (
+        selectedLessonId &&
+        !latestTeacher.isActive &&
+        !latestSession.teacherSelection.active
+      ) {
+        startedLessonRef.current = selectedLessonId;
+        await latestSession.startTeacherLesson();
+      }
     })();
   }, []);
 
@@ -170,6 +192,11 @@ export default function TeacherScreen() {
     : isDisconnected
       ? webTheme.colors.danger
       : webTheme.colors.teacher;
+  const selectionNotice =
+    startNotice ??
+    (!teacherMode.selectedLesson && teacherMode.lessons.length > 0
+      ? "Абярыце занятак са спісу."
+      : null);
 
   useEffect(() => {
     void (async () => {
@@ -192,29 +219,16 @@ export default function TeacherScreen() {
   }, [shouldAutoConnect, voiceSession.status]);
 
   useEffect(() => {
+    if (teacherMode.selectedLesson) {
+      setStartNotice(null);
+    }
+  }, [teacherMode.selectedLesson?.id]);
+
+  useEffect(() => {
     if (voiceSession.status === "error") {
       startedLessonRef.current = null;
     }
   }, [voiceSession.status]);
-
-  useEffect(() => {
-    const lessonId = teacherMode.selectedLesson?.id ?? null;
-    if (
-      !lessonId ||
-      teacherMode.isActive ||
-      voiceSession.status !== "connected" ||
-      startedLessonRef.current === lessonId
-    ) {
-      return;
-    }
-
-    startedLessonRef.current = lessonId;
-    void voiceSession.startTeacherLesson();
-  }, [
-    teacherMode.selectedLesson?.id,
-    teacherMode.isActive,
-    voiceSession.status,
-  ]);
 
   return (
     <SafeAreaView style={styles.screen}>
@@ -238,6 +252,9 @@ export default function TeacherScreen() {
           {voiceSession.retryNotice ? (
             <Text style={styles.notice}>{voiceSession.retryNotice}</Text>
           ) : null}
+          {selectionNotice ? (
+            <Text style={styles.notice}>{selectionNotice}</Text>
+          ) : null}
           {voiceSession.error ? (
             <Text style={styles.error}>{voiceSession.error}</Text>
           ) : null}
@@ -250,6 +267,7 @@ export default function TeacherScreen() {
           isActive={teacherMode.isActive}
           onSelectLesson={(lessonId) => {
             manualStopRef.current = false;
+            setStartNotice(null);
             startedLessonRef.current = null;
             teacherMode.selectLesson(lessonId);
           }}

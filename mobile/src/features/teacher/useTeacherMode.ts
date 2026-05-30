@@ -200,12 +200,16 @@ async function loadLessons(options: LoadTeacherLessonsOptions): Promise<void> {
     setState((current) => {
       const selectedLesson =
         current.selectedLessonId == null
-          ? null
+          ? lessons[0] ?? null
           : lessons.find((lesson) => lesson.id === current.selectedLessonId) ?? null;
       const selectedStep =
-        selectedLesson == null || current.selectedStepId == null
+        selectedLesson == null
           ? null
-          : selectedLesson.steps.find((step) => step.id === current.selectedStepId) ?? null;
+          : current.selectedStepId == null
+            ? selectedLesson.steps[0] ?? null
+            : selectedLesson.steps.find((step) => step.id === current.selectedStepId) ??
+              selectedLesson.steps[0] ??
+              null;
 
       return {
         ...current,

@@ -144,6 +144,19 @@ jest.mock("@/features/teacher/useTeacherMode", () => ({
   useTeacherMode: () => mockTeacherMode,
 }));
 
+jest.mock("@/features/voice/useVoiceAnimations", () => ({
+  useVoiceAnimations: () => ({
+    styles: {
+      dot: {},
+      halo: {},
+      mic: {},
+    },
+    visualizerPulse: {
+      interpolate: jest.fn(() => 12),
+    },
+  }),
+}));
+
 const mockUseVoiceSession = jest.fn((_options?: unknown) => mockVoiceSession);
 
 jest.mock("@/features/voice/useVoiceSession", () => ({
@@ -157,6 +170,7 @@ jest.mock("expo-router", () => {
 });
 
 jest.mock("react-native-safe-area-context", () => ({
+  SafeAreaView: jest.requireActual("react-native").View,
   useSafeAreaInsets: () => ({ bottom: 24, left: 0, right: 0, top: 0 }),
 }));
 
@@ -207,7 +221,7 @@ describe("TeacherScreen", () => {
     mockUseVoiceSession.mockReturnValue(mockVoiceSession);
   });
 
-  it("runs the teacher lesson on the teacher screen without routing to voice", async () => {
+  it("connects the teacher screen without starting the selected lesson until requested", async () => {
     let renderer!: TestRenderer.ReactTestRenderer;
 
     await act(async () => {
@@ -223,11 +237,50 @@ describe("TeacherScreen", () => {
       backendUrl: "https://api.yuzik.example",
       accessToken: "token-123",
     });
-    expect(mockStartTeacherLesson).toHaveBeenCalledTimes(1);
+    expect(mockStartTeacherLesson).not.toHaveBeenCalled();
     expect(mockUseVoiceSession).toHaveBeenCalledWith({
       teacherMode: mockTeacherMode,
       sessionKind: "teacher",
     });
+
+    const controls = renderer.root.findByType(VoiceControls);
+
+    await act(async () => {
+      await controls.props.onStartListening();
+    });
+
+    expect(mockStartListening).toHaveBeenCalledTimes(1);
+    expect(mockStartTeacherLesson).toHaveBeenCalledTimes(1);
+  });
+
+  it("connects the teacher voice session but asks for a lesson before starting without a selection", async () => {
+    mockTeacherMode.selectedLesson = null;
+    mockTeacherMode.selectedStep = null;
+    mockTeacherMode.currentPrompt = null;
+    mockVoiceSession.status = "idle";
+    mockVoiceSession.connectionStatus = "idle";
+
+    let renderer!: TestRenderer.ReactTestRenderer;
+
+    await act(async () => {
+      renderer = TestRenderer.create(<TeacherScreen />);
+    });
+
+    expect(mockConnect).toHaveBeenCalledTimes(1);
+    expect(mockStartTeacherLesson).not.toHaveBeenCalled();
+
+    const controls = renderer.root.findByType(VoiceControls);
+    mockConnect.mockClear();
+
+    await act(async () => {
+      await controls.props.onStartListening();
+    });
+
+    const text = readText(renderer);
+    expect(text).toContain("Абярыце занятак");
+    expect(mockConnect).toHaveBeenCalledTimes(1);
+    expect(mockStartListening).toHaveBeenCalledTimes(1);
+    expect(mockStartTeacherLesson).not.toHaveBeenCalled();
   });
 
   it("starts and voices the first task after choosing a lesson from the teacher screen", async () => {
@@ -273,12 +326,31 @@ describe("TeacherScreen", () => {
       renderer.update(<TeacherScreen />);
     });
 
-    const text = readText(renderer);
+    let text = readText(renderer);
     expect(mockSelectLesson).toHaveBeenCalledWith("travel-basics");
-    expect(mockStartTeacherLesson).toHaveBeenCalledTimes(1);
+    expect(mockStartTeacherLesson).not.toHaveBeenCalled();
     expect(text).toContain("Travel basics");
     expect(text).toContain("Ask for a ticket.");
     expect(text).not.toContain("Ask for tickets");
+
+    const controls = renderer.root.findByType(VoiceControls);
+
+    await act(async () => {
+      await controls.props.onStartListening();
+    });
+
+    expect(mockStartTeacherLesson).toHaveBeenCalledTimes(1);
+
+    mockTeacherMode.isActive = true;
+
+    await act(async () => {
+      renderer.update(<TeacherScreen />);
+    });
+
+    text = readText(renderer);
+    expect(text).toContain("Travel basics");
+    expect(text).toContain("Active");
+    expect(text).not.toContain("Ask for a ticket.");
   });
 
   it("stops the teacher lesson and disconnects when the active teacher session is stopped", async () => {
@@ -348,14 +420,14 @@ describe("TeacherScreen", () => {
     });
   });
 
-  it("restarts the teacher lesson after a recoverable socket error reconnects", async () => {
+  it("does not start the selected teacher lesson automatically after reconnecting", async () => {
     let renderer!: TestRenderer.ReactTestRenderer;
 
     await act(async () => {
       renderer = TestRenderer.create(<TeacherScreen />);
     });
 
-    expect(mockStartTeacherLesson).toHaveBeenCalledTimes(1);
+    expect(mockStartTeacherLesson).not.toHaveBeenCalled();
     mockStartTeacherLesson.mockClear();
 
     mockVoiceSession.status = "error";
@@ -372,7 +444,7 @@ describe("TeacherScreen", () => {
       renderer.update(<TeacherScreen />);
     });
 
-    expect(mockStartTeacherLesson).toHaveBeenCalledTimes(1);
+    expect(mockStartTeacherLesson).not.toHaveBeenCalled();
 
     act(() => {
       renderer.unmount();

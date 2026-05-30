@@ -78,6 +78,16 @@ function parseBoolean(value: string | undefined): boolean {
   );
 }
 
+function parseVersionCode(value: string | undefined): number {
+  const parsed = Number.parseInt(value?.trim() || "1", 10);
+
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new Error("APP_VERSION_CODE must be a positive integer");
+  }
+
+  return parsed;
+}
+
 function getPublicEnv(source: EnvSource) {
   const variant = getAppVariant(source);
   const backendUrl = normalizeUrl(
@@ -111,6 +121,7 @@ export default ({ config }: ConfigContext): ExpoConfigWithLegacyArchitecture => 
   const variant = getAppVariant(env);
   const publicEnv = getPublicEnv(env);
   const version = env.APP_VERSION?.trim() || config.version || "1.0.0";
+  const versionCode = parseVersionCode(env.APP_VERSION_CODE);
   const packageId = getAppPackageId(env);
 
   return {
@@ -138,6 +149,7 @@ export default ({ config }: ConfigContext): ExpoConfigWithLegacyArchitecture => 
     },
     android: {
       package: packageId,
+      versionCode,
       icon: "./yuzik_ico.png",
       adaptiveIcon: {
         foregroundImage: "./yuzik_ico.png",

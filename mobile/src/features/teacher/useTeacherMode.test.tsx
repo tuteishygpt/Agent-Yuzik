@@ -96,6 +96,23 @@ describe("useTeacherMode", () => {
     );
   });
 
+  it("selects the first lesson and first step when lessons load without an existing selection", async () => {
+    await act(async () => {
+      await teacherModeController.loadLessons({
+        backendUrl: "https://api.yuzik.example",
+        accessToken: "token-123",
+        fetchImpl: createFetchMock(),
+      });
+    });
+
+    expect(teacherModeController.selectedLesson?.id).toBe("intro-greetings");
+    expect(teacherModeController.selectedStep?.id).toBe("step-1");
+    expect(teacherModeController.currentPrompt).toBe(
+      "Say hello and ask how the listener is doing.",
+    );
+    expect(teacherModeController.isActive).toBe(false);
+  });
+
   it("serializes a minimal teacher_start_lesson payload", async () => {
     await act(async () => {
       await teacherModeController.loadLessons({
