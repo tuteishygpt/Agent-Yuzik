@@ -920,10 +920,9 @@ def synthesize_to_file(
         enabled=str(device).startswith("cuda"),
     ):
         with _inference_lock:
-            out = XTTS_MODEL.synthesize(
+            chunks = []
+            for chunk in XTTS_MODEL.inference_stream(
                 text=text_input.strip(),
-                config=XTTS_MODEL.config,
-                speaker_wav=speaker_audio or default_voice_file,
                 language="be",
                 gpt_cond_latent=gpt_cond_latent,
                 speaker_embedding=speaker_embedding,
@@ -932,8 +931,12 @@ def synthesize_to_file(
                 repetition_penalty=7.0,
                 top_k=10,
                 top_p=0.80,
-            )
-    audio_np = _to_np_audio(out["wav"])
+                enable_text_splitting=False,
+            ):
+                c_np = _to_np_audio(chunk)
+                if c_np.size > 0:
+                    chunks.append(c_np)
+    audio_np = np.concatenate(chunks) if chunks else np.zeros(0, dtype=np.float32)
     bytes_data = audio_np.tobytes()
     wav_bytes = _add_wav_header(bytes_data, sample_rate=sampling_rate, channels=1)
     with open(output_path, "wb") as f:

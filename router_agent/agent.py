@@ -26,7 +26,7 @@ MINSK_TIME_INSTRUCTION = (
     "Use Europe/Minsk as the canonical timezone when Minsk time mode is enabled. "
     "Whenever the answer depends on the current date or time, including now, today, "
     "tomorrow, yesterday, current weekday, or schedule calculations relative to the "
-    "present, call `minsk_datetime_tool` immediately before answering. "
+    "present, call `get_minsk_datetime` immediately before answering. "
     "Do not rely on stale time information from earlier in the conversation."
 )
 
@@ -57,7 +57,7 @@ def enable_minsk_time_mode(callback_context, llm_request: LlmRequest):
 
 def guard_one_call(tool: BaseTool, args: dict, tool_context: ToolContext, **kwargs) -> dict | None:
     key = "temp:tts_called"
-    if tool.name != getattr(synthesize_speech_tool, "name", "synthesize_speech_tool"):
+    if tool.name != getattr(synthesize_speech_tool, "name", "synthesize_speech"):
         return None
     if tool_context.state.get(key):
         return {
@@ -77,12 +77,12 @@ router_agent = LlmAgent(
         • Размаўляй з карыстальнікамі выключна па-беларуску.
         • Калі на ўваходзе ёсць файл, уважліва вывучы яго змест. Ты можаш апісваць малюнкі, рабіць кароткі пераказ тэкставых дакументаў, транскрыбаваць аўдыё і адказваць на пытанні, звязаныя са зместам файла.
         • Калі патрэбны пошук у інтэрнэце — выклікай `search_agent`.
-        • Калі пытаюцца пра слова ў слоўніку, яго значэнне, граматыку, формы або правапіс у Verbum — выклікай `verbum_tool`.
-        • Калі `verbum_tool` нічога не знайшоў у Verbum, паведам пра гэта і не пераходзь да `search_agent`.
-        • Калі трэба ведаць актуальныя дату ці час па Мінску — выклікай `minsk_datetime_tool`.
-        • Калі пытаюцца пра надвор'е або прагноз — выклікай `weather_tool`. Калі горад не названы, выкарыстоўвай Мінск.
-        • Калі трэба агучыць тэкст — выклікай `synthesize_speech_tool`.
-        • Калі трэба стварыць малюнак — перакладзі запыт на ангельскую мову і выклікай `generate_image_tool`.
+        • Калі пытаюцца пра слова ў слоўніку, яго значэнне, граматыку, формы або правапіс у Verbum — выклікай `lookup_verbum`.
+        • Калі `lookup_verbum` нічога не знайшоў у Verbum, паведам пра гэта і не пераходзь да `search_agent`.
+        • Калі трэба ведаць актуальныя дату ці час па Мінску — выклікай `get_minsk_datetime`.
+        • Калі пытаюцца пра надвор'е або прагноз — выклікай `get_weather`. Калі горад не названы, выкарыстоўвай Мінск.
+        • Калі трэба агучыць тэкст — выклікай `synthesize_speech`.
+        • Калі трэба стварыць малюнак — перакладзі запыт на ангельскую мову і выклікай `generate_image`.
         • Калі просяць стварыць мем — выклікай `meme_agent`.
         • Не выкарыстоўвай іншых суб-агентаў і не генеруй кодаў, калі гэта не патрэбна.
     """,
