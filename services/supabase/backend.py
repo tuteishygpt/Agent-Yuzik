@@ -4,8 +4,11 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any, Protocol
 
+import requests
+
 import config
 from services.supabase.client import get_service_role_client
+from services.supabase.config import get_supabase_service_role_settings
 
 
 def utcnow_iso() -> str:
@@ -162,12 +165,118 @@ class SupabaseServiceBackend:
         return result.data or []
 
 
+class SupabaseRestBackend:
+    def __init__(self, *, url: str, key: str) -> None:
+        self.url = url.rstrip("/")
+        self.key = key
+
+    def _headers(self, *, prefer: str | None = None) -> dict[str, str]:
+        headers = {
+            "apikey": self.key,
+            "Authorization": f"Bearer {self.key}",
+            "Accept": "application/json",
+        }
+        if prefer:
+            headers["Prefer"] = prefer
+        return headers
+
+    def _request(
+        self,
+        method: str,
+        table: str,
+        *,
+        params: dict[str, Any] | None = None,
+        json: Any | None = None,
+        prefer: str | None = None,
+    ) -> list[dict[str, Any]]:
+        response = requests.request(
+            method,
+            f"{self.url}/rest/v1/{table}",
+            headers=self._headers(prefer=prefer),
+            params=params,
+            json=json,
+            timeout=15,
+        )
+        response.raise_for_status()
+        if not response.content:
+            return []
+        data = response.json()
+        if isinstance(data, list):
+            return data
+        return [data]
+
+    @staticmethod
+    def _filter_params(filters: dict[str, Any] | None) -> dict[str, str]:
+        return {
+            key: f"eq.{value}"
+            for key, value in (filters or {}).items()
+        }
+
+    def insert(self, table: str, row: dict[str, Any]) -> dict[str, Any]:
+        rows = self._request(
+            "POST",
+            table,
+            json=row,
+            prefer="return=representation",
+        )
+        return rows[0] if rows else row
+
+    def select(
+        self,
+        table: str,
+        *,
+        filters: dict[str, Any] | None = None,
+        order_by: str | None = None,
+        ascending: bool = True,
+    ) -> list[dict[str, Any]]:
+        params = self._filter_params(filters)
+        if order_by:
+            direction = "asc" if ascending else "desc"
+            params["order"] = f"{order_by}.{direction}"
+        return self._request("GET", table, params=params)
+
+    def update(
+        self,
+        table: str,
+        *,
+        filters: dict[str, Any],
+        values: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        return self._request(
+            "PATCH",
+            table,
+            params=self._filter_params(filters),
+            json=values,
+            prefer="return=representation",
+        )
+
+    def delete(
+        self,
+        table: str,
+        *,
+        filters: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        return self._request(
+            "DELETE",
+            table,
+            params=self._filter_params(filters),
+            prefer="return=representation",
+        )
+
+
+def get_service_role_backend() -> SupabaseBackend:
+    settings = get_supabase_service_role_settings()
+    if settings.service_role_key.startswith("sb_secret_"):
+        return SupabaseRestBackend(url=settings.url, key=settings.service_role_key)
+    return SupabaseServiceBackend(get_service_role_client(settings))
+
+
 _shared_memory_backend = InMemorySupabaseBackend()
 
 
 def get_default_backend() -> SupabaseBackend:
-    if config.has_supabase_config():
-        return SupabaseServiceBackend(get_service_role_client())
+    if config.has_supabase_service_role_config():
+        return get_service_role_backend()
     return _shared_memory_backend
 
 

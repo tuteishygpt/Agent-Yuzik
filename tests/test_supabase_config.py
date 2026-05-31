@@ -23,6 +23,7 @@ REQUIRED_SUPABASE_ENV = {
 def apply_env(monkeypatch: pytest.MonkeyPatch, **overrides: str) -> None:
     for key in REQUIRED_SUPABASE_ENV:
         monkeypatch.delenv(key, raising=False)
+    monkeypatch.delenv("SUPABASE_SECRET_KEY", raising=False)
 
     values = dict(REQUIRED_SUPABASE_ENV)
     values.update(overrides)
@@ -34,10 +35,11 @@ def apply_env(monkeypatch: pytest.MonkeyPatch, **overrides: str) -> None:
 def test_missing_required_setting_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     apply_env(monkeypatch)
     monkeypatch.delenv("SUPABASE_SERVICE_ROLE_KEY", raising=False)
+    monkeypatch.delenv("SUPABASE_SECRET_KEY", raising=False)
 
     config_module = importlib.import_module("services.supabase.config")
 
-    with pytest.raises(ValueError, match="SUPABASE_SERVICE_ROLE_KEY"):
+    with pytest.raises(ValueError, match="SUPABASE_SERVICE_ROLE_KEY or SUPABASE_SECRET_KEY"):
         config_module.load_supabase_settings()
 
 
@@ -105,6 +107,40 @@ def test_jwt_settings_do_not_require_service_role_or_storage_config(
 
     assert settings.issuer == "https://project-ref.supabase.co/auth/v1"
     assert settings.audience == "authenticated"
+
+
+def test_service_role_settings_do_not_require_storage_or_callback_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for key in REQUIRED_SUPABASE_ENV:
+        monkeypatch.delenv(key, raising=False)
+
+    monkeypatch.setenv("SUPABASE_URL", "https://project-ref.supabase.co")
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "service-role-key")
+
+    config_module = importlib.import_module("services.supabase.config")
+
+    settings = config_module.load_supabase_service_role_settings()
+
+    assert settings.url == "https://project-ref.supabase.co"
+    assert settings.service_role_key == "service-role-key"
+
+
+def test_service_role_settings_accept_new_secret_key_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for key in REQUIRED_SUPABASE_ENV:
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.delenv("SUPABASE_SECRET_KEY", raising=False)
+
+    monkeypatch.setenv("SUPABASE_URL", "https://project-ref.supabase.co")
+    monkeypatch.setenv("SUPABASE_SECRET_KEY", "sb_secret_key")
+
+    config_module = importlib.import_module("services.supabase.config")
+
+    settings = config_module.load_supabase_service_role_settings()
+
+    assert settings.service_role_key == "sb_secret_key"
 
 
 def test_jwt_verifier_uses_lightweight_jwt_settings(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -182,3 +218,23 @@ def test_client_getters_return_fresh_instances(monkeypatch: pytest.MonkeyPatch) 
     assert first is not second
     assert first["call_index"] == 1
     assert second["call_index"] == 2
+
+
+def test_default_backend_uses_rest_backend_for_new_secret_keys(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for key in REQUIRED_SUPABASE_ENV:
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.delenv("SUPABASE_SECRET_KEY", raising=False)
+
+    monkeypatch.setenv("SUPABASE_URL", "https://project-ref.supabase.co")
+    monkeypatch.setenv("SUPABASE_SECRET_KEY", "sb_secret_key")
+
+    config_module = importlib.import_module("config")
+    backend_module = importlib.import_module("services.supabase.backend")
+    settings_module = importlib.import_module("services.supabase.config")
+    settings_module.reset_supabase_settings_cache()
+
+    backend = backend_module.get_default_backend()
+
+    assert isinstance(backend, backend_module.SupabaseRestBackend)

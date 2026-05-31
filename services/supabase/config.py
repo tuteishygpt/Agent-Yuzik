@@ -34,11 +34,25 @@ class SupabaseJWTSettings:
     audience: str
 
 
+@dataclass(frozen=True)
+class SupabaseServiceRoleSettings:
+    url: str
+    service_role_key: str
+
+
 def _require(environ: Mapping[str, str], key: str) -> str:
     value = environ.get(key, "").strip()
     if not value:
         raise ValueError(f"{key} is required")
     return value
+
+
+def _require_one(environ: Mapping[str, str], *keys: str) -> str:
+    for key in keys:
+        value = environ.get(key, "").strip()
+        if value:
+            return value
+    raise ValueError(f"{' or '.join(keys)} is required")
 
 
 def _validate_project_url(name: str, value: str) -> str:
@@ -98,7 +112,7 @@ def load_supabase_settings(environ: Mapping[str, str] | None = None) -> Supabase
     settings = SupabaseSettings(
         url=_validate_project_url("SUPABASE_URL", _require(env, "SUPABASE_URL")),
         anon_key=_require(env, "SUPABASE_ANON_KEY"),
-        service_role_key=_require(env, "SUPABASE_SERVICE_ROLE_KEY"),
+        service_role_key=_require_one(env, "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_SECRET_KEY"),
         jwt_issuer=_validate_issuer_url(
             "SUPABASE_JWT_ISSUER",
             _require(env, "SUPABASE_JWT_ISSUER"),
@@ -148,6 +162,17 @@ def load_supabase_jwt_settings(environ: Mapping[str, str] | None = None) -> Supa
     )
 
 
+def load_supabase_service_role_settings(
+    environ: Mapping[str, str] | None = None,
+) -> SupabaseServiceRoleSettings:
+    env = os.environ if environ is None else environ
+
+    return SupabaseServiceRoleSettings(
+        url=_validate_project_url("SUPABASE_URL", _require(env, "SUPABASE_URL")),
+        service_role_key=_require_one(env, "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_SECRET_KEY"),
+    )
+
+
 @lru_cache(maxsize=1)
 def get_supabase_settings() -> SupabaseSettings:
     return load_supabase_settings()
@@ -158,6 +183,12 @@ def get_supabase_jwt_settings() -> SupabaseJWTSettings:
     return load_supabase_jwt_settings()
 
 
+@lru_cache(maxsize=1)
+def get_supabase_service_role_settings() -> SupabaseServiceRoleSettings:
+    return load_supabase_service_role_settings()
+
+
 def reset_supabase_settings_cache() -> None:
     get_supabase_settings.cache_clear()
     get_supabase_jwt_settings.cache_clear()
+    get_supabase_service_role_settings.cache_clear()

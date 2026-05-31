@@ -76,6 +76,41 @@ def test_append_dialogue_turn_prefers_user_label(tmp_path):
     )
 
 
+def test_append_dialogue_turn_mirrors_normalized_turn_to_supabase_store(tmp_path):
+    class FakeDialogueLogStore:
+        def __init__(self):
+            self.rows = []
+
+        def append_turn(self, **kwargs):
+            self.rows.append(kwargs)
+            return kwargs
+
+    store = FakeDialogueLogStore()
+    log_path = tmp_path / "chat_dialogues.txt"
+
+    append_dialogue_turn(
+        log_path,
+        user_id="telegram-123",
+        user_label="@person",
+        user_text=" hello\nworld ",
+        assistant_text="  hi   there ",
+        timestamp="2026-05-30 12:34:56",
+        dialogue_log_store=store,
+    )
+
+    assert store.rows == [
+        {
+            "log_path": str(log_path),
+            "source": "chat_dialogues",
+            "user_id": "telegram-123",
+            "user_label": "@person",
+            "user_text": "hello world",
+            "assistant_text": "hi there",
+            "logged_at": "2026-05-30 12:34:56",
+        }
+    ]
+
+
 def test_chat_and_bot_import_dialogue_logging_helper():
     chat_text = (REPO_ROOT / "api" / "chat.py").read_text(encoding="utf-8")
     bot_text = (REPO_ROOT / "bot" / "handlers.py").read_text(encoding="utf-8")
