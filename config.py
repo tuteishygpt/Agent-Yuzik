@@ -115,7 +115,6 @@ DEFAULT_ERROR = "Упс, Юзік страціў гузік ці інакш ад
 SUPABASE_REQUIRED_ENV_VARS = (
     "SUPABASE_URL",
     "SUPABASE_ANON_KEY",
-    "SUPABASE_SERVICE_ROLE_KEY",
     "SUPABASE_JWT_ISSUER",
     "SUPABASE_JWT_AUDIENCE",
     "SUPABASE_UPLOAD_BUCKET",
@@ -126,9 +125,23 @@ SUPABASE_REQUIRED_ENV_VARS = (
     "SUPABASE_MOBILE_CALLBACK_PROD",
 )
 
+SUPABASE_SERVICE_ROLE_ENV_VARS = (
+    "SUPABASE_URL",
+)
+
 
 def has_supabase_config() -> bool:
-    return all(os.getenv(name) for name in SUPABASE_REQUIRED_ENV_VARS)
+    return (
+        all(os.getenv(name) for name in SUPABASE_REQUIRED_ENV_VARS)
+        and bool(os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_SECRET_KEY"))
+    )
+
+
+def has_supabase_service_role_config() -> bool:
+    return (
+        all(os.getenv(name) for name in SUPABASE_SERVICE_ROLE_ENV_VARS)
+        and bool(os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_SECRET_KEY"))
+    )
 
 
 def load_supabase_settings():

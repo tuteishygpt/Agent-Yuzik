@@ -71,8 +71,15 @@
           <input type="file" id="file-input" accept="image/*,audio/*,.pdf,.txt" multiple hidden>
           📎
         </label>
+        <button class="voice-record-btn" id="voice-record-btn" type="button" title="Запісаць галасавое паведамленне" aria-label="Запісаць галасавое паведамленне">🎙</button>
         <input type="text" class="message-input" id="message-input" placeholder="Напішыце паведамленне..." autocomplete="off">
         <button class="send-btn" id="send-btn" title="Адправіць">➤</button>
+      </div>
+      <div class="recording-indicator hidden" id="recording-indicator" aria-live="polite">
+        <span class="recording-pulse"></span>
+        <span>Запісваецца</span>
+        <span class="recording-time" id="recording-time">0:00</span>
+        <span class="recording-hint">адпусціце, каб скончыць</span>
       </div>
       <div class="file-preview hidden" id="file-preview">
         <!-- File previews will be inserted here -->

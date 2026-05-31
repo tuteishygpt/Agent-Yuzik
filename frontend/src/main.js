@@ -11,6 +11,10 @@ import {
     signOutUser,
     onSupabaseAuthStateChange,
 } from './supabase.js';
+import {
+    chooseVoiceRecordingMimeType,
+    createVoiceRecordingFile,
+} from './chat-voice-recorder.js';
 
 // ===========================
 // State Management
@@ -24,6 +28,16 @@ const state = {
     pendingFiles: [],
     assetUrls: [],
     theme: localStorage.getItem('theme') || 'dark',
+    voiceRecording: {
+        recorder: null,
+        stream: null,
+        chunks: [],
+        isRecording: false,
+        isStarting: false,
+        stopRequested: false,
+        startedAt: 0,
+        timerId: null,
+    },
 };
 
 // ===========================
@@ -33,8 +47,12 @@ const elements = {
     emptyState: document.getElementById('empty-state'),
     chatView: document.getElementById('chat-view'),
     messagesContainer: document.getElementById('messages-container'),
+    inputContainer: document.querySelector('.input-container'),
     messageInput: document.getElementById('message-input'),
     sendBtn: document.getElementById('send-btn'),
+    voiceRecordBtn: document.getElementById('voice-record-btn'),
+    recordingIndicator: document.getElementById('recording-indicator'),
+    recordingTime: document.getElementById('recording-time'),
     fileInput: document.getElementById('file-input'),
     filePreview: document.getElementById('file-preview'),
     btnClear: document.getElementById('btn-clear'),
@@ -425,10 +443,21 @@ function renderFilePreview(file) {
         const img = document.createElement('img');
         img.src = URL.createObjectURL(file);
         item.appendChild(img);
+    } else if (file.type.startsWith('audio/')) {
+        item.classList.add('audio-preview-item');
+        const icon = document.createElement('div');
+        icon.className = 'file-icon';
+        icon.textContent = '🎵';
+        item.appendChild(icon);
+
+        const label = document.createElement('span');
+        label.className = 'file-preview-label';
+        label.textContent = file.name;
+        item.appendChild(label);
     } else {
         const icon = document.createElement('div');
         icon.className = 'file-icon';
-        icon.textContent = file.type.includes('audio') ? '🎵' : '📄';
+        icon.textContent = '📄';
         item.appendChild(icon);
     }
 
@@ -455,6 +484,139 @@ function clearFilePreview() {
     state.pendingFiles = [];
     elements.filePreview.innerHTML = '';
     elements.filePreview.classList.add('hidden');
+}
+
+function formatRecordingTime(milliseconds) {
+    return formatTime(Math.floor(milliseconds / 1000));
+}
+
+function updateRecordingTimer() {
+    if (!state.voiceRecording.isRecording || !elements.recordingTime) {
+        return;
+    }
+
+    elements.recordingTime.textContent = formatRecordingTime(Date.now() - state.voiceRecording.startedAt);
+}
+
+function setRecordingUi(isRecording) {
+    state.voiceRecording.isRecording = isRecording;
+    elements.inputContainer?.classList.toggle('is-recording', isRecording);
+    elements.voiceRecordBtn?.classList.toggle('is-recording', isRecording);
+    elements.voiceRecordBtn?.setAttribute('aria-pressed', String(isRecording));
+    elements.recordingIndicator?.classList.toggle('hidden', !isRecording);
+
+    if (!isRecording && elements.recordingTime) {
+        elements.recordingTime.textContent = '0:00';
+    }
+}
+
+function resetVoiceRecording() {
+    if (state.voiceRecording.timerId) {
+        window.clearInterval(state.voiceRecording.timerId);
+    }
+
+    state.voiceRecording.stream?.getTracks().forEach((track) => track.stop());
+    state.voiceRecording.recorder = null;
+    state.voiceRecording.stream = null;
+    state.voiceRecording.chunks = [];
+    state.voiceRecording.isStarting = false;
+    state.voiceRecording.stopRequested = false;
+    state.voiceRecording.startedAt = 0;
+    state.voiceRecording.timerId = null;
+    setRecordingUi(false);
+}
+
+function appendRecordedVoiceFile(file) {
+    state.pendingFiles.push(file);
+    renderFilePreview(file);
+    elements.filePreview.classList.remove('hidden');
+}
+
+async function startVoiceRecording(event) {
+    if (state.voiceRecording.isRecording || state.voiceRecording.isStarting) {
+        return;
+    }
+
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+        showChatView();
+        addMessage('bot', 'Браўзер не падтрымлівае запіс з мікрафона.', 'text');
+        return;
+    }
+
+    if (typeof event.pointerId === 'number') {
+        event.currentTarget.setPointerCapture?.(event.pointerId);
+    }
+    event.preventDefault();
+    state.voiceRecording.isStarting = true;
+
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const mimeType = chooseVoiceRecordingMimeType();
+        const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+
+        state.voiceRecording.recorder = recorder;
+        state.voiceRecording.stream = stream;
+        state.voiceRecording.chunks = [];
+        state.voiceRecording.startedAt = Date.now();
+
+        recorder.addEventListener('dataavailable', (dataEvent) => {
+            if (dataEvent.data.size > 0) {
+                state.voiceRecording.chunks.push(dataEvent.data);
+            }
+        });
+
+        recorder.addEventListener('stop', () => {
+            const chunks = [...state.voiceRecording.chunks];
+            const recordingMimeType = recorder.mimeType || mimeType;
+            resetVoiceRecording();
+
+            if (!chunks.length) {
+                return;
+            }
+
+            appendRecordedVoiceFile(createVoiceRecordingFile({
+                chunks,
+                mimeType: recordingMimeType,
+            }));
+        }, { once: true });
+
+        recorder.start();
+        state.voiceRecording.isStarting = false;
+        setRecordingUi(true);
+        updateRecordingTimer();
+        state.voiceRecording.timerId = window.setInterval(updateRecordingTimer, 250);
+
+        if (state.voiceRecording.stopRequested) {
+            stopVoiceRecording();
+        }
+    } catch (error) {
+        console.error('Voice recording failed:', error);
+        resetVoiceRecording();
+        showChatView();
+        addMessage('bot', 'Не атрымалася атрымаць доступ да мікрафона.', 'text');
+    }
+}
+
+function stopVoiceRecording(event) {
+    if (state.voiceRecording.isStarting) {
+        state.voiceRecording.stopRequested = true;
+        return;
+    }
+
+    if (!state.voiceRecording.isRecording) {
+        return;
+    }
+
+    event?.preventDefault();
+
+    if (state.voiceRecording.recorder?.state === 'recording') {
+        state.voiceRecording.recorder.stop();
+        return;
+    }
+
+    if (!state.voiceRecording.recorder) {
+        resetVoiceRecording();
+    }
 }
 
 // ===========================
@@ -552,6 +714,14 @@ function initAudioPlayer(container) {
     });
 }
 
+function initPendingAudioMessages() {
+    const audioMessages = document.querySelectorAll('.audio-message:not([data-initialized])');
+    audioMessages.forEach(container => {
+        initAudioPlayer(container);
+        container.dataset.initialized = 'true';
+    });
+}
+
 function formatTime(seconds) {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
@@ -609,6 +779,7 @@ async function handleSendMessage() {
             addMessage('user', `📄 ${file.name}`, 'text');
         }
     }
+    initPendingAudioMessages();
 
     // Clear input
     elements.messageInput.value = '';
@@ -629,13 +800,7 @@ async function handleSendMessage() {
         if (response.audio) {
             addMessage('bot', await resolveProtectedAssetUrl(response.audio), 'audio');
             // Initialize audio player after DOM update
-            setTimeout(() => {
-                const audioMessages = document.querySelectorAll('.audio-message:not([data-initialized])');
-                audioMessages.forEach(container => {
-                    initAudioPlayer(container);
-                    container.dataset.initialized = 'true';
-                });
-            }, 100);
+            setTimeout(initPendingAudioMessages, 100);
         }
 
         if (response.image) {
@@ -662,6 +827,29 @@ function initEventListeners() {
 
     // File upload
     elements.fileInput.addEventListener('change', handleFileSelect);
+
+    if (elements.voiceRecordBtn) {
+        elements.voiceRecordBtn.addEventListener('pointerdown', (event) => {
+            if (event.button !== 0 && event.pointerType === 'mouse') {
+                return;
+            }
+            void startVoiceRecording(event);
+        });
+        elements.voiceRecordBtn.addEventListener('pointerup', stopVoiceRecording);
+        elements.voiceRecordBtn.addEventListener('pointercancel', stopVoiceRecording);
+        elements.voiceRecordBtn.addEventListener('lostpointercapture', stopVoiceRecording);
+        elements.voiceRecordBtn.addEventListener('contextmenu', (event) => event.preventDefault());
+        elements.voiceRecordBtn.addEventListener('keydown', (event) => {
+            if ((event.key === ' ' || event.key === 'Enter') && !event.repeat) {
+                void startVoiceRecording(event);
+            }
+        });
+        elements.voiceRecordBtn.addEventListener('keyup', (event) => {
+            if (event.key === ' ' || event.key === 'Enter') {
+                stopVoiceRecording(event);
+            }
+        });
+    }
 
     // Prompt cards
     elements.promptCards.forEach(card => {

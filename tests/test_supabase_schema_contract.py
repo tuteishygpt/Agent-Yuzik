@@ -59,3 +59,20 @@ def test_migration_chain_indexes_foreign_keys_reported_by_advisors() -> None:
 
     for expected_index in expected_indexes:
         assert expected_index in sql
+
+
+def test_migration_chain_includes_dialogue_logs_table() -> None:
+    sql = _normalized_migration_sql()
+
+    expected_fragments = [
+        "create table if not exists public.dialogue_logs",
+        "user_id text not null",
+        "user_text text not null default ''",
+        "assistant_text text not null default ''",
+        "logged_at timestamptz not null default timezone('utc', now())",
+        "create index if not exists dialogue_logs_user_logged_at_idx on public.dialogue_logs (user_id, logged_at desc)",
+        "alter table public.dialogue_logs enable row level security",
+    ]
+
+    for expected_fragment in expected_fragments:
+        assert expected_fragment in sql

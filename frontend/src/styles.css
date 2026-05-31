@@ -552,6 +552,11 @@ body {
   backdrop-filter: blur(10px);
 }
 
+.input-container.is-recording {
+  border-color: rgba(248, 113, 113, 0.65);
+  box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.12);
+}
+
 @media (max-width: 480px) {
   .input-container {
     gap: 0.5rem;
@@ -576,6 +581,99 @@ body {
 
 .file-upload-btn:hover {
   background: rgba(255, 255, 255, 0.1);
+}
+
+.voice-record-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 1.25rem;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  touch-action: none;
+  position: relative;
+}
+
+.voice-record-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.voice-record-btn.is-recording {
+  background: #ef4444;
+  color: white;
+  transform: scale(1.08);
+}
+
+.voice-record-btn.is-recording::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border: 2px solid rgba(248, 113, 113, 0.55);
+  animation: recordingRing 1s ease-out infinite;
+}
+
+.recording-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 1.75rem;
+  color: #fca5a5;
+  font-size: 0.88rem;
+  margin-top: 0.5rem;
+}
+
+.recording-pulse {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ef4444;
+  box-shadow: 0 0 0 rgba(239, 68, 68, 0.55);
+  animation: recordingPulse 1s infinite;
+}
+
+.recording-time {
+  min-width: 2.4rem;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.recording-hint {
+  color: var(--text-secondary);
+}
+
+@keyframes recordingPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.55);
+  }
+
+  70% {
+    box-shadow: 0 0 0 8px rgba(239, 68, 68, 0);
+  }
+
+  100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+  }
+}
+
+@keyframes recordingRing {
+  from {
+    opacity: 0.9;
+    transform: scale(0.9);
+  }
+
+  to {
+    opacity: 0;
+    transform: scale(1.35);
+  }
 }
 
 .message-input {
@@ -648,6 +746,33 @@ body {
   align-items: center;
   justify-content: center;
   font-size: 1.5rem;
+}
+
+.file-preview-item.audio-preview-item {
+  width: min(260px, 100%);
+  height: 60px;
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.6rem 2rem 0.6rem 0.75rem;
+}
+
+.file-preview-item.audio-preview-item .file-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: rgba(100, 149, 237, 0.16);
+  flex-shrink: 0;
+}
+
+.file-preview-label {
+  min-width: 0;
+  color: var(--text-primary);
+  font-size: 0.86rem;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .file-preview-remove {
