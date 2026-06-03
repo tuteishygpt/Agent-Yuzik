@@ -94,6 +94,7 @@ def test_startup_configures_telegram_application_without_network(monkeypatch: py
     assert FakeApplicationBuilder.token_value == "123:ABC"
     assert fake_app is not None
     assert fake_app.bot_data["adk_service"] is fake_adk_service
+    assert fake_app.bot_data["chat_service"].adk_service is fake_adk_service
     assert len(fake_app.handlers) == 2
     assert fake_app.initialized is False
     assert fake_app.started is False
@@ -152,6 +153,53 @@ def test_handler_reads_adk_service_from_application_bot_data() -> None:
     context = SimpleNamespace(application=SimpleNamespace(bot_data={"adk_service": fake_service}))
 
     assert get_context_adk_service(context) is fake_service
+
+
+def test_handler_reads_chat_service_from_application_bot_data() -> None:
+    from bot.handlers import get_context_chat_service
+
+    fake_service = object()
+    context = SimpleNamespace(application=SimpleNamespace(bot_data={"chat_service": fake_service}))
+
+    assert get_context_chat_service(context) is fake_service
+
+
+def test_telegram_media_renderer_sends_generic_artifacts_as_documents(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from bot import handlers
+    from services.chat_service import ChatMedia
+
+    sent_docs: list[tuple[bytes, str]] = []
+
+    async def fake_send_documents(chat_id: int, context: object, documents):
+        _ = chat_id
+        _ = context
+        sent_docs.extend(list(documents))
+        return True
+
+    monkeypatch.setattr(handlers.helpers, "send_documents", fake_send_documents)
+
+    sent, audio, image = asyncio.run(
+        handlers._send_media_from_chat_result(
+            42,
+            object(),
+            [
+                ChatMedia(
+                    kind="file",
+                    filename="report.pdf",
+                    mime_type="application/pdf",
+                    data=b"pdf-bytes",
+                    url="/api/files/1",
+                )
+            ],
+        )
+    )
+
+    assert sent is True
+    assert audio is None
+    assert image is None
+    assert sent_docs == [(b"pdf-bytes", "report.pdf")]
 
 
 def test_telegram_dialogue_user_label_prefers_username() -> None:

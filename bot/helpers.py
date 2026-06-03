@@ -1,7 +1,7 @@
 import asyncio
 import io
 import logging
-from typing import List
+from typing import Iterable, List
 from telegram import InputMediaPhoto
 from telegram.error import TelegramError
 from telegram.ext import ContextTypes
@@ -89,3 +89,25 @@ async def send_images(
         context.bot.send_media_group(chat_id, media),
         action="send_media_group",
     )
+
+
+async def send_documents(
+    chat_id: int,
+    context: ContextTypes.DEFAULT_TYPE,
+    documents: Iterable[tuple[bytes, str]],
+) -> bool:
+    docs = list(documents)
+    if not docs:
+        return False
+
+    await _safe_call(
+        context.bot.send_chat_action(chat_id, "upload_document"),
+        action="chat_action:upload_document",
+    )
+    ok_all = True
+    for data, filename in docs:
+        ok_all &= await _safe_call(
+            context.bot.send_document(chat_id, data, filename=filename),
+            action="send_document",
+        )
+    return ok_all

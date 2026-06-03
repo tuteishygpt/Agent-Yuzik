@@ -176,6 +176,14 @@ def test_chat_upload_creates_artifact_rows_and_owner_can_read_artifact(
 
     assert response.status_code == 200
     assert response.json()["audio"].startswith("/api/files/")
+    assert response.json()["artifacts"] == [
+        {
+            "kind": "audio",
+            "filename": "assistant-response.wav",
+            "mime_type": "audio/wav",
+            "url": response.json()["audio"],
+        }
+    ]
 
     artifact_rows = metadata_backend.select(
         "artifacts",

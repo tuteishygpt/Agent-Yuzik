@@ -8,7 +8,9 @@ from telegram import Update
 from telegram.ext import Application, ApplicationBuilder, CommandHandler, MessageHandler, filters
 
 import config
+from api.deps import adk_session_store, artifact_store, chat_message_store, conversation_store
 from bot.handlers import handle_message, start_cmd
+from services.chat_service import ChatService
 
 log = logging.getLogger("app.telegram")
 
@@ -24,6 +26,16 @@ def _register_handlers(application: Application) -> None:
     application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
 
 
+def _build_chat_service(adk_service: object | None) -> ChatService:
+    return ChatService(
+        adk_service=adk_service,
+        conversation_store=conversation_store,
+        chat_message_store=chat_message_store,
+        artifact_store=artifact_store,
+        adk_session_store=adk_session_store,
+    )
+
+
 async def configure_telegram_application(adk_service: object | None) -> Application | None:
     """Build the Telegram application without opening network connections."""
     global telegram_application, _telegram_started
@@ -36,10 +48,12 @@ async def configure_telegram_application(adk_service: object | None) -> Applicat
 
     if telegram_application is not None:
         telegram_application.bot_data["adk_service"] = adk_service
+        telegram_application.bot_data["chat_service"] = _build_chat_service(adk_service)
         return telegram_application
 
     application = ApplicationBuilder().token(config.TELEGRAM_BOT_TOKEN).build()
     application.bot_data["adk_service"] = adk_service
+    application.bot_data["chat_service"] = _build_chat_service(adk_service)
     _register_handlers(application)
     telegram_application = application
     _telegram_started = False
