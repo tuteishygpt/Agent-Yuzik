@@ -14,6 +14,7 @@ from google.genai import types
 from bot import helpers
 from router_agent.agent import router_agent
 from services.supabase.adk_session_store import ADKSessionStore
+from yuzik_workflow import create_yuzik_workflow
 
 log = logging.getLogger(__name__)
 
@@ -36,13 +37,20 @@ class ADKService:
         log.info("Initializing ADKService with REAL components...")
         self.artifact_service = InMemoryArtifactService()
         self.session_service = InMemorySessionService()
+        self.workflow = create_yuzik_workflow()
+        self.app_name = self.workflow.name
         self.runner = Runner(
-            agent=router_agent,
-            app_name=router_agent.name,
+            node=self.workflow,
+            app_name=self.app_name,
             session_service=self.session_service,
             artifact_service=self.artifact_service,
         )
-        self.app_name = router_agent.name
+        self.streaming_runner = Runner(
+            agent=router_agent,
+            app_name=self.app_name,
+            session_service=self.session_service,
+            artifact_service=self.artifact_service,
+        )
         self.session_store = session_store or ADKSessionStore()
 
     async def get_or_create_session(
@@ -160,7 +168,7 @@ class ADKService:
 
         def sync_run_and_push() -> None:
             try:
-                for ev in self.runner.run(
+                for ev in self.streaming_runner.run(
                     user_id=user_id, session_id=session_id, new_message=content
                 ):
                     loop.call_soon_threadsafe(event_queue.put_nowait, ev)

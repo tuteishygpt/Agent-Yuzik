@@ -136,7 +136,7 @@ def test_before_model_callback_enables_minsk_mode_for_time_queries():
     assert "Europe/Minsk" in llm_request.config.system_instruction
 
 
-def test_guard_one_call_only_blocks_second_tts_call():
+def test_guard_one_call_is_unknown_tool_safety_net_only():
     module = _load_router_module()
     callback_context = SimpleNamespace(state={})
     search_tool = SimpleNamespace(name="search_agent")
@@ -146,9 +146,4 @@ def test_guard_one_call_only_blocks_second_tts_call():
     assert callback_context.state.get("temp:tts_called") is None
 
     assert module.guard_one_call(tts_tool, {}, callback_context) is None
-    assert callback_context.state["temp:tts_called"] is True
-
-    error = module.guard_one_call(tts_tool, {}, callback_context)
-
-    assert error["status"] == "error"
-    assert "synthesize_speech_tool" in error["error_message"]
+    assert callback_context.state.get("temp:tts_called") is None

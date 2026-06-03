@@ -20,10 +20,14 @@ def test_target_files_use_config_backed_adk_models():
         )
 
 
-def test_router_agent_uses_gemini_image_tool():
+def test_image_generation_is_route_first_not_router_tool():
     path = REPO_ROOT / "router_agent" / "agent.py"
     text = path.read_text(encoding="utf-8")
-    assert "from tools.gemini_image_generator import generate_image_tool" in text
+    workflow_text = (REPO_ROOT / "yuzik_workflow" / "image_workflow.py").read_text(
+        encoding="utf-8"
+    )
+    assert "from tools.gemini_image_generator import generate_image" in workflow_text
+    assert "from tools.gemini_image_generator import generate_image_tool" not in text
     assert "from tools.flux_generator import generate_image_tool" not in text
 
 

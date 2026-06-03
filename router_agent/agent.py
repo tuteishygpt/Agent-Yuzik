@@ -8,9 +8,7 @@ from google.genai import types
 
 from google_search_agent.agent import search_agent
 from meme_generator_agent.agent import meme_agent
-from tools.gemini_image_generator import generate_image_tool
 from tools.minsk_datetime_tool import minsk_datetime_tool
-from tools.text_to_speech_tool import synthesize_speech_tool
 from tools.verbum_tool import verbum_tool
 from tools.weather_tool import weather_tool
 
@@ -48,7 +46,7 @@ MINSK_TIME_INSTRUCTION = (
     "Use Europe/Minsk as the canonical timezone when Minsk time mode is enabled. "
     "Whenever the answer depends on the current date or time, including now, today, "
     "tomorrow, yesterday, current weekday, or schedule calculations relative to the "
-    "present, call `get_minsk_datetime` immediately before answering. "
+    "present, call `get_minsk_datetime` (minsk_datetime_tool) immediately before answering. "
     "Do not rely on stale time information from earlier in the conversation."
 )
 
@@ -99,35 +97,7 @@ def enable_minsk_time_mode(callback_context, llm_request: LlmRequest):
     return None
 
 
-_TTS_TOOL_NAME = getattr(synthesize_speech_tool, "name", "synthesize_speech")
-_IMAGE_TOOL_NAME = getattr(generate_image_tool, "name", "generate_image")
-
-
 def guard_one_call(tool: BaseTool, args: dict, tool_context: ToolContext, **kwargs) -> dict | None:
-    if tool.name == _TTS_TOOL_NAME:
-        if not tool_context.state.get("temp:tts_requested"):
-            return {
-                "status": "skipped",
-                "error_message": "Карыстальнік не прасіў агучваць тэкст. Адкажы тэкстам.",
-            }
-        if tool_context.state.get("temp:tts_called"):
-            return {
-                "status": "error",
-                "error_message": f"{tool.name} ужо выкарыстоўваўся ў гэтым запыце.",
-            }
-        tool_context.state["temp:tts_called"] = True
-        tool_context.state["user:tts_sticky"] = False
-        return None
-
-    if tool.name == _IMAGE_TOOL_NAME:
-        if not tool_context.state.get("temp:image_requested"):
-            return {
-                "status": "skipped",
-                "error_message": "Карыстальнік не прасіў ствараць малюнак. Адкажы тэкстам.",
-            }
-        tool_context.state["user:image_sticky"] = False
-        return None
-
     return None
 
 
@@ -135,28 +105,30 @@ router_agent = LlmAgent(
     name="router_agent",
     model=config.ROUTER_AGENT_MODEL,
     description="Беларускі агент Юзік — твой беларускамоўны сябар.",
-    instruction=r"""
+    instruction=(r"""
         Ты — беларускі агент **Юзік**.
         • Размаўляй з карыстальнікамі выключна па-беларуску.
         • Калі на ўваходзе ёсць файл, уважліва вывучы яго змест. Ты можаш апісваць малюнкі, рабіць кароткі пераказ тэкставых дакументаў, транскрыбаваць аўдыё і адказваць на пытанні, звязаныя са зместам файла.
         • Калі патрэбны пошук у інтэрнэце — выклікай `search_agent`.
-        • Калі пытаюцца пра слова ў слоўніку, яго значэнне, граматыку, формы або правапіс у Verbum — выклікай `lookup_verbum`.
+        • Калі пытаюцца пра слова ў слоўніку, яго значэнне, граматыку, формы або правапіс у Verbum — выклікай `lookup_verbum` (`verbum_tool`).
         • Калі `lookup_verbum` нічога не знайшоў у Verbum, паведам пра гэта і не пераходзь да `search_agent`.
         • Калі трэба ведаць актуальныя дату ці час па Мінску — выклікай `get_minsk_datetime`.
-        • Калі пытаюцца пра надвор'е або прагноз — выклікай `get_weather`. Калі горад не названы, выкарыстоўвай Мінск.
+        • Калі пытаюцца пра надвор'е або прагноз — выклікай `get_weather` (`weather_tool`). Калі горад не названы, выкарыстоўвай Мінск.
         • Калі карыстальнік відавочна просіць агучыць, прачытаць уголас або зрабіць аўдыя/голас з тэксту (напрыклад: «агучы...», «прачытай уголас...», «зрабі аўдыя...») — выклікай `synthesize_speech`. Ні ў якім разе не выклікай `synthesize_speech` сам сабою для звычайных тэкставых адказаў, перакладаў, тлумачэнняў або пошукавых вынікаў.
         • Калі карыстальнік просіць намаляваць, згенераваць або стварыць малюнак (напрыклад: «намалюй...», «зрабі карцінку...», «згенеруй выяву...») — выклікай `generate_image`, перадаўшы prompt у перакладзе на ангельскую мову. Ні ў якім разе не выклікай `generate_image` для запытаў пераклада тэксту, тлумачэння, пошуку або іншых тэкставых задач.
         • Калі просяць стварыць мем — выклікай `meme_agent`.
         • Не выкарыстоўвай іншых суб-агентаў і не генеруй кодаў, калі гэта не патрэбна.
-    """,
+    """
+    .replace("выклікай `synthesize_speech`", "вярні тэкставы адказ")
+    .replace("не выклікай `synthesize_speech`", "не чакай, што TTS зробіць router_agent")
+    .replace("выклікай `generate_image`", "дазволь workflow апрацаваць image route")
+    .replace("не выклікай `generate_image`", "не чакай, што image route зробіць router_agent")),
     tools=[
         agent_tool.AgentTool(agent=search_agent),
         agent_tool.AgentTool(agent=meme_agent),
         minsk_datetime_tool,
         weather_tool,
         verbum_tool,
-        synthesize_speech_tool,
-        generate_image_tool,
     ],
     before_model_callback=enable_minsk_time_mode,
     before_tool_callback=guard_one_call,
