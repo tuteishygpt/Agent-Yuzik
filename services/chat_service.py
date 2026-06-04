@@ -7,8 +7,9 @@ from typing import Any
 
 from google.genai import types
 
+from api.voice_utils import ensure_wav
 from services.dialogue_logging import append_dialogue_turn, log_adk_turn
-from services.gemini_file_policy import validate_gemini_chat_file
+from services.gemini_file_policy import normalize_mime_type, validate_gemini_chat_file
 
 log = logging.getLogger(__name__)
 
@@ -163,12 +164,16 @@ class ChatService:
                     },
                 )
 
+                agent_file_data, agent_mime_type = await self._agent_file_payload(
+                    attachment
+                )
+
                 reply, delta, parts, run_error, error_type = await self._run_agent(
                     request=request,
                     session_id=session_id,
                     text=text_for_agent,
-                    file_data=attachment.data,
-                    mime_type=attachment.mime_type,
+                    file_data=agent_file_data,
+                    mime_type=agent_mime_type,
                 )
                 if run_error:
                     error = run_error
@@ -283,6 +288,12 @@ class ChatService:
                 log.exception("Error running chat agent for user %s", request.user_id)
                 return request.error_reply, {}, [], str(exc), exc.__class__.__name__
             raise
+
+    async def _agent_file_payload(self, attachment: ChatFile) -> tuple[bytes, str | None]:
+        mime_type = normalize_mime_type(attachment.mime_type)
+        if mime_type == "audio/webm":
+            return await asyncio.to_thread(ensure_wav, attachment.data), "audio/wav"
+        return attachment.data, mime_type
 
     async def _collect_artifacts(
         self,

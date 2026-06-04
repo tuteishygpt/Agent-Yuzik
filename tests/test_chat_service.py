@@ -158,6 +158,35 @@ def test_chat_service_stores_uploads_and_uses_filename_for_history_when_text_emp
     assert artifact_rows[0]["filename"] == "lesson.wav"
 
 
+def test_chat_service_converts_browser_webm_recording_to_wav_for_agent() -> None:
+    from services.chat_service import ChatFile, ChatRequest
+
+    service, _metadata_backend = build_service()
+
+    result = asyncio.run(
+        service.process(
+            ChatRequest(
+                user_id="auth-user-123",
+                files=[
+                    ChatFile(
+                        filename="voice-message.webm",
+                        mime_type="audio/webm;codecs=opus",
+                        data=b"webm-bytes",
+                    )
+                ],
+            )
+        )
+    )
+
+    assert result.error is None
+    assert result.text == "assistant reply"
+    sent_file_data = service.adk_service.run_calls[0]["file_data"]
+    assert sent_file_data != b"webm-bytes"
+    assert sent_file_data[:4] == b"RIFF"
+    assert sent_file_data[8:12] == b"WAVE"
+    assert service.adk_service.run_calls[0]["mime_type"] == "audio/wav"
+
+
 def test_chat_service_contract_includes_channel_metadata_error_and_diagnostics() -> None:
     from services.chat_service import ChatFile, ChatRequest, ChatService
 

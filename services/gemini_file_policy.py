@@ -23,6 +23,10 @@ SUPPORTED_AUDIO_MIME_TYPES = {
     "audio/flac",
 }
 
+TRANSCODABLE_AUDIO_MIME_TYPES = {
+    "audio/webm",
+}
+
 SUPPORTED_VIDEO_MIME_TYPES = {
     "video/mp4",
     "video/mpeg",
@@ -118,6 +122,7 @@ def validate_gemini_chat_file(
     supported = (
         normalized in SUPPORTED_IMAGE_MIME_TYPES
         or normalized in SUPPORTED_AUDIO_MIME_TYPES
+        or normalized in TRANSCODABLE_AUDIO_MIME_TYPES
         or normalized in SUPPORTED_DOCUMENT_MIME_TYPES
         or normalized in SUPPORTED_TEXT_MIME_TYPES
     )
