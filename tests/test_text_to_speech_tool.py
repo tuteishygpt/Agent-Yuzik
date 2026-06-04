@@ -11,6 +11,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 def _load_tts_module(monkeypatch):
     monkeypatch.setenv("TTS_MODE", "api")
+    monkeypatch.setenv("ADK_TTS_MODE", "api")
     monkeypatch.delenv("HF_TOKEN", raising=False)
     monkeypatch.delenv("HUGGINGFACE_API_TOKEN", raising=False)
 
@@ -38,6 +39,21 @@ def _load_tts_module(monkeypatch):
     monkeypatch.setitem(sys.modules, "gradio_client", fake_gradio_client)
 
     return importlib.import_module("tools.text_to_speech_tool")
+
+
+def _install_fake_local_xtts(monkeypatch, *, output_path=None):
+    fake_local_xtts = ModuleType("services.local_xtts_service")
+
+    async def fake_stream_audio(*args, **kwargs):
+        yield b"local-stream"
+
+    def fake_synthesize_to_file(text, tmp_path, speaker_audio_path=None):
+        return output_path or tmp_path
+
+    fake_local_xtts.stream_audio = fake_stream_audio
+    fake_local_xtts.synthesize_to_file = fake_synthesize_to_file
+    monkeypatch.setitem(sys.modules, "services.local_xtts_service", fake_local_xtts)
+    return fake_local_xtts
 
 
 def test_stream_speech_api_reads_audio_from_filedata_url(monkeypatch):
@@ -86,6 +102,66 @@ def test_stream_speech_api_reads_audio_from_filedata_url(monkeypatch):
 
     assert chunks == [wav_bytes]
     assert requested["url"] == "https://fake.space/gradio_api/file=/tmp/gradio/tts.wav"
+
+
+def test_adk_tts_mode_defaults_to_api_independently_of_global_tts_mode(monkeypatch):
+    monkeypatch.setenv("TTS_MODE", "local")
+    monkeypatch.delenv("ADK_TTS_MODE", raising=False)
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    monkeypatch.delenv("HUGGINGFACE_API_TOKEN", raising=False)
+
+    sys.modules.pop("config", None)
+    sys.modules.pop("tools.text_to_speech_tool", None)
+    _install_fake_local_xtts(monkeypatch)
+
+    fake_gradio_client = ModuleType("gradio_client")
+
+    class DummyClient:
+        def __init__(self, *args, **kwargs):
+            self.src = "https://fake.space/"
+            self.headers = {}
+            self.cookies = {}
+            self.ssl_verify = True
+            self.httpx_kwargs = {}
+
+    fake_gradio_client.Client = DummyClient
+    fake_gradio_client.handle_file = lambda path: {"path": path}
+    monkeypatch.setitem(sys.modules, "gradio_client", fake_gradio_client)
+
+    tts = importlib.import_module("tools.text_to_speech_tool")
+
+    assert tts.TTS_MODE == "local"
+    assert tts.ADK_TTS_MODE == "api"
+
+
+def test_synthesize_speech_falls_back_to_local_when_api_fails(monkeypatch, tmp_path):
+    tts = _load_tts_module(monkeypatch)
+    wav_path = tmp_path / "fallback.wav"
+    wav_path.write_bytes(b"RIFFfallback-wav")
+
+    async def failing_api(text, speaker_audio_path=None):
+        raise RuntimeError("api unavailable")
+
+    async def fallback_local(text, speaker_audio_path=None):
+        return str(wav_path)
+
+    saved = {}
+
+    class FakeToolContext:
+        async def save_artifact(self, *, filename, artifact):
+            saved["filename"] = filename
+            saved["artifact"] = artifact
+            return tts.types.Part(text="saved artifact")
+
+    monkeypatch.setattr(tts, "_synthesize_api", failing_api)
+    monkeypatch.setattr(tts, "_synthesize_local", fallback_local)
+
+    result = asyncio.run(tts.synthesize_speech("Прывітанне", tool_context=FakeToolContext()))
+
+    assert result.text == "saved artifact"
+    assert saved["filename"] == "tts_output.wav"
+    assert saved["artifact"].inline_data.mime_type == "audio/wav"
+    assert saved["artifact"].inline_data.data == b"RIFFfallback-wav"
 
 
 def test_api_mode_uses_hf_token_keyword_for_gradio_client(monkeypatch):

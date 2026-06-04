@@ -20,18 +20,23 @@ import logging
 from google.genai import types
 from google.adk.tools import FunctionTool, ToolContext
 
-import config  # TTS_MODE, HF_TOKEN
+import config  # TTS_MODE, ADK_TTS_MODE, HF_TOKEN
 
 log = logging.getLogger(__name__)
 
-TTS_MODE = config.TTS_MODE  # "local" | "api"
-log.info(f"TTS mode: {TTS_MODE}")
+TTS_MODE = config.TTS_MODE  # "local" | "api"; voice/simple pipelines
+ADK_TTS_MODE = config.ADK_TTS_MODE  # "api" | "local"; ADK tool calls
+log.info(f"TTS mode: {TTS_MODE}; ADK TTS mode: {ADK_TTS_MODE}")
 
 # ═══════════════════════════════════════════════════════════════════════
 # Ініцыялізацыя бэкенда ў залежнасці ад рэжыму
 # ═══════════════════════════════════════════════════════════════════════
 
-if TTS_MODE == "api":
+_API_MODE_REQUIRED = TTS_MODE == "api" or ADK_TTS_MODE == "api"
+gradio_client = None
+voice_client = None
+
+if _API_MODE_REQUIRED:
     # ── API mode: выкарыстоўваем gradio_client ──────────────────────
     import base64
     import re
@@ -79,11 +84,6 @@ if TTS_MODE == "api":
             log.info("BexttsAssist client initialized (anon).")
         except Exception as e:
             log.warning(f"Failed to initialize BexttsAssist (anon): {e}")
-
-else:
-    # ── Local mode: выкарыстоўваем local_xtts_service ───────────────
-    from services.local_xtts_service import stream_audio, synthesize_to_file
-
 
 # ═══════════════════════════════════════════════════════════════════════
 # Global queues for voice streaming (абодва рэжымы)
@@ -346,19 +346,45 @@ def _build_tts_predict_kwargs(
 # ═══════════════════════════════════════════════════════════════════════
 
 async def stream_speech(
-    text: str, speaker_audio_path: Optional[str] = None
+    text: str, speaker_audio_path: Optional[str] = None, mode: Optional[str] = None
 ) -> AsyncGenerator[bytes, None]:
     """
     Стрымінг аўдыя.
     • API mode  → BexttsAssist Gradio streaming
     • Local mode → local_xtts_service.stream_audio
     """
-    if TTS_MODE == "api":
-        async for chunk in _stream_speech_api(text, speaker_audio_path):
-            yield chunk
-    else:
+    async for chunk in _stream_speech_with_fallback(
+        text,
+        speaker_audio_path,
+        mode=mode or TTS_MODE,
+    ):
+        yield chunk
+
+
+async def _stream_speech_with_fallback(
+    text: str,
+    speaker_audio_path: Optional[str] = None,
+    *,
+    mode: str,
+) -> AsyncGenerator[bytes, None]:
+    if mode != "api":
         async for chunk in _stream_speech_local(text, speaker_audio_path):
             yield chunk
+        return
+
+    yielded_audio = False
+    try:
+        async for chunk in _stream_speech_api(text, speaker_audio_path):
+            yielded_audio = True
+            yield chunk
+        if yielded_audio:
+            return
+        raise ConnectionError("API TTS stream produced no audio.")
+    except Exception as exc:  # pylint: disable=broad-except
+        log.warning("API TTS stream failed; falling back to local XTTS: %r", exc)
+
+    async for chunk in _stream_speech_local(text, speaker_audio_path):
+        yield chunk
 
 
 # ── API streaming ────────────────────────────────────────────────────
@@ -474,6 +500,8 @@ async def _stream_speech_local(
 ) -> AsyncGenerator[bytes, None]:
     """Стрымінг аўдыя праз лакальны XTTS."""
     try:
+        from services.local_xtts_service import stream_audio
+
         async for chunk in stream_audio(
             text, speaker_audio_path, yield_raw_pcm=True
         ):
@@ -520,7 +548,11 @@ async def stream_speech_multi(
             sentence = sentence.strip()
             if not sentence:
                 continue
-            async for chunk in _stream_speech_api(sentence, speaker_audio_path):
+            async for chunk in _stream_speech_with_fallback(
+                sentence,
+                speaker_audio_path,
+                mode="api",
+            ):
                 if cancel_event and cancel_event.is_set():
                     break
                 yield chunk
@@ -558,27 +590,28 @@ async def synthesize_speech(
         # ── Streaming path (абодва рэжымы) ──
         user_id = tool_context._invocation_context.user_id if tool_context and hasattr(tool_context, "_invocation_context") else None
         if user_id and user_id in voice_queues:
-            # Для API-рэжыму дадаткова правяраем voice_client
-            if TTS_MODE == "api" and not voice_client:
-                log.warning("API voice_client not available for streaming.")
-            else:
-                log.info(f"Streaming TTS for user {user_id}")
-                queue_obj, loop = voice_queues[user_id]
+            log.info(f"Streaming ADK TTS for user {user_id} in {ADK_TTS_MODE} mode")
+            queue_obj, loop = voice_queues[user_id]
 
-                async for chunk in stream_speech(text, speaker_audio_path):
-                    if asyncio.get_running_loop() is loop:
-                        await queue_obj.put(chunk)
-                    else:
-                        future = asyncio.run_coroutine_threadsafe(queue_obj.put(chunk), loop)
-                        await asyncio.wrap_future(future)
+            async for chunk in stream_speech(
+                text,
+                speaker_audio_path,
+                mode=ADK_TTS_MODE,
+            ):
+                if asyncio.get_running_loop() is loop:
+                    await queue_obj.put(chunk)
+                else:
+                    future = asyncio.run_coroutine_threadsafe(queue_obj.put(chunk), loop)
+                    await asyncio.wrap_future(future)
 
-                return types.Part(text="[Audio streamed directly]")
+            return types.Part(text="[Audio streamed directly]")
 
         # ── Standard (non-streaming) path ──
-        if TTS_MODE == "api":
-            result_path = await _synthesize_api(text, speaker_audio_path)
-        else:
-            result_path = await _synthesize_local(text, speaker_audio_path)
+        result_path = await _synthesize_with_fallback(
+            text,
+            speaker_audio_path,
+            mode=ADK_TTS_MODE,
+        )
 
         if not result_path or not os.path.exists(result_path):
             raise ConnectionError("TTS did not produce a WAV file.")
@@ -599,7 +632,7 @@ async def synthesize_speech(
     except Exception as exc:  # pylint: disable=broad-except
         traceback.print_exc()
         return types.Part(
-            text=f"Памылка пры сінтэзе маўлення ({TTS_MODE}): {exc!r}"
+            text=f"Памылка пры сінтэзе маўлення ({ADK_TTS_MODE}): {exc!r}"
         )
 
     finally:
@@ -611,6 +644,25 @@ async def synthesize_speech(
 
 
 # ── API: non-streaming synthesis ─────────────────────────────────────
+
+async def _synthesize_with_fallback(
+    text: str,
+    speaker_audio_path: Optional[str] = None,
+    *,
+    mode: str,
+) -> Optional[str]:
+    if mode != "api":
+        return await _synthesize_local(text, speaker_audio_path)
+
+    try:
+        result_path = await _synthesize_api(text, speaker_audio_path)
+        if result_path and os.path.exists(result_path):
+            return result_path
+        raise ConnectionError("API TTS did not produce a WAV file.")
+    except Exception as exc:  # pylint: disable=broad-except
+        log.warning("API TTS failed; falling back to local XTTS: %r", exc)
+        return await _synthesize_local(text, speaker_audio_path)
+
 
 async def _synthesize_api(
     text: str, speaker_audio_path: Optional[str] = None
@@ -643,6 +695,7 @@ async def _synthesize_local(
 ) -> Optional[str]:
     """Лакальны XTTS: сінтэз у файл."""
     import tempfile
+    from services.local_xtts_service import synthesize_to_file
 
     fd, tmp_path = tempfile.mkstemp(suffix=".wav")
     os.close(fd)
