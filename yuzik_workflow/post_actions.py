@@ -9,6 +9,11 @@ from google.genai import types
 from tools.text_to_speech_tool import synthesize_speech
 
 
+def text_from_parts(parts: list[types.Part]) -> str | None:
+    text = "\n".join(part.text for part in parts if getattr(part, "text", None)).strip()
+    return text or None
+
+
 async def maybe_run_tts_post_action(
     *,
     state: Any,
@@ -21,7 +26,7 @@ async def maybe_run_tts_post_action(
     if state.get("temp:creation_cancelled"):
         return parts
 
-    text = state.get("temp:primary_text")
+    text = state.get("temp:primary_text") or text_from_parts(parts)
     if not text:
         return parts
 

@@ -12,37 +12,32 @@ _legacy_gemini_api_key = os.getenv("GEMINI_API_KEY")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY") or _legacy_gemini_api_key
 GEMINI_API_KEY = GOOGLE_API_KEY
 
-_HAS_SERVICE_ACCOUNT = bool(
-    os.getenv("GOOGLE_APPLICATION_CREDENTIALS") and os.getenv("GOOGLE_CLOUD_PROJECT")
-)
-
 if GOOGLE_API_KEY:
     os.environ["GOOGLE_API_KEY"] = GOOGLE_API_KEY
     os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "true"
     os.environ.pop("GEMINI_API_KEY", None)
-    # Wipe Vertex project/location only when we explicitly want express mode
-    # (no service-account creds present). Otherwise the standard Vertex flow
-    # needs project + location alongside ADC.
-    if not _HAS_SERVICE_ACCOUNT:
-        os.environ.pop("GOOGLE_CLOUD_PROJECT", None)
-        os.environ.pop("GOOGLE_CLOUD_LOCATION", None)
+    # Prefer Vertex Express when an API key is present, even if a local .env also
+    # contains ADC project settings.
+    os.environ.pop("GOOGLE_CLOUD_PROJECT", None)
+    os.environ.pop("GOOGLE_CLOUD_LOCATION", None)
 
 if not GOOGLE_API_KEY:
     print("WARNING: GOOGLE_API_KEY not found in environment variables or .env file.")
 
 
 def create_genai_client(*, api_key: str | None = None, location: str | None = None):
+    resolved_api_key = api_key or GOOGLE_API_KEY or GEMINI_API_KEY
+    if resolved_api_key:
+        # Vertex Express (API key) does not support project/location overrides;
+        # the region is determined by the API key itself.
+        return genai.Client(vertexai=True, api_key=resolved_api_key)
+
     creds_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
     project = os.getenv("GOOGLE_CLOUD_PROJECT")
     resolved_location = location or os.getenv("GOOGLE_CLOUD_LOCATION", "global")
     if creds_path and project:
         return genai.Client(vertexai=True, project=project, location=resolved_location)
-    resolved_api_key = api_key or GOOGLE_API_KEY or GEMINI_API_KEY
-    if not resolved_api_key:
-        raise RuntimeError("GOOGLE_API_KEY env var not set")
-    # Vertex Express (API key) does not support project/location overrides —
-    # the region is determined by the API key itself.
-    return genai.Client(vertexai=True, api_key=resolved_api_key)
+    raise RuntimeError("GOOGLE_API_KEY env var not set")
 
 
 # Voice / Teacher pipelines stay pinned to a stable region (e.g. "eu") regardless
