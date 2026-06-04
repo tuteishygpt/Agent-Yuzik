@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import pytest
 from types import SimpleNamespace
 
 from services.supabase.artifact_store import ArtifactStore
@@ -156,6 +157,73 @@ def test_chat_service_stores_uploads_and_uses_filename_for_history_when_text_emp
         "assistant_audio",
     ]
     assert artifact_rows[0]["filename"] == "lesson.wav"
+
+
+@pytest.mark.parametrize(
+    ("filename", "mime_type", "data"),
+    [
+        ("photo.png", "image/png", b"png-bytes"),
+        ("voice.wav", "audio/wav", b"wav-bytes"),
+        ("clip.mp4", "video/mp4", b"mp4-bytes"),
+        ("doc.pdf", "application/pdf", b"pdf-bytes"),
+        ("notes.txt", "text/plain", b"text-bytes"),
+    ],
+)
+def test_chat_service_forwards_supported_file_inputs_to_adk(filename, mime_type, data) -> None:
+    from services.chat_service import ChatFile, ChatRequest
+
+    service, _metadata_backend = build_service()
+
+    result = asyncio.run(
+        service.process(
+            ChatRequest(
+                user_id="auth-user-123",
+                text="describe this",
+                files=[
+                    ChatFile(
+                        filename=filename,
+                        mime_type=mime_type,
+                        data=data,
+                    )
+                ],
+            )
+        )
+    )
+
+    assert result.error is None
+    assert service.adk_service.run_calls == [
+        {
+            "session_id": "session-1",
+            "user_id": "auth-user-123",
+            "text": "describe this",
+            "file_data": data,
+            "mime_type": mime_type,
+        }
+    ]
+
+
+def test_chat_service_forwards_normalized_supported_mime_type_to_adk() -> None:
+    from services.chat_service import ChatFile, ChatRequest
+
+    service, _metadata_backend = build_service()
+
+    result = asyncio.run(
+        service.process(
+            ChatRequest(
+                user_id="auth-user-123",
+                files=[
+                    ChatFile(
+                        filename="voice.wav",
+                        mime_type="audio/x-wav; charset=binary",
+                        data=b"wav-bytes",
+                    )
+                ],
+            )
+        )
+    )
+
+    assert result.error is None
+    assert service.adk_service.run_calls[0]["mime_type"] == "audio/wav"
 
 
 def test_chat_service_contract_includes_channel_metadata_error_and_diagnostics() -> None:

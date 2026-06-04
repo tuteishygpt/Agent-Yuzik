@@ -8,7 +8,7 @@ from typing import Any
 from google.genai import types
 
 from services.dialogue_logging import append_dialogue_turn, log_adk_turn
-from services.gemini_file_policy import validate_gemini_chat_file
+from services.gemini_file_policy import normalize_mime_type, validate_gemini_chat_file
 
 log = logging.getLogger(__name__)
 
@@ -150,11 +150,12 @@ class ChatService:
                 )
 
             for attachment in request.files:
+                mime_type = normalize_mime_type(attachment.mime_type) or attachment.mime_type
                 self.artifact_store.store_user_upload(
                     user_id=request.user_id,
                     conversation_id=conversation_id,
                     filename=attachment.filename,
-                    mime_type=attachment.mime_type,
+                    mime_type=mime_type,
                     data=attachment.data,
                     metadata={
                         "source": request.channel,
@@ -168,7 +169,7 @@ class ChatService:
                     session_id=session_id,
                     text=text_for_agent,
                     file_data=attachment.data,
-                    mime_type=attachment.mime_type,
+                    mime_type=mime_type,
                 )
                 if run_error:
                     error = run_error
