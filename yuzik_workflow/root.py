@@ -4,7 +4,7 @@ from google.adk.workflow import DEFAULT_ROUTE, START, Workflow, node
 
 from router_agent.agent import router_agent
 from yuzik_workflow.errors import error_fallback_node
-from yuzik_workflow.image_workflow import execute_image_workflow
+from yuzik_workflow.image_workflow import execute_image_workflow, image_prompt_agent
 from yuzik_workflow.policy import input_policy_node
 from yuzik_workflow.post_actions import post_action_node
 from yuzik_workflow.postprocess import postprocess_node
@@ -33,12 +33,12 @@ def create_yuzik_workflow() -> Workflow:
                 {
                     "file_error": fallback,
                     "cancel": route_validation_cancel,
-                    "image": image_node,
+                    "image": image_prompt_agent,
                     DEFAULT_ROUTE: router_agent,
                 },
             ),
             (router_agent, route_validation, post_action, postprocess),
-            (image_node, image_post_action, image_postprocess),
+            (image_prompt_agent, image_node, image_post_action, image_postprocess),
             (route_validation_cancel, postprocess_cancel),
         ],
     )

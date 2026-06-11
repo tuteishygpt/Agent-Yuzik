@@ -34,6 +34,33 @@ async def test_image_route_uses_english_prompt_and_belarusian_caption():
 
 
 @pytest.mark.asyncio
+async def test_image_route_uses_prompt_agent_output_from_workflow_node():
+    image = types.Part(inline_data=types.Blob(data=b"png", mime_type="image/png"))
+    captured = {}
+
+    async def generate(**kwargs):
+        captured["prompt"] = kwargs["prompt"]
+        return image
+
+    state = {"temp:yuzik_text": "намалюй ката"}
+
+    parts = await execute_image_route(
+        state=state,
+        tool_context=object(),
+        prompt_result={
+            "prompt_en": "A cheerful orange cat on a windowsill",
+            "caption_be": "Вось кот на падаконні.",
+        },
+        generate=generate,
+    )
+
+    assert parts == [image]
+    assert captured["prompt"] == "A cheerful orange cat on a windowsill"
+    assert state["temp:primary_text"] == "Вось кот на падаконні."
+    assert state["temp:image_prompt_en"] == "A cheerful orange cat on a windowsill"
+
+
+@pytest.mark.asyncio
 async def test_image_route_skips_tts_when_both_flags_requested():
     async def prompt_builder(text):
         return ImagePromptResult(prompt_en="A cat", caption_be="Кот.")

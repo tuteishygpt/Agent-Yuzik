@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -37,15 +37,31 @@ async def default_build_image_prompt(text: str) -> ImagePromptResult:
     return ImagePromptResult(prompt_en=text, caption_be="Малюнак гатовы.")
 
 
+def coerce_image_prompt_result(value: Any) -> ImagePromptResult | None:
+    if value is None:
+        return None
+    if isinstance(value, ImagePromptResult):
+        return value
+    if isinstance(value, Mapping):
+        prompt_en = str(value.get("prompt_en") or "").strip()
+        caption_be = str(value.get("caption_be") or "").strip()
+        if prompt_en and caption_be:
+            return ImagePromptResult(prompt_en=prompt_en, caption_be=caption_be)
+    return None
+
+
 async def execute_image_route(
     *,
     state: Any,
     tool_context: ToolContext,
+    prompt_result: ImagePromptResult | Mapping[str, Any] | None = None,
     build_prompt: Callable[[str], Awaitable[ImagePromptResult]] = default_build_image_prompt,
     generate: Callable[..., Awaitable[types.Part]] = generate_image,
 ) -> list[types.Part]:
     text = state.get("temp:yuzik_text") or ""
-    prompt = await build_prompt(text)
+    prompt = coerce_image_prompt_result(prompt_result)
+    if prompt is None:
+        prompt = await build_prompt(text)
     state["temp:image_prompt_en"] = prompt.prompt_en
     state["temp:primary_text"] = prompt.caption_be
     state["temp:primary_route"] = "image"
@@ -70,7 +86,11 @@ async def execute_image_workflow(ctx, node_input):
         parent_ctx=ctx,
         node=ctx._node,
     )
-    parts = await execute_image_route(state=ctx.state, tool_context=tool_context)
+    parts = await execute_image_route(
+        state=ctx.state,
+        tool_context=tool_context,
+        prompt_result=node_input,
+    )
     caption = ctx.state.get("temp:primary_text")
     content_parts = []
     if caption:
