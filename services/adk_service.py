@@ -5,6 +5,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Tuple
 
+import config
 from google.adk.artifacts import InMemoryArtifactService
 from google.adk.events import Event
 from google.adk.runners import Runner
@@ -29,6 +30,32 @@ def _is_unknown_tool_error(exc: BaseException) -> bool:
         return False
     msg = str(exc)
     return "not found" in msg and ("tools_dict" in msg or "Available tools" in msg or "Tool '" in msg)
+
+
+class ADKEventError(RuntimeError):
+    def __init__(self, error_code: str | None, error_message: str | None) -> None:
+        self.error_code = error_code or "ADK_EVENT_ERROR"
+        self.error_message = error_message or self.error_code
+        super().__init__(self.error_message)
+
+
+def _error_from_event(ev: Event) -> ADKEventError | None:
+    error_code = getattr(ev, "error_code", None)
+    error_message = getattr(ev, "error_message", None)
+    if error_code or error_message:
+        return ADKEventError(error_code, error_message)
+    return None
+
+
+def _fallback_event(text: str) -> Event:
+    return Event(
+        author="router_agent",
+        content=types.Content(
+            role="model",
+            parts=[types.Part(text=text)],
+        ),
+        turnComplete=True,
+    )
 
 
 class ADKService:
@@ -117,6 +144,9 @@ class ADKService:
             for ev in self.runner.run(
                 user_id=user_id, session_id=session_id, new_message=content
             ):
+                event_error = _error_from_event(ev)
+                if event_error is not None:
+                    raise event_error
                 if ev.is_final_response() and ev.content:
                     final_parts = ev.content.parts or []
                 if ev.actions and ev.actions.artifact_delta:
@@ -163,23 +193,38 @@ class ADKService:
                 for ev in self.runner.run(
                     user_id=user_id, session_id=session_id, new_message=content
                 ):
+                    event_error = _error_from_event(ev)
+                    if event_error is not None:
+                        log.warning(
+                            "ADK event error in stream: %s: %s",
+                            event_error.error_code,
+                            event_error.error_message,
+                        )
+                        loop.call_soon_threadsafe(
+                            event_queue.put_nowait,
+                            _fallback_event(config.DEFAULT_ERROR),
+                        )
+                        break
                     loop.call_soon_threadsafe(event_queue.put_nowait, ev)
             except ValueError as exc:
                 if _is_unknown_tool_error(exc):
                     log.warning("LLM hallucinated unknown tool: %s", exc)
-                    fallback_event = Event(
-                        author="router_agent",
-                        content=types.Content(
-                            role="model",
-                            parts=[types.Part(text=_UNKNOWN_TOOL_FALLBACK)],
-                        ),
-                        turnComplete=True,
+                    loop.call_soon_threadsafe(
+                        event_queue.put_nowait,
+                        _fallback_event(_UNKNOWN_TOOL_FALLBACK),
                     )
-                    loop.call_soon_threadsafe(event_queue.put_nowait, fallback_event)
                 else:
                     log.error("Error in sync runner: %s", exc)
+                    loop.call_soon_threadsafe(
+                        event_queue.put_nowait,
+                        _fallback_event(config.DEFAULT_ERROR),
+                    )
             except Exception as exc:
                 log.error("Error in sync runner: %s", exc)
+                loop.call_soon_threadsafe(
+                    event_queue.put_nowait,
+                    _fallback_event(config.DEFAULT_ERROR),
+                )
             finally:
                 loop.call_soon_threadsafe(event_queue.put_nowait, None)
 

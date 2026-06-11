@@ -243,6 +243,7 @@ async def _process_message_task(update: Update, context: ContextTypes.DEFAULT_TY
                 timeout_seconds=config.AGENT_TIMEOUT,
                 timeout_reply=config.DEFAULT_NO_ANSWER,
                 error_reply=config.DEFAULT_ERROR,
+                no_answer_reply=config.DEFAULT_NO_ANSWER,
             )
         )
         log.info("Processed Telegram message for user %s in session %s", user_id, result.session_id)
