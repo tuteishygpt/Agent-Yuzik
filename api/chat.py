@@ -75,6 +75,7 @@ async def api_chat(
                 "user_label": _authenticated_user_log_label(current_user),
             },
             error_reply=config.DEFAULT_ERROR,
+            no_answer_reply=config.DEFAULT_NO_ANSWER,
         )
     )
 

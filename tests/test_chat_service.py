@@ -63,6 +63,12 @@ class FailingADKService(FakeADKService):
         raise RuntimeError("agent failed")
 
 
+class EmptyADKService(FakeADKService):
+    def run_agent(self, **kwargs) -> tuple[str, dict, list]:
+        self.run_calls.append(kwargs)
+        return "", {}, []
+
+
 def build_service():
     from services.chat_service import ChatService
 
@@ -226,6 +232,35 @@ def test_chat_service_forwards_normalized_supported_mime_type_to_adk() -> None:
     assert service.adk_service.run_calls[0]["mime_type"] == "audio/wav"
 
 
+def test_chat_service_converts_browser_webm_recording_to_wav_for_agent() -> None:
+    from services.chat_service import ChatFile, ChatRequest
+
+    service, _metadata_backend = build_service()
+
+    result = asyncio.run(
+        service.process(
+            ChatRequest(
+                user_id="auth-user-123",
+                files=[
+                    ChatFile(
+                        filename="voice-message.webm",
+                        mime_type="audio/webm;codecs=opus",
+                        data=b"webm-bytes",
+                    )
+                ],
+            )
+        )
+    )
+
+    assert result.error is None
+    assert result.text == "assistant reply"
+    sent_file_data = service.adk_service.run_calls[0]["file_data"]
+    assert sent_file_data != b"webm-bytes"
+    assert sent_file_data[:4] == b"RIFF"
+    assert sent_file_data[8:12] == b"WAVE"
+    assert service.adk_service.run_calls[0]["mime_type"] == "audio/wav"
+
+
 def test_chat_service_contract_includes_channel_metadata_error_and_diagnostics() -> None:
     from services.chat_service import ChatFile, ChatRequest, ChatService
 
@@ -269,6 +304,36 @@ def test_chat_service_contract_includes_channel_metadata_error_and_diagnostics()
             "user_id": "telegram-user-42",
             "conversation_id": "conversation-from-adapter",
         }
+    ]
+
+
+def test_chat_service_uses_no_answer_reply_when_agent_returns_no_visible_output() -> None:
+    from services.chat_service import ChatRequest, ChatService
+
+    metadata_backend = InMemorySupabaseBackend()
+    service = ChatService(
+        adk_service=EmptyADKService(),
+        conversation_store=ConversationStore(metadata_backend),
+        chat_message_store=ChatMessageStore(metadata_backend),
+        artifact_store=ArtifactStore(metadata_backend, InMemoryStorageBackend()),
+    )
+
+    result = asyncio.run(
+        service.process(
+            ChatRequest(
+                user_id="auth-user-123",
+                text="hello",
+                no_answer_reply="fallback no answer",
+            )
+        )
+    )
+
+    assert result.text == "fallback no answer"
+    assert result.error is None
+    assert result.diagnostics["empty_response"] is True
+    assert service.chat_message_store.list_messages(result.conversation_id) == [
+        {"role": "user", "content": "hello"},
+        {"role": "assistant", "content": "fallback no answer"},
     ]
 
 

@@ -114,11 +114,15 @@ def test_append_dialogue_turn_mirrors_normalized_turn_to_supabase_store(tmp_path
 def test_chat_and_bot_import_dialogue_logging_helper():
     chat_text = (REPO_ROOT / "api" / "chat.py").read_text(encoding="utf-8")
     bot_text = (REPO_ROOT / "bot" / "handlers.py").read_text(encoding="utf-8")
+    chat_service_text = (REPO_ROOT / "services" / "chat_service.py").read_text(
+        encoding="utf-8"
+    )
 
-    assert "from services.dialogue_logging import append_dialogue_turn, log_adk_turn" in chat_text
-    assert "log_adk_turn(" in chat_text
     assert "CHAT_DIALOGUE_LOG_PATH" in chat_text
-    assert "append_dialogue_turn" in chat_text
+    assert '"dialogue_log_path": config.CHAT_DIALOGUE_LOG_PATH' in chat_text
+    assert "from services.dialogue_logging import append_dialogue_turn, log_adk_turn" in chat_service_text
+    assert "log_adk_turn(" in chat_service_text
+    assert "append_dialogue_turn" in chat_service_text
     assert "from services.dialogue_logging import append_dialogue_turn, log_adk_turn" in bot_text
     assert "log_adk_turn(" in bot_text
     assert "append_dialogue_turn" in bot_text

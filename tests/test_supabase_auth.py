@@ -128,11 +128,6 @@ def test_chat_endpoint_ignores_client_supplied_user_id(
     )
     monkeypatch.setattr(chat_module, "adk_service", fake_service)
 
-    async def no_artifacts(*args, **kwargs) -> None:
-        return None
-
-    monkeypatch.setattr(chat_module, "collect_artifacts", no_artifacts)
-
     response = client.post(
         "/api/chat",
         headers=auth_headers("good-token"),

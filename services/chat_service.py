@@ -7,6 +7,7 @@ from typing import Any
 
 from google.genai import types
 
+from api.voice_utils import ensure_wav
 from services.dialogue_logging import append_dialogue_turn, log_adk_turn
 from services.gemini_file_policy import normalize_mime_type, validate_gemini_chat_file
 
@@ -35,6 +36,7 @@ class ChatRequest:
     timeout_seconds: float | None = None
     timeout_reply: str | None = None
     error_reply: str | None = None
+    no_answer_reply: str | None = None
 
 
 @dataclass(frozen=True)
@@ -164,12 +166,16 @@ class ChatService:
                     },
                 )
 
+                agent_file_data, agent_mime_type = await self._agent_file_payload(
+                    attachment
+                )
+
                 reply, delta, parts, run_error, error_type = await self._run_agent(
                     request=request,
                     session_id=session_id,
                     text=text_for_agent,
-                    file_data=attachment.data,
-                    mime_type=mime_type,
+                    file_data=agent_file_data,
+                    mime_type=agent_mime_type,
                 )
                 if run_error:
                     error = run_error
@@ -210,6 +216,19 @@ class ChatService:
             image_url = self._first_url(artifact_media, "image") or image_url
 
         user_history_text = self._history_text(request)
+        if (
+            request.no_answer_reply is not None
+            and not self._has_visible_output(
+                request=request,
+                response_text=response_text,
+                artifacts=artifacts,
+                audio_url=audio_url,
+                image_url=image_url,
+            )
+        ):
+            response_text = request.no_answer_reply
+            diagnostics["empty_response"] = True
+
         if user_history_text:
             self.chat_message_store.append_message(
                 conversation_id,
@@ -284,6 +303,12 @@ class ChatService:
                 log.exception("Error running chat agent for user %s", request.user_id)
                 return request.error_reply, {}, [], str(exc), exc.__class__.__name__
             raise
+
+    async def _agent_file_payload(self, attachment: ChatFile) -> tuple[bytes, str | None]:
+        mime_type = normalize_mime_type(attachment.mime_type)
+        if mime_type == "audio/webm":
+            return await asyncio.to_thread(ensure_wav, attachment.data), "audio/wav"
+        return attachment.data, mime_type
 
     async def _collect_artifacts(
         self,
@@ -380,6 +405,21 @@ class ChatService:
             if item.kind == kind and item.url:
                 return item.url
         return None
+
+    def _has_visible_output(
+        self,
+        *,
+        request: ChatRequest,
+        response_text: str | None,
+        artifacts: list[ChatMedia],
+        audio_url: str | None,
+        image_url: str | None,
+    ) -> bool:
+        if response_text and response_text.strip():
+            return True
+        if audio_url or image_url:
+            return True
+        return request.channel != "web" and bool(artifacts)
 
     def _media_kind(self, mime_type: str | None) -> str:
         if mime_type and mime_type.startswith("audio"):

@@ -62,6 +62,7 @@ MEME_AGENT_MODEL = os.getenv("MEME_AGENT_MODEL", ADK_MODEL)
 
 # TTS Configuration
 TTS_MODE = os.getenv("TTS_MODE", "local").lower()  # "local" or "api"
+ADK_TTS_MODE = os.getenv("ADK_TTS_MODE", "api").lower()  # "api" or "local"
 HF_TOKEN = os.getenv("HF_TOKEN", "") or os.getenv("HUGGINGFACE_API_TOKEN", "")
 
 # TTS Streaming — Server-side buffers

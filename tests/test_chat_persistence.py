@@ -251,3 +251,61 @@ def test_chat_dialogue_log_uses_authenticated_email_when_available(
     assert response.status_code == 200
     assert "[20" in log_path.read_text(encoding="utf-8")
     assert "USER (person@example.com): hello\n" in log_path.read_text(encoding="utf-8")
+
+
+def test_chat_endpoint_returns_no_answer_text_when_agent_output_is_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from api import chat as chat_module
+    from services.supabase.backend import InMemorySupabaseBackend
+    from services.supabase.chat_message_store import ChatMessageStore
+    from services.supabase.conversation_store import ConversationStore
+
+    class EmptyADKService:
+        async def get_or_create_session(
+            self,
+            user_id: str,
+            conversation_id: str | None = None,
+        ) -> str:
+            _ = user_id
+            _ = conversation_id
+            return "session-1"
+
+        def run_agent(self, **kwargs):
+            _ = kwargs
+            return "", {}, []
+
+    backend = InMemorySupabaseBackend()
+
+    monkeypatch.setattr(config, "LOCAL_ASR", False)
+    monkeypatch.setattr(
+        "api.auth.get_jwt_verifier",
+        lambda: FakeVerifier(
+            {
+                "good-token": {
+                    "sub": "auth-user-123",
+                    "aud": "authenticated",
+                    "iss": "https://project-ref.supabase.co/auth/v1",
+                }
+            }
+        ),
+    )
+    monkeypatch.setattr(chat_module, "conversation_store", ConversationStore(backend))
+    monkeypatch.setattr(chat_module, "chat_message_store", ChatMessageStore(backend))
+    monkeypatch.setattr(chat_module, "adk_service", EmptyADKService())
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/chat",
+            data={"text": "hello"},
+            headers=auth_headers("good-token"),
+        )
+
+    assert response.status_code == 200
+    assert response.json()["text"] == config.DEFAULT_NO_ANSWER
+    conversation = chat_module.conversation_store.get_active_conversation("auth-user-123")
+    assert conversation is not None
+    assert chat_module.chat_message_store.list_messages(conversation["id"]) == [
+        {"role": "user", "content": "hello"},
+        {"role": "assistant", "content": config.DEFAULT_NO_ANSWER},
+    ]

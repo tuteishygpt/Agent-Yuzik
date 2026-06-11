@@ -61,7 +61,6 @@ def test_remote_asr_transcription_is_sent_to_gemini(monkeypatch):
     monkeypatch.setattr(voice_simple.config, "LOCAL_ASR", False)
     monkeypatch.setattr(voice_simple.config, "TTS_MODE", "api")
     monkeypatch.setattr(voice_simple.config, "TTS_FIRST_SEGMENT_LIMIT", 1)
-    monkeypatch.setattr(voice_simple, "compress_wav_to_mp3", lambda audio: b"mp3-data")
     monkeypatch.setattr(
         voice_simple,
         "_transcribe_audio_with_model",
@@ -100,10 +99,15 @@ def test_remote_asr_transcription_is_sent_to_gemini(monkeypatch):
             user_id="voice-user",
             ws_session_id="session-id",
         )
+        captured["messages"] = websocket.messages
 
     asyncio.run(scenario())
 
-    assert captured["contents"][-1].parts[0].text == "recognized text"
+    current_part = captured["contents"][-1].parts[0]
+    assert current_part.inline_data.mime_type == "audio/wav"
+    assert current_part.inline_data.data == b"wav-bytes"
+    assert {"type": "transcription", "text": "recognized text"} in captured["messages"]
+    assert fake_history.saved_turns[0][0] == "recognized text"
 
 
 def test_local_asr_load_failure_falls_back_to_remote_transcription(monkeypatch):
@@ -128,13 +132,12 @@ def test_local_asr_load_failure_falls_back_to_remote_transcription(monkeypatch):
         "_transcribe_audio_with_model",
         lambda audio: asyncio.sleep(0, result="remote text"),
     )
-    monkeypatch.setattr(voice_simple, "compress_wav_to_mp3", lambda audio: b"mp3-data")
     monkeypatch.setitem(sys.modules, "api.local_asr", _FakeLocalAsr)
     monkeypatch.setattr(api, "local_asr", _FakeLocalAsr, raising=False)
 
     async def scenario():
         websocket = _FakeWebSocket()
-        content_text, content = await voice_simple._transcribe_and_build_content(
+        content_text, content, remote_asr_task = await voice_simple._transcribe_and_build_content(
             audio_data=b"wav-bytes",
             websocket=websocket,
             perf=_FakePerf(),
@@ -142,10 +145,12 @@ def test_local_asr_load_failure_falls_back_to_remote_transcription(monkeypatch):
         )
         captured["content_text"] = content_text
         captured["content"] = content
+        captured["remote_asr_task"] = remote_asr_task
         captured["messages"] = websocket.messages
 
     asyncio.run(scenario())
 
     assert captured["content_text"] == "remote text"
     assert captured["content"].parts[0].text == "remote text"
+    assert captured["remote_asr_task"] is None
     assert captured["messages"][-1] == {"type": "transcription", "text": "remote text"}
