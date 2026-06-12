@@ -112,6 +112,49 @@ def test_adk_service_reuses_persisted_session_mapping(monkeypatch: pytest.Monkey
     ]
 
 
+def test_adk_service_clear_chat_context_resets_user_previous_state() -> None:
+    from google.adk.sessions import InMemorySessionService
+
+    from services.adk_service import ADKService
+    from services.supabase.adk_session_store import ADKSessionStore
+    from services.supabase.backend import InMemorySupabaseBackend
+
+    service = ADKService(
+        session_store=ADKSessionStore(InMemorySupabaseBackend()),
+        session_service=InMemorySessionService(),
+    )
+
+    async def exercise() -> dict:
+        await service.session_service.create_session(
+            app_name=service.app_name,
+            user_id="auth-user-123",
+            state={
+                "user:last_assistant_text": "old forecast",
+                "user:last_assistant_summary": "old summary",
+                "user:last_assistant_artifact_id": "artifact-1",
+                "user:pending_text_action": {"kind": "translate"},
+                "user:tts_requested_for_turn": True,
+                "user:timezone": "Europe/Minsk",
+            },
+        )
+
+        await service.clear_chat_context_state("auth-user-123")
+
+        return await service.session_service.get_user_state(
+            app_name=service.app_name,
+            user_id="auth-user-123",
+        )
+
+    user_state = asyncio.run(exercise())
+
+    assert user_state["last_assistant_text"] is None
+    assert user_state["last_assistant_summary"] is None
+    assert user_state["last_assistant_artifact_id"] is None
+    assert user_state["pending_text_action"] is None
+    assert user_state["tts_requested_for_turn"] is False
+    assert user_state["timezone"] == "Europe/Minsk"
+
+
 def test_history_endpoint_returns_only_authenticated_users_rows(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -159,6 +202,7 @@ def test_clear_chat_history_marks_conversation_cleared_and_returns_empty_history
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from api import chat as chat_module
+    from services.supabase.adk_session_store import ADKSessionStore
     from services.supabase.backend import InMemorySupabaseBackend
     from services.supabase.chat_message_store import ChatMessageStore
     from services.supabase.conversation_store import ConversationStore
@@ -166,9 +210,16 @@ def test_clear_chat_history_marks_conversation_cleared_and_returns_empty_history
     backend = InMemorySupabaseBackend()
     conversation_store = ConversationStore(backend)
     chat_message_store = ChatMessageStore(backend)
+    adk_session_store = ADKSessionStore(backend)
 
     conversation = conversation_store.get_or_create_active_conversation("auth-user-123")
     chat_message_store.append_message(conversation["id"], "auth-user-123", "assistant", "keep")
+    adk_session_store.set_active_session(
+        user_id="auth-user-123",
+        app_name=chat_module.adk_service.app_name,
+        adk_session_id="session-with-previous-state",
+        conversation_id=conversation["id"],
+    )
 
     monkeypatch.setattr(config, "LOCAL_ASR", False)
     monkeypatch.setattr(
@@ -185,6 +236,7 @@ def test_clear_chat_history_marks_conversation_cleared_and_returns_empty_history
     )
     monkeypatch.setattr(chat_module, "conversation_store", conversation_store)
     monkeypatch.setattr(chat_module, "chat_message_store", chat_message_store)
+    monkeypatch.setattr(chat_module, "adk_session_store", adk_session_store)
 
     with TestClient(app) as client:
         delete_response = client.delete(
@@ -201,6 +253,14 @@ def test_clear_chat_history_marks_conversation_cleared_and_returns_empty_history
     assert get_response.status_code == 200
     assert get_response.json() == {"history": []}
     assert conversation_store.get_active_conversation("auth-user-123") is None
+    assert (
+        adk_session_store.get_active_session(
+            "auth-user-123",
+            chat_module.adk_service.app_name,
+        )
+        is None
+    )
+    assert backend.tables["adk_sessions"][0]["status"] == "closed"
 
 
 def test_chat_dialogue_log_uses_authenticated_email_when_available(

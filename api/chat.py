@@ -116,5 +116,10 @@ async def clear_chat_history(
 ):
     _ = user_id
     conversation_store.clear_active_conversation(current_user.user_id)
+    await adk_service.clear_chat_context_state(current_user.user_id)
+    adk_session_store.clear_active_session(
+        current_user.user_id,
+        adk_service.app_name,
+    )
     chat_histories[current_user.user_id] = []
     return {"status": "ok"}

@@ -5,10 +5,11 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 from typing import Dict, List, Tuple
+from uuid import uuid4
 
 import config
 from google.adk.artifacts import InMemoryArtifactService
-from google.adk.events import Event
+from google.adk.events import Event, EventActions
 from google.adk.runners import Runner
 from google.adk.sessions import BaseSessionService, DatabaseSessionService
 from google.genai import types
@@ -19,6 +20,15 @@ from services.supabase.adk_session_store import ADKSessionStore
 from yuzik_workflow import create_yuzik_workflow
 
 log = logging.getLogger(__name__)
+
+
+CHAT_CONTEXT_STATE_RESET = {
+    "user:last_assistant_text": None,
+    "user:last_assistant_summary": None,
+    "user:last_assistant_artifact_id": None,
+    "user:pending_text_action": None,
+    "user:tts_requested_for_turn": False,
+}
 
 
 _UNKNOWN_TOOL_FALLBACK = (
@@ -200,6 +210,43 @@ class ADKService:
             conversation_id=conversation_id,
         )
         return session.id
+
+    async def clear_chat_context_state(self, user_id: str) -> None:
+        session_id = self.session_store.get_active_session_id(user_id, self.app_name)
+        created_temporary_session = False
+        session = None
+
+        if session_id:
+            session = await self.session_service.get_session(
+                app_name=self.app_name,
+                user_id=user_id,
+                session_id=session_id,
+            )
+
+        if session is None:
+            session = await self.session_service.create_session(
+                app_name=self.app_name,
+                user_id=user_id,
+                session_id=session_id,
+            )
+            created_temporary_session = session_id is None
+
+        await self.session_service.append_event(
+            session=session,
+            event=Event(
+                id=str(uuid4()),
+                invocation_id=f"clear-chat-context-{uuid4()}",
+                author="system",
+                actions=EventActions(state_delta=dict(CHAT_CONTEXT_STATE_RESET)),
+            ),
+        )
+
+        if created_temporary_session:
+            await self.session_service.delete_session(
+                app_name=self.app_name,
+                user_id=user_id,
+                session_id=session.id,
+            )
 
     def run_agent(
         self,

@@ -59,3 +59,10 @@ class ADKSessionStore:
                 "last_used_at": now,
             },
         )
+
+    def clear_active_session(self, user_id: str, app_name: str) -> None:
+        self.backend.update(
+            "adk_sessions",
+            filters={"user_id": user_id, "adk_app_name": app_name, "status": "active"},
+            values={"status": "closed", "updated_at": utcnow_iso()},
+        )
