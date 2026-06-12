@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -18,9 +19,39 @@ class ImagePromptResult:
     caption_be: str
 
 
+def _previous_context_payload(state: Any) -> dict[str, str]:
+    payload = {}
+    previous_text = state.get("temp:turn_previous_text")
+    previous_summary = state.get("temp:turn_previous_summary")
+    if isinstance(previous_text, str) and previous_text.strip():
+        payload["previous_text"] = previous_text.strip()
+    if isinstance(previous_summary, str) and previous_summary.strip():
+        payload["previous_summary"] = previous_summary.strip()
+    return payload
+
+
+def add_image_context(callback_context, llm_request):
+    payload = _previous_context_payload(callback_context.state)
+    if not payload:
+        return None
+    llm_request.append_instructions(
+        [
+            (
+                "Workflow context is available as this JSON object: "
+                f"{json.dumps(payload, ensure_ascii=False)}. Use previous_text or "
+                "previous_summary only when the latest image request clearly refers "
+                "to prior assistant output with words like it, this, that, previous, "
+                "last, above, яе, яго, гэта, or апошні. If the request is "
+                "self-contained, ignore this context."
+            )
+        ]
+    )
+    return None
+
+
 image_prompt_agent = LlmAgent(
     name="image_prompt_agent",
-    model=config.ROUTER_AGENT_MODEL,
+    model=config.create_adk_model(config.ROUTER_AGENT_MODEL),
     instruction=(
         "Translate the user's Belarusian/Russian/English image request into a "
         "clear English image-generation prompt. Also return a short Belarusian "
@@ -28,6 +59,7 @@ image_prompt_agent = LlmAgent(
     ),
     output_schema=ImagePromptResult,
     tools=[],
+    before_model_callback=add_image_context,
 )
 
 
@@ -35,6 +67,19 @@ async def default_build_image_prompt(text: str) -> ImagePromptResult:
     # The production graph calls the agent when wired through ADK. This fallback
     # keeps direct helper use deterministic in tests and emergency paths.
     return ImagePromptResult(prompt_en=text, caption_be="Малюнак гатовы.")
+
+
+def image_prompt_source_text(state: Any) -> str:
+    text = state.get("temp:yuzik_text") or ""
+    payload = _previous_context_payload(state)
+    if payload:
+        return (
+            f"{text}\n\n"
+            "Workflow context JSON for prior assistant output. Use it only if the "
+            "current image request refers to it:\n"
+            f"{json.dumps(payload, ensure_ascii=False)}"
+        )
+    return text
 
 
 def coerce_image_prompt_result(value: Any) -> ImagePromptResult | None:
@@ -58,7 +103,7 @@ async def execute_image_route(
     build_prompt: Callable[[str], Awaitable[ImagePromptResult]] = default_build_image_prompt,
     generate: Callable[..., Awaitable[types.Part]] = generate_image,
 ) -> list[types.Part]:
-    text = state.get("temp:yuzik_text") or ""
+    text = image_prompt_source_text(state)
     prompt = coerce_image_prompt_result(prompt_result)
     if prompt is None:
         prompt = await build_prompt(text)

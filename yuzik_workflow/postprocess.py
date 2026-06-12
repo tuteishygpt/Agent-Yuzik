@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 from google.genai import types
 
 from services.chat_service import ChatMedia
+from yuzik_workflow.context import MAX_INLINE_PREVIOUS_TEXT_CHARS
 
 
 def media_kind(mime_type: str | None) -> str:
@@ -33,6 +35,26 @@ def media_from_parts(parts: list[types.Part]) -> list[ChatMedia]:
             )
         )
     return media
+
+
+def summarize_for_context(text: str) -> str:
+    text = text.strip()
+    if len(text) <= MAX_INLINE_PREVIOUS_TEXT_CHARS:
+        return text
+    return text[:MAX_INLINE_PREVIOUS_TEXT_CHARS].rstrip()
+
+
+def text_from_node_output(node_input: Any) -> str | None:
+    if isinstance(node_input, str):
+        text = node_input.strip()
+        return text or None
+    if isinstance(node_input, Mapping):
+        value = node_input.get("text")
+        return value.strip() if isinstance(value, str) and value.strip() else None
+
+    parts = getattr(node_input, "parts", None) or []
+    text = "\n".join(part.text for part in parts if getattr(part, "text", None)).strip()
+    return text or None
 
 
 async def collect_artifacts(
@@ -86,11 +108,20 @@ async def collect_artifacts(
     return collected
 
 
+def _store_previous_output(state: dict[str, Any], text: str) -> None:
+    summary = summarize_for_context(text)
+    state["user:last_assistant_summary"] = summary
+    if len(text) <= MAX_INLINE_PREVIOUS_TEXT_CHARS:
+        state["user:last_assistant_text"] = text
+    else:
+        state.pop("user:last_assistant_text", None)
+
+
 async def postprocess_node(ctx, node_input):
-    parts = getattr(node_input, "parts", None) or []
-    text = "\n".join(part.text for part in parts if getattr(part, "text", None))
+    text = text_from_node_output(node_input)
     if text:
         ctx.state["temp:primary_text"] = text
+        _store_previous_output(ctx.state, text)
     if isinstance(node_input, types.Content):
         return node_input
     if text:

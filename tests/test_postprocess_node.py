@@ -1,65 +1,45 @@
-import pytest
+import asyncio
+
 from google.genai import types
 
-from yuzik_workflow.postprocess import collect_artifacts, media_from_parts, media_kind
+from yuzik_workflow.context import MAX_INLINE_PREVIOUS_TEXT_CHARS
+from yuzik_workflow.postprocess import postprocess_node
 
 
-def test_media_kind_classifies_audio_image_and_files():
-    assert media_kind("audio/wav") == "audio"
-    assert media_kind("image/png") == "image"
-    assert media_kind("application/pdf") == "file"
-    assert media_kind(None) == "file"
+class FakeContext:
+    def __init__(self, state=None):
+        self.state = state or {}
 
 
-def test_media_from_parts_converts_inline_data_to_chat_media():
-    parts = [
-        types.Part(text="hello"),
-        types.Part(inline_data=types.Blob(data=b"wav", mime_type="audio/wav")),
-        types.Part(inline_data=types.Blob(data=b"png", mime_type="image/png")),
-    ]
+def test_postprocess_stores_generic_last_assistant_text_and_summary():
+    ctx = FakeContext({"temp:yuzik_text": "tell me about Minsk"})
+    answer = "Minsk is the capital of Belarus with wide avenues and parks."
+    content = types.Content(role="model", parts=[types.Part(text=answer)])
 
-    media = media_from_parts(parts)
+    result = asyncio.run(postprocess_node(ctx, content))
 
-    assert [(item.kind, item.filename, item.mime_type, item.data) for item in media] == [
-        ("audio", "part-1", "audio/wav", b"wav"),
-        ("image", "part-2", "image/png", b"png"),
-    ]
+    assert result is content
+    assert ctx.state["user:last_assistant_text"] == answer
+    assert ctx.state["user:last_assistant_summary"] == answer
+    assert "user:last_story_text" not in ctx.state
 
 
-@pytest.mark.asyncio
-async def test_collect_artifacts_persists_delta_as_chat_media():
-    class ArtifactService:
-        async def load_artifact(self, **kwargs):
-            assert kwargs["filename"] == "tts_output.wav"
-            assert kwargs["version"] == 3
-            return types.Part(inline_data=types.Blob(data=b"audio", mime_type="audio/wav"))
+def test_postprocess_stores_last_assistant_text_from_string_output():
+    ctx = FakeContext({"temp:yuzik_text": "weather"})
+    answer = "The weather in Minsk is cloudy and 15C."
 
-    class ADKService:
-        app_name = "yuzik_workflow"
-        artifact_service = ArtifactService()
+    result = asyncio.run(postprocess_node(ctx, answer))
 
-    class ArtifactStore:
-        def store_assistant_artifact(self, **kwargs):
-            assert kwargs["adk_session_row_id"] == "row-1"
-            return {"id": "artifact-1"}
+    assert result.parts[0].text == answer
+    assert ctx.state["user:last_assistant_text"] == answer
+    assert ctx.state["user:last_assistant_summary"] == answer
 
-        def get_download_url(self, row):
-            return f"https://files/{row['id']}"
 
-    class SessionStore:
-        def get_active_session(self, user_id, app_name):
-            return {"id": "row-1"}
+def test_postprocess_keeps_large_text_out_of_inline_previous_state():
+    ctx = FakeContext()
+    answer = "x" * (MAX_INLINE_PREVIOUS_TEXT_CHARS + 200)
 
-    media = await collect_artifacts(
-        adk_service=ADKService(),
-        artifact_store=ArtifactStore(),
-        adk_session_store=SessionStore(),
-        user_id="u1",
-        session_id="s1",
-        conversation_id="c1",
-        artifact_delta={"tts_output.wav": 3},
-    )
+    asyncio.run(postprocess_node(ctx, answer))
 
-    assert len(media) == 1
-    assert media[0].kind == "audio"
-    assert media[0].url == "https://files/artifact-1"
+    assert "user:last_assistant_text" not in ctx.state
+    assert len(ctx.state["user:last_assistant_summary"]) <= MAX_INLINE_PREVIOUS_TEXT_CHARS
