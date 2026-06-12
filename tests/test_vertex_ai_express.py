@@ -110,10 +110,26 @@ def test_config_create_genai_client_uses_vertex_ai_express_mode(monkeypatch):
     client = config.create_genai_client()
 
     assert client is fake_client
-    assert captured == {
-        "vertexai": True,
-        "api_key": "vertex-key",
-    }
+    assert captured["vertexai"] is True
+    assert captured["api_key"] == "vertex-key"
+    retry_options = captured["http_options"].retry_options
+    assert retry_options.attempts == 5
+    assert retry_options.http_status_codes == [408, 429, 500, 502, 503, 504]
+
+
+def test_config_create_adk_model_adds_retry_options(monkeypatch):
+    config = _reload_config(
+        monkeypatch,
+        google_api_key="vertex-key",
+        gemini_api_key=None,
+        use_vertex="1",
+    )
+
+    model = config.create_adk_model("gemini-2.5-flash")
+
+    assert model.model == "gemini-2.5-flash"
+    assert model.retry_options.attempts == 5
+    assert model.retry_options.http_status_codes == [408, 429, 500, 502, 503, 504]
 
 
 def test_api_deps_get_genai_client_uses_shared_vertex_client_factory(monkeypatch):
@@ -160,10 +176,9 @@ def test_image_generator_sdk_client_uses_vertex_ai_express_mode(monkeypatch):
     client = module._get_genai_client()
 
     assert client is fake_client
-    assert captured == {
-        "vertexai": True,
-        "api_key": "vertex-key",
-    }
+    assert captured["vertexai"] is True
+    assert captured["api_key"] == "vertex-key"
+    assert captured["http_options"].retry_options.attempts == 5
 
 
 def test_image_generator_rest_fallback_uses_vertex_ai_express_endpoint(monkeypatch):

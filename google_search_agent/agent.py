@@ -16,7 +16,7 @@ google_search_tool = _load_google_search_tool()
 
 search_agent = LlmAgent(
     name="search_agent",
-    model=config.SEARCH_AGENT_MODEL,
+    model=config.create_adk_model(config.SEARCH_AGENT_MODEL),
     description="Агент-пошукавік Google Search.",
     instruction="""
         Ты спецыялізуешся на пошуку ў інтэрнэце.

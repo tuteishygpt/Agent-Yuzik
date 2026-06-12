@@ -32,7 +32,7 @@ LOCAL_TEMPLATES_PATH: str = (
 
 meme_agent: LlmAgent = LlmAgent(
     name="meme_agent",
-    model=config.MEME_AGENT_MODEL,
+    model=config.create_adk_model(config.MEME_AGENT_MODEL),
     tools=[suggest_templates, get_template_info, generate_meme_and_save, list_memegen_templates],
     description="Агент-мемагенератар (Memegen). Аўтаматычна выбірае шаблон і подпісы.",
     instruction="""

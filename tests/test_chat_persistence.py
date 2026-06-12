@@ -112,6 +112,30 @@ def test_adk_service_reuses_persisted_session_mapping(monkeypatch: pytest.Monkey
     ]
 
 
+def test_adk_service_uses_database_session_service_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    from google.adk.sessions import DatabaseSessionService
+
+    import config
+    from services.adk_service import ADKService
+    from services.supabase.adk_session_store import ADKSessionStore
+    from services.supabase.backend import InMemorySupabaseBackend
+
+    db_path = tmp_path / "adk_sessions.db"
+    monkeypatch.setattr(
+        config,
+        "ADK_SESSION_DB_URL",
+        f"sqlite+aiosqlite:///{db_path.as_posix()}",
+        raising=False,
+    )
+
+    service = ADKService(session_store=ADKSessionStore(InMemorySupabaseBackend()))
+
+    assert isinstance(service.session_service, DatabaseSessionService)
+
+
 def test_adk_service_clear_chat_context_resets_user_previous_state() -> None:
     from google.adk.sessions import InMemorySessionService
 

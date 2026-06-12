@@ -1,14 +1,15 @@
 # Юзік — minimal requirements
 
 # Web Frameworks
-gradio>=5.25.2
 fastapi
 uvicorn
 python-multipart
 
 # AI SDKs
-google-genai>=1.72.0,<2
+google-genai>=2.4,<3
 google-adk>=2.0,<3.0
+aiosqlite
+sqlalchemy>=2.0,<3
 
 # Bot & Tools
 python-telegram-bot[webhooks]
@@ -22,8 +23,8 @@ beautifulsoup4
 python-dotenv
 rapidfuzz
 datasets
-PyJWT>=2.10.1,<3
-supabase>=2.10.0,<3
+PyJWT>=2.12.0,<3
+supabase>=2.31.0,<3
 
 # ── Text-to-Speech ──────────────────────────────────────────────────
 # TTS_MODE=api  — only gradio_client (already above) is needed.

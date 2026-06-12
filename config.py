@@ -1,6 +1,7 @@
 import os
 from dotenv import load_dotenv
 from google import genai
+from google.genai import types
 
 # Load environment variables from .env file
 load_dotenv()
@@ -25,18 +26,48 @@ if not GOOGLE_API_KEY:
     print("WARNING: GOOGLE_API_KEY not found in environment variables or .env file.")
 
 
+GENAI_RETRY_ATTEMPTS = int(os.getenv("GENAI_RETRY_ATTEMPTS", "5"))
+GENAI_RETRY_HTTP_STATUS_CODES = [408, 429, 500, 502, 503, 504]
+
+
+def create_genai_retry_options() -> types.HttpRetryOptions:
+    return types.HttpRetryOptions(
+        attempts=GENAI_RETRY_ATTEMPTS,
+        http_status_codes=GENAI_RETRY_HTTP_STATUS_CODES,
+    )
+
+
+def create_genai_http_options() -> types.HttpOptions:
+    return types.HttpOptions(retry_options=create_genai_retry_options())
+
+
+def create_adk_model(model_name: str):
+    from google.adk.models.google_llm import Gemini
+
+    return Gemini(model=model_name, retry_options=create_genai_retry_options())
+
+
 def create_genai_client(*, api_key: str | None = None, location: str | None = None):
     resolved_api_key = api_key or GOOGLE_API_KEY or GEMINI_API_KEY
     if resolved_api_key:
         # Vertex Express (API key) does not support project/location overrides;
         # the region is determined by the API key itself.
-        return genai.Client(vertexai=True, api_key=resolved_api_key)
+        return genai.Client(
+            vertexai=True,
+            api_key=resolved_api_key,
+            http_options=create_genai_http_options(),
+        )
 
     creds_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
     project = os.getenv("GOOGLE_CLOUD_PROJECT")
     resolved_location = location or os.getenv("GOOGLE_CLOUD_LOCATION", "global")
     if creds_path and project:
-        return genai.Client(vertexai=True, project=project, location=resolved_location)
+        return genai.Client(
+            vertexai=True,
+            project=project,
+            location=resolved_location,
+            http_options=create_genai_http_options(),
+        )
     raise RuntimeError("GOOGLE_API_KEY env var not set")
 
 
@@ -59,6 +90,10 @@ ADK_MODEL = os.getenv("ADK_MODEL", "gemini-2.5-flash")
 ROUTER_AGENT_MODEL = os.getenv("ROUTER_AGENT_MODEL", ADK_MODEL)
 SEARCH_AGENT_MODEL = os.getenv("SEARCH_AGENT_MODEL", ADK_MODEL)
 MEME_AGENT_MODEL = os.getenv("MEME_AGENT_MODEL", ADK_MODEL)
+ADK_SESSION_DB_URL = os.getenv(
+    "ADK_SESSION_DB_URL",
+    "sqlite+aiosqlite:///./files/adk_sessions.db",
+)
 
 # TTS Configuration
 TTS_MODE = os.getenv("TTS_MODE", "local").lower()  # "local" or "api"
