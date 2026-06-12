@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import re
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 from typing import Dict, List, Tuple
@@ -11,14 +10,13 @@ import config
 from google.adk.artifacts import InMemoryArtifactService
 from google.adk.events import Event
 from google.adk.runners import Runner
-from google.adk.sessions import InMemorySessionService
+from google.adk.sessions import BaseSessionService, DatabaseSessionService
 from google.genai import types
 
 from bot import helpers
-from router_agent.agent import TTS_REQUESTED_PATTERN, router_agent
+from router_agent.agent import router_agent
 from services.supabase.adk_session_store import ADKSessionStore
 from yuzik_workflow import create_yuzik_workflow
-from yuzik_workflow.policy import evaluate_input_policy
 
 log = logging.getLogger(__name__)
 
@@ -28,16 +26,6 @@ _UNKNOWN_TOOL_FALLBACK = (
     "Сфармулюйце запыт інакш ці паспрабуйце пазней."
 )
 
-_TTS_TARGET_PREFIX_PATTERN = re.compile(
-    r"^(?:"
-    r"\u0441\u043b\u043e\u0432\u0430|\u0441\u043b\u043e\u0432\u043e|"
-    r"\u0442\u044d\u043a\u0441\u0442|\u0442\u0435\u043a\u0441\u0442|"
-    r"text|this|it"
-    r")\b\s*[:.,-]?\s*",
-    re.IGNORECASE,
-)
-
-
 def _is_unknown_tool_error(exc: BaseException) -> bool:
     if not isinstance(exc, ValueError):
         return False
@@ -45,17 +33,21 @@ def _is_unknown_tool_error(exc: BaseException) -> bool:
     return "not found" in msg and ("tools_dict" in msg or "Available tools" in msg or "Tool '" in msg)
 
 
-def _extract_tts_target_text(text: str | None) -> str | None:
+def _extract_explicit_tts_target_text(text: str | None) -> str | None:
     if not text:
         return None
-    match = TTS_REQUESTED_PATTERN.search(text)
-    if not match:
+    markers = ("text:", "тэкст:", "текст:", "слова:", "слово:")
+    lowered = text.lower()
+    marker_positions = [
+        (lowered.find(marker), marker)
+        for marker in markers
+        if lowered.find(marker) >= 0
+    ]
+    if not marker_positions:
         return None
-
-    candidate = text[match.end() :].strip(" \t\r\n:.,-")
-    candidate = _TTS_TARGET_PREFIX_PATTERN.sub("", candidate, count=1)
-    candidate = candidate.strip(" \t\r\n:.,-")
-    return candidate or None
+    position, marker = min(marker_positions, key=lambda item: item[0])
+    target = text[position + len(marker) :].strip(" \t\r\n:.,-\"'“”«»")
+    return target or None
 
 
 def _run_async_blocking(coro_factory):
@@ -124,11 +116,19 @@ def _fallback_event(text: str) -> Event:
     )
 
 
+def create_session_service() -> BaseSessionService:
+    return DatabaseSessionService(db_url=config.ADK_SESSION_DB_URL)
+
+
 class ADKService:
-    def __init__(self, session_store: ADKSessionStore | None = None):
+    def __init__(
+        self,
+        session_store: ADKSessionStore | None = None,
+        session_service: BaseSessionService | None = None,
+    ):
         log.info("Initializing ADKService with REAL components...")
         self.artifact_service = InMemoryArtifactService()
-        self.session_service = InMemorySessionService()
+        self.session_service = session_service or create_session_service()
         self.workflow = create_yuzik_workflow()
         self.app_name = self.workflow.name
         self.runner = Runner(
@@ -212,6 +212,7 @@ class ADKService:
 
         content = types.Content(role="user", parts=parts)
         final_parts, delta = [], {}
+        tts_requested = False
 
         try:
             for ev in self.runner.run(
@@ -224,6 +225,9 @@ class ADKService:
                     final_parts = ev.content.parts or []
                 if ev.actions and ev.actions.artifact_delta:
                     delta.update(ev.actions.artifact_delta)
+                state_delta = getattr(getattr(ev, "actions", None), "state_delta", None)
+                if state_delta and state_delta.get("temp:tts_requested") is True:
+                    tts_requested = True
         except ValueError as exc:
             if _is_unknown_tool_error(exc):
                 log.warning("LLM hallucinated unknown tool: %s", exc)
@@ -238,6 +242,7 @@ class ADKService:
             reply=reply,
             final_parts=final_parts,
             delta=delta,
+            tts_requested=tts_requested,
         )
         reply = "\n".join(p.text for p in final_parts if p.text)
         return reply, delta, final_parts
@@ -251,12 +256,12 @@ class ADKService:
         reply: str,
         final_parts: list[types.Part],
         delta: dict,
+        tts_requested: bool = False,
     ) -> None:
         if not text or not reply:
             return
 
-        policy = evaluate_input_policy(text)
-        if not policy["tts_requested"] or policy["creation_cancelled"]:
+        if not tts_requested:
             return
         if any(
             getattr(getattr(part, "inline_data", None), "mime_type", "").startswith(
@@ -266,7 +271,7 @@ class ADKService:
         ):
             return
 
-        target_text = _extract_tts_target_text(text)
+        target_text = _extract_explicit_tts_target_text(text)
         speech_text = target_text or reply
         if target_text:
             media_parts = [

@@ -1,10 +1,9 @@
-import re
+import json
 
 import config
 from google.adk.agents import LlmAgent
 from google.adk.models.llm_request import LlmRequest
 from google.adk.tools import BaseTool, ToolContext, agent_tool
-from google.genai import types
 
 from google_search_agent.agent import search_agent
 from meme_generator_agent.agent import meme_agent
@@ -12,35 +11,6 @@ from tools.minsk_datetime_tool import minsk_datetime_tool
 from tools.verbum_tool import verbum_tool
 from tools.weather_tool import weather_tool
 
-
-TIME_RELATED_PATTERN = re.compile(
-    r"(?:\b(?:time|date|now|today|tomorrow|yesterday|current|weekday|timezone)\b"
-    r"|час\w*|дата\w*|сёння\w*|заўтра\w*|учора\w*|цяпер\w*"
-    r"|время\w*|сегодня\w*|завтра\w*|вчера\w*|сейчас\w*)",
-    re.IGNORECASE,
-)
-
-TTS_REQUESTED_PATTERN = re.compile(
-    r"(?:агуч\w*|прачыта\w*\s+уголас|прачыта\w*\s+услых|зрабі\s+аўдыя|зрабі\s+голас"
-    r"|вымаў\w*|скажы\s+уголас|скажы\s+услых|озвуч\w*|прочита\w*\s+вслух"
-    r"|read\s+(?:aloud|out\s+loud)|say\s+(?:it|this)\s+(?:out\s+)?loud|speak\s+(?:it|this))",
-    re.IGNORECASE,
-)
-
-IMAGE_REQUESTED_PATTERN = re.compile(
-    r"(?:намалю\w*|нарысу\w*|згенеру\w*\s+(?:малюнак|выяв\w*|карцінк\w*|фота)"
-    r"|стварыць?\s+(?:малюнак|выяв\w*|карцінк\w*)|зрабі\s+(?:малюнак|выяв\w*|карцінк\w*|фота)"
-    r"|нарисуй|сгенерируй\s+(?:изображение|картинк\w*|фото)|создай\s+(?:изображение|картинк\w*)"
-    r"|draw|generate\s+(?:an?\s+)?(?:image|picture|photo)|create\s+(?:an?\s+)?(?:image|picture))",
-    re.IGNORECASE,
-)
-
-CREATION_CANCEL_PATTERN = re.compile(
-    r"(?:адмен\w*|забудзь|не\s+трэба|скасу\w*|стоп"
-    r"|отмен\w*|забудь|не\s+нужно|стой"
-    r"|cancel|nevermind|never\s+mind|forget\s+it|stop)",
-    re.IGNORECASE,
-)
 
 MINSK_TIME_INSTRUCTION = (
     "Use Europe/Minsk as the canonical timezone when Minsk time mode is enabled. "
@@ -51,48 +21,40 @@ MINSK_TIME_INSTRUCTION = (
 )
 
 
-def _latest_user_text(llm_request: LlmRequest) -> str:
-    for content in reversed(llm_request.contents or []):
-        if getattr(content, "role", None) != "user":
-            continue
-        text_parts = [part.text for part in (content.parts or []) if getattr(part, "text", None)]
-        if text_parts:
-            return "\n".join(text_parts)
-    return ""
+def _previous_context_payload(state) -> dict[str, str]:
+    payload = {}
+    previous_text = state.get("temp:turn_previous_text")
+    previous_summary = state.get("temp:turn_previous_summary")
+    if isinstance(previous_text, str) and previous_text.strip():
+        payload["previous_text"] = previous_text.strip()
+    if isinstance(previous_summary, str) and previous_summary.strip():
+        payload["previous_summary"] = previous_summary.strip()
+    return payload
+
+
+def _append_previous_context_instruction(callback_context, llm_request: LlmRequest) -> None:
+    payload = _previous_context_payload(callback_context.state)
+    if not payload:
+        return
+    llm_request.append_instructions(
+        [
+            (
+                "Workflow context is available as this JSON object: "
+                f"{json.dumps(payload, ensure_ascii=False)}. Use previous_text or "
+                "previous_summary only when the latest user request clearly refers "
+                "to prior assistant output, for example with it, this, that, above, "
+                "previous, last, яе, яго, гэта, or апошні. If the latest request is "
+                "self-contained, ignore this context."
+            )
+        ]
+    )
 
 
 def enable_minsk_time_mode(callback_context, llm_request: LlmRequest):
-    if llm_request.config is None:
-        llm_request.config = types.GenerateContentConfig()
-
-    user_text = _latest_user_text(llm_request)
-
-    if TIME_RELATED_PATTERN.search(user_text):
-        callback_context.state["user:timezone"] = "Europe/Minsk"
-        callback_context.state["user:minsk_time_enabled"] = True
-
-    if callback_context.state.get("user:minsk_time_enabled"):
+    if callback_context.state.get("temp:minsk_time_enabled"):
         llm_request.append_instructions([MINSK_TIME_INSTRUCTION])
 
-    cancelled = bool(CREATION_CANCEL_PATTERN.search(user_text))
-
-    tts_in_text = bool(TTS_REQUESTED_PATTERN.search(user_text))
-    if cancelled:
-        callback_context.state["user:tts_sticky"] = False
-    elif tts_in_text:
-        callback_context.state["user:tts_sticky"] = True
-    callback_context.state["temp:tts_requested"] = (
-        tts_in_text or callback_context.state.get("user:tts_sticky", False)
-    )
-
-    image_in_text = bool(IMAGE_REQUESTED_PATTERN.search(user_text))
-    if cancelled:
-        callback_context.state["user:image_sticky"] = False
-    elif image_in_text:
-        callback_context.state["user:image_sticky"] = True
-    callback_context.state["temp:image_requested"] = (
-        image_in_text or callback_context.state.get("user:image_sticky", False)
-    )
+    _append_previous_context_instruction(callback_context, llm_request)
 
     return None
 
@@ -103,7 +65,7 @@ def guard_one_call(tool: BaseTool, args: dict, tool_context: ToolContext, **kwar
 
 router_agent = LlmAgent(
     name="router_agent",
-    model=config.ROUTER_AGENT_MODEL,
+    model=config.create_adk_model(config.ROUTER_AGENT_MODEL),
     description="Беларускі агент Юзік — твой беларускамоўны сябар.",
     instruction=(r"""
         Ты — беларускі агент **Юзік**.

@@ -114,9 +114,14 @@ def test_get_minsk_datetime_sets_state_and_returns_minsk_timezone():
     assert tool_context.state["user:minsk_time_enabled"] is True
 
 
-def test_before_model_callback_enables_minsk_mode_for_time_queries():
+def test_before_model_callback_appends_minsk_instruction_from_intent_state():
     module = _load_router_module()
-    callback_context = SimpleNamespace(state={})
+    callback_context = SimpleNamespace(
+        state={
+            "temp:minsk_time_enabled": True,
+            "temp:timezone": "Europe/Minsk",
+        }
+    )
     llm_request = LlmRequest(
         config=types.GenerateContentConfig(),
         contents=[
@@ -130,8 +135,8 @@ def test_before_model_callback_enables_minsk_mode_for_time_queries():
     result = module.enable_minsk_time_mode(callback_context, llm_request)
 
     assert result is None
-    assert callback_context.state["user:timezone"] == "Europe/Minsk"
-    assert callback_context.state["user:minsk_time_enabled"] is True
+    assert callback_context.state["temp:timezone"] == "Europe/Minsk"
+    assert callback_context.state["temp:minsk_time_enabled"] is True
     assert "minsk_datetime_tool" in llm_request.config.system_instruction
     assert "Europe/Minsk" in llm_request.config.system_instruction
 

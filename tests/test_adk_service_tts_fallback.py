@@ -39,6 +39,7 @@ def test_service_tts_fallback_saves_artifact_and_appends_audio(monkeypatch):
         reply="Hello",
         final_parts=parts,
         delta=delta,
+        tts_requested=True,
     )
 
     assert delta == {"tts_output.wav": 4}
@@ -77,8 +78,45 @@ def test_service_tts_fallback_uses_explicit_target_text(monkeypatch):
         reply="I cannot create audio.",
         final_parts=parts,
         delta=delta,
+        tts_requested=True,
     )
 
     assert parts[0].text == "Hello"
+    assert parts[1].inline_data.mime_type == "audio/wav"
+    assert delta == {"tts_output.wav": 4}
+
+
+def test_service_tts_fallback_preserves_reply_for_contextual_tts_request(monkeypatch):
+    import tools.text_to_speech_tool as tts_module
+
+    service = ADKService.__new__(ADKService)
+    service.app_name = "yuzik_workflow"
+    service.artifact_service = FakeArtifactService()
+    forecast = "Зараз у Мінску пахмурна, тэмпература 15°C, дзьме моцны вецер."
+
+    async def synthesize_speech(*, text, tool_context):
+        assert text == forecast
+        audio = types.Part.from_bytes(data=b"wav", mime_type="audio/wav")
+        return await tool_context.save_artifact(
+            filename="tts_output.wav",
+            artifact=audio,
+        )
+
+    monkeypatch.setattr(tts_module, "synthesize_speech", synthesize_speech)
+
+    delta = {}
+    parts = [types.Part(text=forecast)]
+
+    service._maybe_run_service_tts_post_action(
+        user_id="user-1",
+        session_id="session-1",
+        text="Агуч прагноз",
+        reply=forecast,
+        final_parts=parts,
+        delta=delta,
+        tts_requested=True,
+    )
+
+    assert parts[0].text == forecast
     assert parts[1].inline_data.mime_type == "audio/wav"
     assert delta == {"tts_output.wav": 4}

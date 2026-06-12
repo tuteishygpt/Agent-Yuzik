@@ -5,96 +5,105 @@ from typing import Any
 from google.adk.events import Event
 from google.genai import types
 
-from router_agent.agent import (
-    CREATION_CANCEL_PATTERN,
-    IMAGE_REQUESTED_PATTERN,
-    TIME_RELATED_PATTERN,
-    TTS_REQUESTED_PATTERN,
+from yuzik_workflow.context import detect_language, text_from_content
+from yuzik_workflow.file_policy import file_policy_node
+from yuzik_workflow.intent import (
+    DEFAULT_INTENT_CONFIDENCE_THRESHOLD,
+    TurnIntent,
+    coerce_turn_intent,
 )
-from services.gemini_file_policy import validate_gemini_chat_file
 
 
-def text_from_content(content: types.Content | None) -> str | None:
-    if content is None:
+PENDING_TEXT_ACTION_KEY = "user:pending_text_action"
+
+TARGET_LANGUAGE_LABELS = {
+    "en": "ангельскую",
+}
+
+
+def build_pending_translation(target_language: str) -> dict[str, str]:
+    return {"kind": "translate", "target_language": target_language}
+
+
+def pending_translation_target(state: dict[str, Any]) -> str | None:
+    pending = state.get(PENDING_TEXT_ACTION_KEY)
+    if not isinstance(pending, dict):
         return None
-    text = "\n".join(part.text for part in (content.parts or []) if part.text).strip()
-    return text or None
+    if pending.get("kind") != "translate":
+        return None
+    target_language = pending.get("target_language")
+    return target_language if isinstance(target_language, str) else None
 
 
-def detect_language(text: str | None) -> str:
-    if not text:
-        return "be"
-    lowered = text.lower()
-    if any("a" <= ch <= "z" for ch in lowered):
-        return "en"
-    if any(token in lowered for token in ("привет", "как ", "дела", "сегодня")):
-        return "ru"
-    if any(ch in lowered for ch in "ііў"):
-        return "be"
-    if any(ch in lowered for ch in "ыэъ"):
-        return "ru"
-    return "be"
+def translation_text_request(target_language: str) -> str:
+    target_label = TARGET_LANGUAGE_LABELS.get(target_language, target_language)
+    return (
+        "Калі ласка, напішы тэкст, які трэба перакласці "
+        f"на {target_label} мову."
+    )
 
 
-def evaluate_input_policy(text: str | None) -> dict[str, Any]:
-    text = text or ""
-    cancelled = bool(CREATION_CANCEL_PATTERN.search(text))
-    tts_requested = bool(TTS_REQUESTED_PATTERN.search(text)) and not cancelled
-    image_requested = bool(IMAGE_REQUESTED_PATTERN.search(text)) and not cancelled
-    minsk_time_enabled = bool(TIME_RELATED_PATTERN.search(text))
-    return {
-        "language": detect_language(text),
-        "timezone": "Europe/Minsk" if minsk_time_enabled else None,
-        "minsk_time_enabled": minsk_time_enabled,
-        "tts_requested": tts_requested,
-        "image_requested": image_requested,
-        "creation_cancelled": cancelled,
-    }
+def _current_content_from_state(state: dict[str, Any]) -> types.Content:
+    content = state.get("temp:turn_current_content")
+    if isinstance(content, types.Content):
+        return content
+    text = state.get("temp:turn_current_text")
+    return types.Content(role="user", parts=[types.Part(text=str(text or ""))])
 
 
-def evaluate_file_policy(content: types.Content | None) -> dict[str, Any]:
-    if content is None:
-        return {"file_ok": True, "file_error": None, "file_diagnostics": {}}
+def _effective_intent(intent: TurnIntent) -> TurnIntent:
+    if intent.confidence >= DEFAULT_INTENT_CONFIDENCE_THRESHOLD:
+        return intent
+    return TurnIntent(confidence=intent.confidence)
 
-    for part in content.parts or []:
-        inline_data = getattr(part, "inline_data", None)
-        data = getattr(inline_data, "data", None)
-        mime_type = getattr(inline_data, "mime_type", None)
-        if not data or not mime_type:
-            continue
-        result = validate_gemini_chat_file(mime_type=mime_type, size_bytes=len(data))
-        if not result.supported:
-            return {
-                "file_ok": False,
-                "file_error": result.message,
-                "file_diagnostics": result.diagnostics,
-            }
 
-    return {"file_ok": True, "file_error": None, "file_diagnostics": {}}
+def _set_intent_state(ctx, raw_intent: TurnIntent, intent: TurnIntent) -> None:
+    ctx.state["temp:turn_intent_route"] = raw_intent.route
+    ctx.state["temp:turn_intent_confidence"] = raw_intent.confidence
+    ctx.state["temp:tts_requested"] = "tts" in intent.actions
+    ctx.state["temp:timezone"] = intent.timezone
+    ctx.state["temp:minsk_time_enabled"] = intent.timezone == "Europe/Minsk"
+
+
+def _set_translation_state(ctx, target_language: str | None) -> None:
+    ctx.state["temp:primary_route"] = "translation"
+    ctx.state["temp:translation_target_language"] = target_language or "en"
+    ctx.state["temp:translation_source_text"] = (
+        ctx.state.get("temp:turn_current_text") or ""
+    )
+
+
+async def intent_policy_node(ctx, node_input):
+    raw_intent = coerce_turn_intent(node_input)
+    intent = _effective_intent(raw_intent)
+    _set_intent_state(ctx, raw_intent, intent)
+
+    content = _current_content_from_state(ctx.state)
+    pending_target = pending_translation_target(ctx.state)
+    current_text = ctx.state.get("temp:turn_current_text")
+
+    if intent.route == "cancel":
+        ctx.state[PENDING_TEXT_ACTION_KEY] = None
+        ctx.route = "cancel"
+    elif pending_target and current_text:
+        _set_translation_state(ctx, pending_target)
+        ctx.route = "translate"
+    elif intent.route == "translation":
+        _set_translation_state(ctx, intent.target_language)
+        ctx.route = "translate"
+    elif intent.route == "image":
+        ctx.route = "image"
+    elif intent.route == "direct":
+        ctx.state["temp:primary_route"] = "direct"
+        ctx.route = "direct"
+    else:
+        ctx.route = "default"
+
+    return content
 
 
 async def input_policy_node(ctx, node_input):
-    text = text_from_content(node_input) if isinstance(node_input, types.Content) else None
-    policy = evaluate_input_policy(text)
-    file_policy = evaluate_file_policy(node_input if isinstance(node_input, types.Content) else None)
-
-    if text:
-        ctx.state["temp:yuzik_text"] = text
-    for key, value in {**policy, **file_policy}.items():
-        ctx.state[f"temp:{key}"] = value
-
-    if not file_policy["file_ok"]:
-        ctx.route = "file_error"
-        ctx.state["temp:primary_route"] = "fallback"
-        ctx.state["temp:primary_text"] = file_policy["file_error"]
-        return Event(
-            content=types.Content(
-                role="model",
-                parts=[types.Part(text=file_policy["file_error"])],
-            )
-        )
-    if policy["creation_cancelled"]:
-        ctx.route = "cancel"
-    elif policy["image_requested"]:
-        ctx.route = "image"
-    return node_input
+    file_result = await file_policy_node(ctx, node_input)
+    if isinstance(file_result, Event):
+        return file_result
+    return await intent_policy_node(ctx, {"route": "default", "confidence": 1.0})
