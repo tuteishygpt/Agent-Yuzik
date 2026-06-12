@@ -16,6 +16,8 @@ venv/
 
 # ── Node / Frontend ──
 node_modules/
+frontend/test-results/
+frontend/playwright-report/
 
 # ── Лагі ──
 *.log
