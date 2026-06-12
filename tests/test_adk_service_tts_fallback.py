@@ -1,6 +1,7 @@
 from google.genai import types
 
 from services.adk_service import ADKService
+from services.adk_service import _tts_requested_from_state_delta
 
 
 class FakeArtifactService:
@@ -10,6 +11,12 @@ class FakeArtifactService:
     async def save_artifact(self, **kwargs):
         self.saved.append(kwargs)
         return 4
+
+
+def test_service_tts_detection_reads_persistent_turn_state_delta():
+    assert _tts_requested_from_state_delta({"user:tts_requested_for_turn": True}) is True
+    assert _tts_requested_from_state_delta({"temp:tts_requested": True}) is True
+    assert _tts_requested_from_state_delta({"user:tts_requested_for_turn": False}) is False
 
 
 def test_service_tts_fallback_saves_artifact_and_appends_audio(monkeypatch):

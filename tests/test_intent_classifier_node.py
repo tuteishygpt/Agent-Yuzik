@@ -37,6 +37,15 @@ def test_classifier_instruction_documents_routes_actions_and_no_answering():
     assert "tts" in instruction
 
 
+def test_classifier_instruction_documents_contextual_tts_examples():
+    instruction = intent_classifier_agent.instruction
+
+    assert "Агуч яго" in instruction
+    assert "Read it aloud" in instruction
+    assert '"actions": ["tts"]' in instruction
+    assert '"needs_previous_context": true' in instruction
+
+
 def test_classifier_context_callback_includes_current_text_and_file_presence():
     request = FakeRequest()
     context = FakeContext(

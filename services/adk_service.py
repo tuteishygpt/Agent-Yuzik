@@ -50,6 +50,15 @@ def _extract_explicit_tts_target_text(text: str | None) -> str | None:
     return target or None
 
 
+def _tts_requested_from_state_delta(state_delta: dict | None) -> bool:
+    if not state_delta:
+        return False
+    return (
+        state_delta.get("user:tts_requested_for_turn") is True
+        or state_delta.get("temp:tts_requested") is True
+    )
+
+
 def _run_async_blocking(coro_factory):
     try:
         asyncio.get_running_loop()
@@ -226,7 +235,7 @@ class ADKService:
                 if ev.actions and ev.actions.artifact_delta:
                     delta.update(ev.actions.artifact_delta)
                 state_delta = getattr(getattr(ev, "actions", None), "state_delta", None)
-                if state_delta and state_delta.get("temp:tts_requested") is True:
+                if _tts_requested_from_state_delta(state_delta):
                     tts_requested = True
         except ValueError as exc:
             if _is_unknown_tool_error(exc):

@@ -64,6 +64,7 @@ def test_intent_policy_sets_tts_action_state():
     )
 
     assert ctx.state["temp:tts_requested"] is True
+    assert ctx.state["user:tts_requested_for_turn"] is True
 
 
 def test_intent_policy_sets_minsk_timezone_state():
@@ -108,6 +109,7 @@ def test_intent_policy_low_confidence_uses_default_and_ignores_actions():
 
     assert ctx.route == "default"
     assert ctx.state["temp:tts_requested"] is False
+    assert ctx.state["user:tts_requested_for_turn"] is False
     assert ctx.state["temp:minsk_time_enabled"] is False
     assert ctx.state["temp:timezone"] is None
 

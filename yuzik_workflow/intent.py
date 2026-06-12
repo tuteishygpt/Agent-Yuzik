@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from typing import Any, Literal, Mapping
 
@@ -28,6 +29,30 @@ def _get_field(value: Any, name: str, default: Any = None) -> Any:
     return getattr(value, name, default)
 
 
+def _json_text_from_content(value: Any) -> str | None:
+    parts = getattr(value, "parts", None)
+    if not parts:
+        return None
+    text = "\n".join(
+        part.text for part in parts if isinstance(getattr(part, "text", None), str)
+    ).strip()
+    return text or None
+
+
+def _parse_json_object(value: Any) -> Any:
+    if isinstance(value, str):
+        text = value.strip()
+    else:
+        text = _json_text_from_content(value)
+    if not text:
+        return value
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return value
+    return parsed if isinstance(parsed, Mapping) else value
+
+
 def _coerce_confidence(value: Any) -> float:
     try:
         confidence = float(value)
@@ -46,6 +71,8 @@ def coerce_turn_intent(value: Any) -> TurnIntent:
             needs_previous_context=bool(value.needs_previous_context),
             confidence=_coerce_confidence(value.confidence),
         )
+
+    value = _parse_json_object(value)
 
     route = _get_field(value, "route", "default")
     if route not in VALID_ROUTES:

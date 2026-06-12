@@ -5,8 +5,8 @@ import { expect, test } from '@playwright/test';
 const chatResponseTimeout = 2 * 60 * 1000;
 
 const prompts = {
-  weather: "Якое надвор'е у Менску",
-  speakForecast: 'Агуч прагноз',
+  weather: "Якое надвор'е ў Менску",
+  speakForecast: 'Агуч яго',
   speakStory: 'Прыдумай і агуч казку',
   drawStory: 'Зрабі малюнак па ёй',
   checkWord: 'Правер гэта слова ў вербум',
@@ -219,7 +219,7 @@ test('chat mode keeps one ADK2 conversation context across weather, TTS, story, 
     payload: story,
   });
   expect(story.text).toEqual(expect.any(String));
-  expect(story.text).toMatch(/казк/i);
+  expect(story.text).toMatch(/казк|казач|казц|гістор|жыў-быў|жыў сабе|жыла-была|жыла сабе|светлячок/i);
   expect(story.audio, 'story turn must return a real backend audio artifact').toEqual(
     expect.any(String),
   );

@@ -26,6 +26,13 @@ Actions:
 
 Use timezone="Europe/Minsk" when the user asks for current time/date context in Minsk.
 Use needs_previous_context=true only when the latest turn needs previous_text or previous_summary.
+
+Examples:
+- current_text="Агуч яго" with previous_text present -> {"route": "default", "actions": ["tts"], "needs_previous_context": true, "confidence": 0.95}
+- current_text="Агуч гэта" with previous_text present -> {"route": "default", "actions": ["tts"], "needs_previous_context": true, "confidence": 0.95}
+- current_text="Read it aloud" with previous_text present -> {"route": "default", "actions": ["tts"], "needs_previous_context": true, "confidence": 0.95}
+- current_text="Прыдумай і агуч казку" -> {"route": "default", "actions": ["tts"], "needs_previous_context": false, "confidence": 0.95}
+- current_text="Зрабі малюнак па ёй" with previous_text present -> {"route": "image", "actions": [], "needs_previous_context": true, "confidence": 0.95}
 """
 
 

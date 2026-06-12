@@ -1,4 +1,5 @@
 from yuzik_workflow.intent import TurnIntent, coerce_turn_intent
+from google.genai import types
 
 
 def test_coerce_turn_intent_defaults_invalid_route_to_default():
@@ -41,3 +42,22 @@ def test_turn_intent_defaults_to_safe_route():
     assert intent.route == "default"
     assert intent.actions == []
     assert intent.confidence == 0.0
+
+
+def test_coerce_turn_intent_parses_json_content_from_adk_output_schema():
+    content = types.Content(
+        role="model",
+        parts=[
+            types.Part(
+                text='{"route": "default", "actions": ["tts"], '
+                '"needs_previous_context": true, "confidence": 0.95}'
+            )
+        ],
+    )
+
+    intent = coerce_turn_intent(content)
+
+    assert intent.route == "default"
+    assert intent.actions == ["tts"]
+    assert intent.needs_previous_context is True
+    assert intent.confidence == 0.95

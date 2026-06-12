@@ -15,6 +15,7 @@ from yuzik_workflow.intent import (
 
 
 PENDING_TEXT_ACTION_KEY = "user:pending_text_action"
+TTS_REQUESTED_FOR_TURN_KEY = "user:tts_requested_for_turn"
 
 TARGET_LANGUAGE_LABELS = {
     "en": "ангельскую",
@@ -60,7 +61,9 @@ def _effective_intent(intent: TurnIntent) -> TurnIntent:
 def _set_intent_state(ctx, raw_intent: TurnIntent, intent: TurnIntent) -> None:
     ctx.state["temp:turn_intent_route"] = raw_intent.route
     ctx.state["temp:turn_intent_confidence"] = raw_intent.confidence
-    ctx.state["temp:tts_requested"] = "tts" in intent.actions
+    tts_requested = "tts" in intent.actions
+    ctx.state["temp:tts_requested"] = tts_requested
+    ctx.state[TTS_REQUESTED_FOR_TURN_KEY] = tts_requested
     ctx.state["temp:timezone"] = intent.timezone
     ctx.state["temp:minsk_time_enabled"] = intent.timezone == "Europe/Minsk"
 

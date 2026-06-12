@@ -91,6 +91,22 @@ def test_router_callback_appends_minsk_instruction_from_state():
     assert any("Europe/Minsk" in instruction for instruction in request.instructions)
 
 
+def test_router_callback_appends_tts_instruction_from_state():
+    state = {
+        "temp:tts_requested": True,
+        "temp:turn_previous_text": "Forecast text.",
+    }
+    context = FakeContext(state)
+    request = FakeRequest()
+
+    enable_minsk_time_mode(context, request)
+
+    joined = "\n".join(request.instructions)
+    assert "TTS has already been requested" in joined
+    assert "Do not say that you cannot create audio" in joined
+    assert "Forecast text." in joined
+
+
 def test_router_agent_has_no_regex_intent_patterns():
     source = inspect.getsource(router_module)
 

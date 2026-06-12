@@ -50,11 +50,28 @@ def _append_previous_context_instruction(callback_context, llm_request: LlmReque
     )
 
 
+def _append_tts_instruction(callback_context, llm_request: LlmRequest) -> None:
+    if not callback_context.state.get("temp:tts_requested"):
+        return
+    llm_request.append_instructions(
+        [
+            (
+                "TTS has already been requested by the workflow for this turn. "
+                "Do not say that you cannot create audio. Return only the text "
+                "that should be spoken. If the latest request refers to previous "
+                "assistant output, return previous_text from workflow context; "
+                "if previous_text is unavailable, return previous_summary."
+            )
+        ]
+    )
+
+
 def enable_minsk_time_mode(callback_context, llm_request: LlmRequest):
     if callback_context.state.get("temp:minsk_time_enabled"):
         llm_request.append_instructions([MINSK_TIME_INSTRUCTION])
 
     _append_previous_context_instruction(callback_context, llm_request)
+    _append_tts_instruction(callback_context, llm_request)
 
     return None
 
