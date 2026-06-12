@@ -1,5 +1,6 @@
 import asyncio
 import importlib
+import io
 import os
 import sys
 from types import ModuleType
@@ -134,6 +135,31 @@ def test_adk_tts_mode_defaults_to_api_independently_of_global_tts_mode(monkeypat
     assert tts.ADK_TTS_MODE == "api"
 
 
+def test_api_mode_does_not_create_gradio_clients_on_import(monkeypatch):
+    monkeypatch.setenv("TTS_MODE", "api")
+    monkeypatch.setenv("ADK_TTS_MODE", "api")
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    monkeypatch.delenv("HUGGINGFACE_API_TOKEN", raising=False)
+
+    sys.modules.pop("config", None)
+    sys.modules.pop("tools.text_to_speech_tool", None)
+
+    fake_gradio_client = ModuleType("gradio_client")
+
+    class FailingClient:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("Client should not be created during import")
+
+    fake_gradio_client.Client = FailingClient
+    fake_gradio_client.handle_file = lambda path: {"path": path}
+    monkeypatch.setitem(sys.modules, "gradio_client", fake_gradio_client)
+
+    tts = importlib.import_module("tools.text_to_speech_tool")
+
+    assert tts.gradio_client is None
+    assert tts.voice_client is None
+
+
 def test_synthesize_speech_falls_back_to_local_when_api_fails(monkeypatch, tmp_path):
     tts = _load_tts_module(monkeypatch)
     wav_path = tmp_path / "fallback.wav"
@@ -196,7 +222,8 @@ def test_api_mode_uses_hf_token_keyword_for_gradio_client(monkeypatch):
     }
     monkeypatch.setitem(sys.modules, "gradio_client", fake_gradio_client)
 
-    importlib.import_module("tools.text_to_speech_tool")
+    tts = importlib.import_module("tools.text_to_speech_tool")
+    tts._ensure_api_clients()
 
     assert captured == [
         ("archivartaunik/Bextts", "secret-token"),
@@ -236,11 +263,50 @@ def test_api_mode_falls_back_to_token_keyword_for_newer_gradio_client(monkeypatc
     }
     monkeypatch.setitem(sys.modules, "gradio_client", fake_gradio_client)
 
-    importlib.import_module("tools.text_to_speech_tool")
+    tts = importlib.import_module("tools.text_to_speech_tool")
+    tts._ensure_api_clients()
 
     assert captured == [
         ("archivartaunik/Bextts", "secret-token"),
         ("archivartaunik/BexttsAssist", "secret-token"),
+    ]
+
+
+def test_api_client_creation_tolerates_unicode_banner_on_cp1252_stdout(monkeypatch):
+    monkeypatch.setenv("TTS_MODE", "api")
+    monkeypatch.setenv("ADK_TTS_MODE", "api")
+    monkeypatch.setenv("HF_TOKEN", "secret-token")
+    monkeypatch.delenv("HUGGINGFACE_API_TOKEN", raising=False)
+
+    sys.modules.pop("config", None)
+    sys.modules.pop("tools.text_to_speech_tool", None)
+
+    captured = []
+    fake_gradio_client = ModuleType("gradio_client")
+
+    class BannerClient:
+        def __init__(self, src, hf_token=None, **kwargs):
+            print(f"Loaded as API: {src} ✔")
+            captured.append((src, hf_token, kwargs))
+            self.src = "https://fake.space/"
+            self.headers = {}
+            self.cookies = {}
+            self.ssl_verify = True
+            self.httpx_kwargs = {}
+
+    fake_gradio_client.Client = BannerClient
+    fake_gradio_client.handle_file = lambda path: {"path": path}
+    monkeypatch.setitem(sys.modules, "gradio_client", fake_gradio_client)
+
+    cp1252_stdout = io.TextIOWrapper(io.BytesIO(), encoding="cp1252", errors="strict")
+    monkeypatch.setattr(sys, "stdout", cp1252_stdout)
+
+    tts = importlib.import_module("tools.text_to_speech_tool")
+    tts._ensure_api_clients()
+
+    assert [item[0] for item in captured] == [
+        "archivartaunik/Bextts",
+        "archivartaunik/BexttsAssist",
     ]
 
 

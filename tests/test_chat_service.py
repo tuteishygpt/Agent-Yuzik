@@ -124,6 +124,28 @@ def test_chat_service_persists_text_turn_and_collects_assistant_artifacts() -> N
     assert [row["artifact_kind"] for row in artifact_rows] == ["assistant_audio"]
 
 
+def test_chat_service_sends_current_text_without_prompt_history_injection() -> None:
+    from services.chat_service import ChatRequest
+
+    service, _metadata_backend = build_service()
+
+    first = asyncio.run(
+        service.process(ChatRequest(user_id="auth-user-123", text="Мяне завуць Алесь."))
+    )
+    second = asyncio.run(
+        service.process(
+            ChatRequest(
+                user_id="auth-user-123",
+                conversation_id=first.conversation_id,
+                text="Як мяне завуць?",
+            )
+        )
+    )
+
+    assert second.conversation_id == first.conversation_id
+    assert service.adk_service.run_calls[1]["text"] == "Як мяне завуць?"
+
+
 def test_chat_service_stores_uploads_and_uses_filename_for_history_when_text_empty() -> None:
     from services.chat_service import ChatFile, ChatRequest
 

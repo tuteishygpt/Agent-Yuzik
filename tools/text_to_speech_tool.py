@@ -16,6 +16,8 @@ import traceback
 from typing import Optional, AsyncGenerator, Dict, Any, Tuple
 import asyncio
 import logging
+import contextlib
+import io
 
 from google.genai import types
 from google.adk.tools import FunctionTool, ToolContext
@@ -49,10 +51,14 @@ if _API_MODE_REQUIRED:
     HUGGINGFACE_API_TOKEN = config.HF_TOKEN or os.getenv("HF_TOKEN")
     voice_client = None
 
+    def _instantiate_gradio_client(src: str, **kwargs) -> Client:
+        with contextlib.redirect_stdout(io.StringIO()):
+            return Client(src, **kwargs)
+
     def _make_gradio_client(src: str, token: Optional[str] = None) -> Client:
         """Create gradio_client.Client across versions with token/hf_token drift."""
         if not token:
-            return Client(src)
+            return _instantiate_gradio_client(src)
 
         try:
             params = inspect.signature(Client.__init__).parameters
@@ -60,10 +66,10 @@ if _API_MODE_REQUIRED:
             params = {}
 
         if "hf_token" in params:
-            return Client(src, hf_token=token)
-        return Client(src, token=token)
+            return _instantiate_gradio_client(src, hf_token=token)
+        return _instantiate_gradio_client(src, token=token)
 
-    if HUGGINGFACE_API_TOKEN:
+    if False and HUGGINGFACE_API_TOKEN:
         gradio_client = _make_gradio_client(
             "archivartaunik/Bextts", HUGGINGFACE_API_TOKEN
         )
@@ -74,7 +80,7 @@ if _API_MODE_REQUIRED:
             log.info("BexttsAssist client initialized successfully.")
         except Exception as e:
             log.warning(f"Failed to initialize BexttsAssist: {e}")
-    else:
+    elif False:
         log.warning(
             "HF_TOKEN не зададзены — выкарыстоўваю ананімны доступ."
         )
@@ -84,6 +90,38 @@ if _API_MODE_REQUIRED:
             log.info("BexttsAssist client initialized (anon).")
         except Exception as e:
             log.warning(f"Failed to initialize BexttsAssist (anon): {e}")
+
+    def _ensure_api_clients() -> None:
+        global gradio_client, voice_client
+
+        if gradio_client is not None or voice_client is not None:
+            return
+
+        if HUGGINGFACE_API_TOKEN:
+            gradio_client = _make_gradio_client(
+                "archivartaunik/Bextts", HUGGINGFACE_API_TOKEN
+            )
+            try:
+                voice_client = _make_gradio_client(
+                    "archivartaunik/BexttsAssist", HUGGINGFACE_API_TOKEN
+                )
+                log.info("BexttsAssist client initialized successfully.")
+            except Exception as e:
+                log.warning(f"Failed to initialize BexttsAssist: {e}")
+            return
+
+        log.warning("HF_TOKEN is not set; using anonymous Hugging Face Space access.")
+        gradio_client = _make_gradio_client("archivartaunik/BeTTSNaciski")
+        try:
+            voice_client = _make_gradio_client("archivartaunik/BexttsAssist")
+            log.info("BexttsAssist client initialized (anon).")
+        except Exception as e:
+            log.warning(f"Failed to initialize BexttsAssist (anon): {e}")
+
+else:
+
+    def _ensure_api_clients() -> None:
+        return None
 
 # ═══════════════════════════════════════════════════════════════════════
 # Global queues for voice streaming (абодва рэжымы)
@@ -393,6 +431,7 @@ async def _stream_speech_api(
     text: str, speaker_audio_path: Optional[str] = None
 ) -> AsyncGenerator[bytes, None]:
     """Стрымінг аўдыя праз BexttsAssist Gradio API."""
+    _ensure_api_clients()
     if not voice_client:
         log.error(
             "Voice client (BexttsAssist) is not initialized. Cannot stream."
@@ -402,6 +441,7 @@ async def _stream_speech_api(
     import queue
     import threading
 
+    _ensure_api_clients()
     loop = asyncio.get_running_loop()
 
     log.info(
@@ -667,6 +707,7 @@ async def _synthesize_with_fallback(
 async def _synthesize_api(
     text: str, speaker_audio_path: Optional[str] = None
 ) -> Optional[str]:
+    _ensure_api_clients()
     """Выклік Gradio TTS API і вяртанне шляху да WAV-файла."""
     loop = asyncio.get_running_loop()
 
