@@ -277,6 +277,7 @@ function clearChat() {
     state.messages = [];
     elements.messagesContainer.innerHTML = '';
     showEmptyState();
+    clearFilePreview();
     clearHistory();
 }
 
