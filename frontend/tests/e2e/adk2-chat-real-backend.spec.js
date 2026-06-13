@@ -10,13 +10,20 @@ const prompts = {
   speakStory: 'Прыдумай і агуч казку',
   drawStory: 'Зрабі малюнак па ёй',
   checkWord: 'Правер гэта слова ў вербум',
+  describeFile: 'Атрымай файл і раскажы пра яго',
+  readNews: 'Знайдзі і прачытай навіны пра Беларусь',
+  tellJoke: 'Раскажы анекдот',
 };
 
-async function sendChatTurn(page, prompt) {
+async function sendChatTurn(page, prompt, options = {}) {
   const input = page.locator('#message-input');
   const previousBotMessages = await page
     .locator('.message.bot:not(#typing-indicator)')
     .count();
+
+  if (options.filePath) {
+    await page.setInputFiles('#file-input', options.filePath);
+  }
 
   await input.fill(prompt);
 
@@ -106,6 +113,8 @@ async function writeDialogueArtifacts(testInfo, turns) {
       '',
       `**User:** ${turn.prompt}`,
       '',
+      turn.inputFile ? `**Input file:** ${turn.inputFile}` : '',
+      '',
       `**Assistant:** ${turn.text || '(no text)'}`,
       '',
       turn.audio ? `**Audio:** ${turn.audio.path}` : '',
@@ -129,6 +138,11 @@ async function writeDialogueArtifacts(testInfo, turns) {
     path: jsonPath,
     contentType: 'application/json',
   });
+}
+
+async function recordTurn(testInfo, turns, turn) {
+  turns.push(turn);
+  await writeDialogueArtifacts(testInfo, turns);
 }
 
 async function waitForBackendAuth(page) {
@@ -177,7 +191,7 @@ test('chat mode keeps one ADK2 conversation context across weather, TTS, story, 
   await expect(page.locator('#send-btn')).toBeVisible();
 
   const weather = await sendChatTurn(page, prompts.weather);
-  turns.push({ prompt: prompts.weather, text: weather.text, payload: weather });
+  await recordTurn(testInfo, turns, { prompt: prompts.weather, text: weather.text, payload: weather });
   expect(weather.text).toEqual(expect.any(String));
   expect(weather.text).toMatch(/Менск|Мінск|надвор|прагноз|°/i);
 
@@ -189,7 +203,7 @@ test('chat mode keeps one ADK2 conversation context across weather, TTS, story, 
     spokenForecast.audio,
     'turn-02-forecast-audio',
   );
-  turns.push({
+  await recordTurn(testInfo, turns, {
     prompt: prompts.speakForecast,
     text: spokenForecast.text,
     audio: forecastAudio,
@@ -204,6 +218,16 @@ test('chat mode keeps one ADK2 conversation context across weather, TTS, story, 
     })
     .toBeGreaterThan(audioMessagesBeforeForecast);
 
+  const voiceReply = await sendChatTurn(page, '', { filePath: forecastAudio.path });
+  await recordTurn(testInfo, turns, {
+    prompt: '[voice upload: forecast audio]',
+    inputFile: forecastAudio.path,
+    text: voiceReply.text,
+    payload: voiceReply,
+  });
+  expect(voiceReply.text).toEqual(expect.any(String));
+  expect(voiceReply.text).not.toMatch(/памылк|не атрымалася|sorry|error/i);
+
   const audioMessagesBeforeStory = await page.locator('.message.bot audio').count();
   const story = await sendChatTurn(page, prompts.speakStory);
   const storyAudio = await saveBackendArtifact(
@@ -212,7 +236,7 @@ test('chat mode keeps one ADK2 conversation context across weather, TTS, story, 
     story.audio,
     'turn-03-story-audio',
   );
-  turns.push({
+  await recordTurn(testInfo, turns, {
     prompt: prompts.speakStory,
     text: story.text,
     audio: storyAudio,
@@ -231,44 +255,86 @@ test('chat mode keeps one ADK2 conversation context across weather, TTS, story, 
 
   const imagesBeforeStoryImage = await page.locator('.message.bot .image-message img').count();
   const storyImage = await sendChatTurn(page, prompts.drawStory);
-  const imageArtifact = await saveBackendArtifact(
-    page,
-    testInfo,
-    storyImage.image,
-    'turn-04-story-image',
-  );
-  turns.push({
+  expect
+    .soft(storyImage.image, 'image turn must return a real backend image artifact')
+    .toEqual(expect.any(String));
+  const imageArtifact = storyImage.image
+    ? await saveBackendArtifact(
+        page,
+        testInfo,
+        storyImage.image,
+        'turn-04-story-image',
+      )
+    : null;
+  await recordTurn(testInfo, turns, {
     prompt: prompts.drawStory,
     text: storyImage.text,
     image: imageArtifact,
     payload: storyImage,
   });
-  expect(storyImage.image, 'image turn must return a real backend image artifact').toEqual(
-    expect.any(String),
-  );
-  await expect
-    .poll(async () => page.locator('.message.bot .image-message img').count(), {
-      timeout: 30 * 1000,
-    })
-    .toBeGreaterThan(imagesBeforeStoryImage);
+  if (storyImage.image) {
+    await expect
+      .poll(async () => page.locator('.message.bot .image-message img').count(), {
+        timeout: 30 * 1000,
+      })
+      .toBeGreaterThan(imagesBeforeStoryImage);
+  }
 
   const verbum = await sendChatTurn(page, prompts.checkWord);
-  turns.push({ prompt: prompts.checkWord, text: verbum.text, payload: verbum });
+  await recordTurn(testInfo, turns, { prompt: prompts.checkWord, text: verbum.text, payload: verbum });
   expect(verbum.text).toEqual(expect.any(String));
   expect(verbum.text).toMatch(/Verbum|вербум|слова/i);
+  expect
+    .soft(verbum.text, 'Verbum turn should resolve "гэта слова" from the existing chat context')
+    .not.toMatch(/якое менавіта|напішыце яго|напішы.*слова|удакладні/i);
 
-  await expect(page.locator('.message.user .message-content')).toContainText([
+  const inputFilePath = testInfo.outputPath('turn-07-input-file.txt');
+  await writeFile(
+    inputFilePath,
+    [
+      'Гэта тэставы файл для комплекснага ADK2 e2e сцэнару.',
+      'У ім згадваюцца Менск, Verbum, навіны, галасавыя паведамленні і генерацыя малюнкаў.',
+      'Асістэнт павінен коратка расказаць, што знаходзіцца ў файле.',
+    ].join('\n'),
+    'utf8',
+  );
+  const fileReply = await sendChatTurn(page, prompts.describeFile, { filePath: inputFilePath });
+  await recordTurn(testInfo, turns, {
+    prompt: prompts.describeFile,
+    inputFile: inputFilePath,
+    text: fileReply.text,
+    payload: fileReply,
+  });
+  expect(fileReply.text).toEqual(expect.any(String));
+  expect(fileReply.text).toMatch(/файл|ADK2|тэст|Менск|Verbum/i);
+
+  const news = await sendChatTurn(page, prompts.readNews);
+  await recordTurn(testInfo, turns, { prompt: prompts.readNews, text: news.text, payload: news });
+  expect(news.text).toEqual(expect.any(String));
+  expect(news.text).toMatch(/навін|Беларус|апошн|сёння|паводле/i);
+
+  const joke = await sendChatTurn(page, prompts.tellJoke);
+  await recordTurn(testInfo, turns, { prompt: prompts.tellJoke, text: joke.text, payload: joke });
+  expect(joke.text).toEqual(expect.any(String));
+  expect(joke.text.trim().length).toBeGreaterThan(20);
+
+  for (const prompt of [
     prompts.weather,
     prompts.speakForecast,
     prompts.speakStory,
     prompts.drawStory,
     prompts.checkWord,
-  ]);
+    prompts.describeFile,
+    prompts.readNews,
+    prompts.tellJoke,
+  ]) {
+    await expect(
+      page.locator('.message.user .message-content').filter({ hasText: prompt }).first(),
+    ).toBeVisible();
+  }
   await expect
     .poll(async () => page.locator('.message.bot:not(#typing-indicator)').count(), {
       timeout: 30 * 1000,
     })
-    .toBeGreaterThan(4);
-
-  await writeDialogueArtifacts(testInfo, turns);
+    .toBeGreaterThan(8);
 });

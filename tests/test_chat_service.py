@@ -157,9 +157,9 @@ def test_chat_service_stores_uploads_and_uses_filename_for_history_when_text_emp
                 user_id="auth-user-123",
                 files=[
                     ChatFile(
-                        filename="../lesson.wav",
-                        mime_type="audio/wav",
-                        data=b"upload-bytes",
+                        filename="../lesson.png",
+                        mime_type="image/png",
+                        data=b"png-bytes",
                     )
                 ],
             )
@@ -168,10 +168,10 @@ def test_chat_service_stores_uploads_and_uses_filename_for_history_when_text_emp
 
     assert result.text == "assistant reply"
     assert service.adk_service.run_calls[0]["text"] is None
-    assert service.adk_service.run_calls[0]["file_data"] == b"upload-bytes"
-    assert service.adk_service.run_calls[0]["mime_type"] == "audio/wav"
+    assert service.adk_service.run_calls[0]["file_data"] == b"png-bytes"
+    assert service.adk_service.run_calls[0]["mime_type"] == "image/png"
     assert service.chat_message_store.list_messages(result.conversation_id) == [
-        {"role": "user", "content": "../lesson.wav"},
+        {"role": "user", "content": "../lesson.png"},
         {"role": "assistant", "content": "assistant reply"},
     ]
 
@@ -184,7 +184,49 @@ def test_chat_service_stores_uploads_and_uses_filename_for_history_when_text_emp
         "upload",
         "assistant_audio",
     ]
-    assert artifact_rows[0]["filename"] == "lesson.wav"
+    assert artifact_rows[0]["filename"] == "lesson.png"
+
+
+def test_chat_service_transcribes_audio_only_upload_before_calling_agent(monkeypatch) -> None:
+    from services.chat_service import ChatFile, ChatRequest, ChatService
+
+    async def fake_transcribe(self, attachment):
+        _ = self
+        assert attachment.filename == "voice.wav"
+        return "распазнаны тэкст"
+
+    monkeypatch.setattr(ChatService, "_transcribe_audio_file", fake_transcribe)
+    service, _metadata_backend = build_service()
+
+    result = asyncio.run(
+        service.process(
+            ChatRequest(
+                user_id="auth-user-123",
+                files=[
+                    ChatFile(
+                        filename="voice.wav",
+                        mime_type="audio/wav",
+                        data=b"wav-bytes",
+                    )
+                ],
+            )
+        )
+    )
+
+    assert result.error is None
+    assert service.adk_service.run_calls == [
+        {
+            "session_id": "session-1",
+            "user_id": "auth-user-123",
+            "text": "распазнаны тэкст",
+            "file_data": None,
+            "mime_type": None,
+        }
+    ]
+    assert service.chat_message_store.list_messages(result.conversation_id) == [
+        {"role": "user", "content": "распазнаны тэкст"},
+        {"role": "assistant", "content": "assistant reply"},
+    ]
 
 
 @pytest.mark.parametrize(
@@ -239,6 +281,7 @@ def test_chat_service_forwards_normalized_supported_mime_type_to_adk() -> None:
         service.process(
             ChatRequest(
                 user_id="auth-user-123",
+                text="describe this",
                 files=[
                     ChatFile(
                         filename="voice.wav",
@@ -263,6 +306,7 @@ def test_chat_service_converts_browser_webm_recording_to_wav_for_agent() -> None
         service.process(
             ChatRequest(
                 user_id="auth-user-123",
+                text="transcribe this",
                 files=[
                     ChatFile(
                         filename="voice-message.webm",

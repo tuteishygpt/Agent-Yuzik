@@ -247,6 +247,87 @@ def test_telegram_media_renderer_deduplicates_audio_artifacts(
     assert sent_wavs == [b"same-audio"]
 
 
+def test_telegram_voice_message_uses_transcript_as_chat_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from bot import handlers
+    from services.chat_service import ChatResult
+
+    captured_requests = []
+    sent_messages = []
+
+    class FakeChatService:
+        async def process(self, request):
+            captured_requests.append(request)
+            return ChatResult(
+                text="казка",
+                artifacts=[],
+                audio=None,
+                image=None,
+                error=None,
+                diagnostics={},
+                conversation_id="conversation-1",
+                session_id="session-1",
+                user_history_text=request.text,
+            )
+
+    class FakeDownloadedFile:
+        async def download_to_memory(self, stream):
+            stream.write(b"telegram-ogg")
+
+    class FakeBot:
+        async def get_file(self, file_id):
+            assert file_id == "voice-file-id"
+            return FakeDownloadedFile()
+
+        async def send_chat_action(self, chat_id, action):
+            return None
+
+        async def send_message(self, chat_id, text):
+            sent_messages.append((chat_id, text))
+            return None
+
+    async def fake_transcribe(file_data: bytes, mime_type: str | None) -> str:
+        assert file_data == b"telegram-ogg"
+        assert mime_type == "audio/ogg"
+        return "раскажы казку"
+
+    monkeypatch.setattr(handlers, "_transcribe_telegram_voice", fake_transcribe)
+    monkeypatch.setattr(handlers, "save_message", lambda **kwargs: None)
+
+    update = SimpleNamespace(
+        effective_chat=SimpleNamespace(id=42),
+        effective_user=SimpleNamespace(id=7, first_name="User", username="tester"),
+        message=SimpleNamespace(
+            text=None,
+            caption=None,
+            document=None,
+            photo=None,
+            audio=None,
+            voice=SimpleNamespace(
+                file_id="voice-file-id",
+                file_unique_id="voice-unique-id",
+                mime_type="audio/ogg",
+            ),
+            video=None,
+            video_note=None,
+            animation=None,
+            sticker=None,
+        ),
+    )
+    context = SimpleNamespace(
+        bot=FakeBot(),
+        application=SimpleNamespace(bot_data={"chat_service": FakeChatService()}),
+    )
+
+    asyncio.run(handlers._process_message_task(update, context))
+
+    assert len(captured_requests) == 1
+    assert captured_requests[0].text == "раскажы казку"
+    assert captured_requests[0].files == []
+    assert sent_messages == [(42, "казка")]
+
+
 def test_telegram_dialogue_user_label_prefers_username() -> None:
     from bot.handlers import _telegram_dialogue_user_label
 

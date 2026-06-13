@@ -34,6 +34,36 @@ EXPLICIT_TTS_MARKERS = (
     "tts",
 )
 
+FRESH_TASK_MARKERS = (
+    "наві",
+    "знайд",
+    "пашук",
+    "пошук",
+    "шукай",
+    "search",
+    "news",
+)
+
+PREVIOUS_CONTEXT_MARKERS = (
+    "яго",
+    "яе",
+    "гэта",
+    "гэты",
+    "гэтую",
+    "гэтым",
+    "папярэд",
+    "апошн",
+    "previous",
+    "last",
+    "above",
+)
+
+PREVIOUS_CONTEXT_WORDS = (
+    "this",
+    "that",
+    "it",
+)
+
 
 def build_pending_translation(target_language: str) -> dict[str, str]:
     return {"kind": "translate", "target_language": target_language}
@@ -78,6 +108,27 @@ def _has_explicit_tts_request(text: str | None) -> bool:
     return any(marker in lowered for marker in EXPLICIT_TTS_MARKERS)
 
 
+def _has_previous_context_reference(text: str | None) -> bool:
+    if not text:
+        return False
+    lowered = text.casefold()
+    if any(marker in lowered for marker in PREVIOUS_CONTEXT_MARKERS):
+        return True
+    tokens = lowered
+    for separator in ",.!?:;()[]{}\"'\n\r\t":
+        tokens = tokens.replace(separator, " ")
+    return any(token in PREVIOUS_CONTEXT_WORDS for token in tokens.split())
+
+
+def _is_self_contained_fresh_task(text: str | None) -> bool:
+    if not text:
+        return False
+    lowered = text.casefold()
+    if _has_previous_context_reference(lowered):
+        return False
+    return any(marker in lowered for marker in FRESH_TASK_MARKERS)
+
+
 def _set_intent_state(ctx, raw_intent: TurnIntent, intent: TurnIntent) -> None:
     ctx.state["temp:turn_intent_route"] = raw_intent.route
     ctx.state["temp:turn_intent_confidence"] = raw_intent.confidence
@@ -88,6 +139,15 @@ def _set_intent_state(ctx, raw_intent: TurnIntent, intent: TurnIntent) -> None:
     ctx.state[TTS_REQUESTED_FOR_TURN_KEY] = tts_requested
     ctx.state["temp:timezone"] = intent.timezone
     ctx.state["temp:minsk_time_enabled"] = intent.timezone == "Europe/Minsk"
+
+
+def _set_previous_context_state(ctx, intent: TurnIntent) -> None:
+    current_text = ctx.state.get("temp:turn_current_text")
+    if intent.needs_previous_context and not _is_self_contained_fresh_task(current_text):
+        return
+    ctx.state["temp:turn_previous_text"] = None
+    ctx.state["temp:turn_previous_summary"] = None
+    ctx.state["temp:turn_previous_artifact_id"] = None
 
 
 def _set_translation_state(ctx, target_language: str | None) -> None:
@@ -102,6 +162,7 @@ async def intent_policy_node(ctx, node_input):
     raw_intent = coerce_turn_intent(node_input)
     intent = _effective_intent(raw_intent)
     _set_intent_state(ctx, raw_intent, intent)
+    _set_previous_context_state(ctx, intent)
 
     content = _current_content_from_state(ctx.state)
     pending_target = pending_translation_target(ctx.state)

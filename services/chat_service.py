@@ -105,6 +105,7 @@ class ChatService:
         }
 
         text_for_agent = request.text.strip() or None
+        history_text_override: str | None = None
 
         if request.files:
             validation_result = self._validate_files(request.files)
@@ -151,6 +152,14 @@ class ChatService:
                     user_history_text=user_history_text,
                 )
 
+            audio_only_transcript = None
+            if self._should_transcribe_audio_only_request(request, text_for_agent):
+                audio_only_transcript = await self._transcribe_audio_file(request.files[0])
+                if audio_only_transcript:
+                    text_for_agent = audio_only_transcript
+                    history_text_override = audio_only_transcript
+                    diagnostics["audio_transcript"] = audio_only_transcript
+
             for attachment in request.files:
                 mime_type = normalize_mime_type(attachment.mime_type) or attachment.mime_type
                 self.artifact_store.store_user_upload(
@@ -166,9 +175,12 @@ class ChatService:
                     },
                 )
 
-                agent_file_data, agent_mime_type = await self._agent_file_payload(
-                    attachment
-                )
+                if audio_only_transcript:
+                    agent_file_data, agent_mime_type = None, None
+                else:
+                    agent_file_data, agent_mime_type = await self._agent_file_payload(
+                        attachment
+                    )
 
                 reply, delta, parts, run_error, error_type = await self._run_agent(
                     request=request,
@@ -215,7 +227,7 @@ class ChatService:
             audio_url = self._first_url(artifact_media, "audio") or audio_url
             image_url = self._first_url(artifact_media, "image") or image_url
 
-        user_history_text = self._history_text(request)
+        user_history_text = self._history_text(request, text_override=history_text_override)
         if (
             request.no_answer_reply is not None
             and not self._has_visible_output(
@@ -310,6 +322,28 @@ class ChatService:
             return await asyncio.to_thread(ensure_wav, attachment.data), "audio/wav"
         return attachment.data, mime_type
 
+    def _should_transcribe_audio_only_request(
+        self,
+        request: ChatRequest,
+        text_for_agent: str | None,
+    ) -> bool:
+        if text_for_agent or len(request.files) != 1:
+            return False
+        mime_type = normalize_mime_type(request.files[0].mime_type)
+        return bool(mime_type and mime_type.startswith("audio/"))
+
+    async def _transcribe_audio_file(self, attachment: ChatFile) -> str | None:
+        try:
+            wav_data = await asyncio.to_thread(ensure_wav, attachment.data)
+            from api.voice_simple import _transcribe_audio_with_model
+
+            transcript = await _transcribe_audio_with_model(wav_data)
+        except Exception:
+            log.exception("Failed to transcribe audio-only chat upload")
+            return None
+        transcript = transcript.strip()
+        return transcript or None
+
     async def _collect_artifacts(
         self,
         *,
@@ -383,7 +417,14 @@ class ChatService:
             )
         return media
 
-    def _history_text(self, request: ChatRequest) -> str | None:
+    def _history_text(
+        self,
+        request: ChatRequest,
+        *,
+        text_override: str | None = None,
+    ) -> str | None:
+        if text_override:
+            return text_override
         if request.text:
             return request.text
         if request.files:

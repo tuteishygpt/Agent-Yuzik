@@ -9,6 +9,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 import config
+from api.voice_utils import ensure_wav
 from bot import helpers
 from services.adk_service import ADKService
 from services.chat_service import ChatFile, ChatMedia, ChatRequest, ChatService
@@ -172,6 +173,24 @@ def _message_file(message):
     return file_to_download, mime_type, file_name
 
 
+async def _transcribe_telegram_voice(
+    file_data: bytes,
+    mime_type: str | None,
+) -> str:
+    _ = mime_type
+    if not file_data:
+        return ""
+    try:
+        wav_data = await asyncio.to_thread(ensure_wav, file_data)
+        from api.voice_simple import _transcribe_audio_with_model
+
+        transcript = await _transcribe_audio_with_model(wav_data)
+    except Exception:
+        log.exception("Failed to transcribe Telegram voice message")
+        return ""
+    return transcript.strip()
+
+
 async def _process_message_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     user_id = str(update.effective_user.id)
@@ -204,6 +223,14 @@ async def _process_message_task(update: Update, context: ContextTypes.DEFAULT_TY
                 mime_type,
                 file_name,
             )
+            if message.voice and not user_text:
+                transcript = await _transcribe_telegram_voice(file_data, mime_type)
+                if transcript:
+                    user_text = transcript
+                    file_to_download = None
+                    file_data = None
+                    mime_type = None
+                    file_name = None
 
         await helpers._safe_call(
             context.bot.send_chat_action(chat_id, "typing"),

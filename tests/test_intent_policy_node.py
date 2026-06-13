@@ -82,6 +82,56 @@ def test_intent_policy_ignores_tts_action_without_explicit_audio_request():
     assert ctx.state["user:tts_requested_for_turn"] is False
 
 
+def test_intent_policy_removes_previous_context_for_self_contained_news_tts_request():
+    ctx, _ = make_context(
+        {
+            "temp:turn_current_text": "пашукай навіны і агуч",
+            "temp:turn_previous_text": "Папярэдняя казка пра коніка.",
+            "temp:turn_previous_summary": "Казка пра коніка.",
+        }
+    )
+
+    asyncio.run(
+        intent_policy_node(
+            ctx,
+            {
+                "route": "default",
+                "actions": ["tts"],
+                "needs_previous_context": True,
+                "confidence": 0.9,
+            },
+        )
+    )
+
+    assert ctx.state["temp:tts_requested"] is True
+    assert ctx.state["temp:turn_previous_text"] is None
+    assert ctx.state["temp:turn_previous_summary"] is None
+
+
+def test_intent_policy_keeps_previous_context_for_explicit_anaphora_tts_request():
+    ctx, _ = make_context(
+        {
+            "temp:turn_current_text": "агуч яго",
+            "temp:turn_previous_text": "Папярэдні адказ.",
+        }
+    )
+
+    asyncio.run(
+        intent_policy_node(
+            ctx,
+            {
+                "route": "default",
+                "actions": ["tts"],
+                "needs_previous_context": True,
+                "confidence": 0.9,
+            },
+        )
+    )
+
+    assert ctx.state["temp:tts_requested"] is True
+    assert ctx.state["temp:turn_previous_text"] == "Папярэдні адказ."
+
+
 def test_intent_policy_sets_minsk_timezone_state():
     ctx, _ = make_context()
 
