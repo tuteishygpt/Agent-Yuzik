@@ -202,6 +202,51 @@ def test_telegram_media_renderer_sends_generic_artifacts_as_documents(
     assert sent_docs == [(b"pdf-bytes", "report.pdf")]
 
 
+def test_telegram_media_renderer_deduplicates_audio_artifacts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from bot import handlers
+    from services.chat_service import ChatMedia
+
+    sent_wavs: list[bytes] = []
+
+    async def fake_send_wavs(chat_id: int, context: object, wavs):
+        _ = chat_id
+        _ = context
+        sent_wavs.extend(wavs)
+        return True
+
+    monkeypatch.setattr(handlers.helpers, "send_wavs", fake_send_wavs)
+
+    sent, audio, image = asyncio.run(
+        handlers._send_media_from_chat_result(
+            42,
+            object(),
+            [
+                ChatMedia(
+                    kind="audio",
+                    filename="part-0",
+                    mime_type="audio/wav",
+                    data=b"same-audio",
+                    url=None,
+                ),
+                ChatMedia(
+                    kind="audio",
+                    filename="speech.wav",
+                    mime_type="audio/wav",
+                    data=b"same-audio",
+                    url="/api/files/1",
+                ),
+            ],
+        )
+    )
+
+    assert sent is True
+    assert audio == b"same-audio"
+    assert image is None
+    assert sent_wavs == [b"same-audio"]
+
+
 def test_telegram_dialogue_user_label_prefers_username() -> None:
     from bot.handlers import _telegram_dialogue_user_label
 

@@ -54,7 +54,7 @@ def test_intent_policy_routes_translation_and_sets_translation_state():
 
 
 def test_intent_policy_sets_tts_action_state():
-    ctx, _ = make_context()
+    ctx, _ = make_context({"temp:turn_current_text": "Агуч казку"})
 
     asyncio.run(
         intent_policy_node(
@@ -65,6 +65,21 @@ def test_intent_policy_sets_tts_action_state():
 
     assert ctx.state["temp:tts_requested"] is True
     assert ctx.state["user:tts_requested_for_turn"] is True
+
+
+def test_intent_policy_ignores_tts_action_without_explicit_audio_request():
+    ctx, _ = make_context({"temp:turn_current_text": "раскажы казку"})
+
+    asyncio.run(
+        intent_policy_node(
+            ctx,
+            {"route": "default", "actions": ["tts"], "confidence": 0.9},
+        )
+    )
+
+    assert ctx.route == "default"
+    assert ctx.state["temp:tts_requested"] is False
+    assert ctx.state["user:tts_requested_for_turn"] is False
 
 
 def test_intent_policy_sets_minsk_timezone_state():

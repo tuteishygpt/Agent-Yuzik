@@ -71,7 +71,15 @@ async def _send_media_from_chat_result(
     context: ContextTypes.DEFAULT_TYPE,
     artifacts: list[ChatMedia],
 ) -> tuple[bool, bytes | None, bytes | None]:
-    wavs = [item.data for item in artifacts if item.kind == "audio"]
+    wavs: list[bytes] = []
+    seen_audio: set[bytes] = set()
+    for item in artifacts:
+        if item.kind != "audio":
+            continue
+        if item.data in seen_audio:
+            continue
+        seen_audio.add(item.data)
+        wavs.append(item.data)
     imgs = [item.data for item in artifacts if item.kind == "image"]
     docs = [
         (item.data, item.filename)

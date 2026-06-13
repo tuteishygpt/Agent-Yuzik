@@ -64,6 +64,14 @@ def test_router_instruction_does_not_call_removed_route_first_tools():
     assert "`generate_image`" not in router_agent.instruction
 
 
+def test_router_instruction_keeps_story_requests_in_belarusian():
+    instruction = router_agent.instruction.casefold()
+
+    assert "раскажы казку" in instruction
+    assert "па-беларуску" in instruction
+    assert "не перакладай" in instruction
+
+
 def test_router_callback_appends_structured_previous_context():
     state = {
         "temp:turn_previous_text": "A previous assistant answer.",

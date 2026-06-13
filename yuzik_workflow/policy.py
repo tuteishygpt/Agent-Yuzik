@@ -21,6 +21,19 @@ TARGET_LANGUAGE_LABELS = {
     "en": "ангельскую",
 }
 
+EXPLICIT_TTS_MARKERS = (
+    "агуч",
+    "аўды",
+    "ауды",
+    "голас",
+    "ўголас",
+    "уголас",
+    "audio",
+    "voice",
+    "aloud",
+    "tts",
+)
+
 
 def build_pending_translation(target_language: str) -> dict[str, str]:
     return {"kind": "translate", "target_language": target_language}
@@ -58,10 +71,19 @@ def _effective_intent(intent: TurnIntent) -> TurnIntent:
     return TurnIntent(confidence=intent.confidence)
 
 
+def _has_explicit_tts_request(text: str | None) -> bool:
+    if not text:
+        return False
+    lowered = text.casefold()
+    return any(marker in lowered for marker in EXPLICIT_TTS_MARKERS)
+
+
 def _set_intent_state(ctx, raw_intent: TurnIntent, intent: TurnIntent) -> None:
     ctx.state["temp:turn_intent_route"] = raw_intent.route
     ctx.state["temp:turn_intent_confidence"] = raw_intent.confidence
-    tts_requested = "tts" in intent.actions
+    tts_requested = "tts" in intent.actions and _has_explicit_tts_request(
+        ctx.state.get("temp:turn_current_text")
+    )
     ctx.state["temp:tts_requested"] = tts_requested
     ctx.state[TTS_REQUESTED_FOR_TURN_KEY] = tts_requested
     ctx.state["temp:timezone"] = intent.timezone
