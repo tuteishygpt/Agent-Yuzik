@@ -17,6 +17,7 @@ from api.deps import (
     conversation_store,
     guess_mime,
 )
+from services.chat_commands import CLEAR_HISTORY_REPLY, is_clear_history_command
 from services.chat_service import ChatFile, ChatRequest, ChatService
 
 log = logging.getLogger("app")
@@ -38,7 +39,18 @@ def _chat_service() -> ChatService:
         chat_message_store=chat_message_store,
         artifact_store=artifact_store,
         adk_session_store=adk_session_store,
+        clear_chat_session=_clear_chat_session,
     )
+
+
+async def _clear_chat_session(user_id: str) -> None:
+    conversation_store.clear_active_conversation(user_id)
+    await adk_service.clear_chat_context_state(user_id)
+    adk_session_store.clear_active_session(
+        user_id,
+        adk_service.app_name,
+    )
+    chat_histories[user_id] = []
 
 
 @router.post("/chat")
@@ -50,6 +62,15 @@ async def api_chat(
 ):
     _ = user_id
     resolved_user_id = current_user.user_id
+
+    if not files and is_clear_history_command(text):
+        await _clear_chat_session(resolved_user_id)
+        return {
+            "text": CLEAR_HISTORY_REPLY,
+            "audio": None,
+            "image": None,
+            "artifacts": [],
+        }
 
     chat_files: list[ChatFile] = []
     for uploaded_file in files:
@@ -115,11 +136,5 @@ async def clear_chat_history(
     current_user: AuthenticatedUser = Depends(get_current_user),
 ):
     _ = user_id
-    conversation_store.clear_active_conversation(current_user.user_id)
-    await adk_service.clear_chat_context_state(current_user.user_id)
-    adk_session_store.clear_active_session(
-        current_user.user_id,
-        adk_service.app_name,
-    )
-    chat_histories[current_user.user_id] = []
+    await _clear_chat_session(current_user.user_id)
     return {"status": "ok"}

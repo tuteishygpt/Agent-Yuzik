@@ -287,6 +287,224 @@ def test_clear_chat_history_marks_conversation_cleared_and_returns_empty_history
     assert backend.tables["adk_sessions"][0]["status"] == "closed"
 
 
+@pytest.mark.parametrize(
+    "command_text",
+    [
+        "  АЧЫСЦІ   гісторыю!  ",
+        "Калі ласка, ачысці чат.",
+    ],
+)
+def test_chat_text_clear_command_uses_same_history_reset_as_clear_button(
+    monkeypatch: pytest.MonkeyPatch,
+    command_text: str,
+) -> None:
+    from api import chat as chat_module
+    from services.supabase.adk_session_store import ADKSessionStore
+    from services.supabase.backend import InMemorySupabaseBackend
+    from services.supabase.chat_message_store import ChatMessageStore
+    from services.supabase.conversation_store import ConversationStore
+
+    class FakeADKService:
+        app_name = "router-agent"
+
+        def __init__(self) -> None:
+            self.clear_calls: list[str] = []
+            self.run_calls: list[dict] = []
+
+        async def clear_chat_context_state(self, user_id: str) -> None:
+            self.clear_calls.append(user_id)
+
+        async def get_or_create_session(
+            self,
+            user_id: str,
+            conversation_id: str | None = None,
+        ) -> str:
+            _ = user_id
+            _ = conversation_id
+            return "new-session"
+
+        def run_agent(self, **kwargs):
+            self.run_calls.append(kwargs)
+            return "agent should not run", {}, []
+
+    backend = InMemorySupabaseBackend()
+    conversation_store = ConversationStore(backend)
+    chat_message_store = ChatMessageStore(backend)
+    adk_session_store = ADKSessionStore(backend)
+    fake_adk_service = FakeADKService()
+
+    conversation = conversation_store.get_or_create_active_conversation("auth-user-123")
+    chat_message_store.append_message(
+        conversation["id"],
+        "auth-user-123",
+        "assistant",
+        "keep",
+    )
+    adk_session_store.set_active_session(
+        user_id="auth-user-123",
+        app_name=fake_adk_service.app_name,
+        adk_session_id="session-with-previous-state",
+        conversation_id=conversation["id"],
+    )
+
+    monkeypatch.setattr(config, "LOCAL_ASR", False)
+    monkeypatch.setattr(
+        "api.auth.get_jwt_verifier",
+        lambda: FakeVerifier(
+            {
+                "good-token": {
+                    "sub": "auth-user-123",
+                    "aud": "authenticated",
+                    "iss": "https://project-ref.supabase.co/auth/v1",
+                }
+            }
+        ),
+    )
+    monkeypatch.setattr(chat_module, "conversation_store", conversation_store)
+    monkeypatch.setattr(chat_module, "chat_message_store", chat_message_store)
+    monkeypatch.setattr(chat_module, "adk_session_store", adk_session_store)
+    monkeypatch.setattr(chat_module, "adk_service", fake_adk_service)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/chat",
+            data={"text": command_text},
+            headers=auth_headers("good-token"),
+        )
+        get_response = client.get(
+            "/api/chat/history",
+            headers=auth_headers("good-token"),
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "text": "Гісторыя ачышчана. Пачынаем новую сесію.",
+        "audio": None,
+        "image": None,
+        "artifacts": [],
+    }
+    assert get_response.status_code == 200
+    assert get_response.json() == {"history": []}
+    assert conversation_store.get_active_conversation("auth-user-123") is None
+    assert (
+        adk_session_store.get_active_session("auth-user-123", fake_adk_service.app_name)
+        is None
+    )
+    assert fake_adk_service.clear_calls == ["auth-user-123"]
+    assert fake_adk_service.run_calls == []
+    assert backend.tables["adk_sessions"][0]["status"] == "closed"
+
+
+def test_chat_voice_clear_command_uses_transcript_before_running_agent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from api import chat as chat_module
+    from api import voice_simple
+    from services.supabase.adk_session_store import ADKSessionStore
+    from services.supabase.backend import InMemorySupabaseBackend
+    from services.supabase.chat_message_store import ChatMessageStore
+    from services.supabase.conversation_store import ConversationStore
+
+    class FakeADKService:
+        app_name = "router-agent"
+
+        def __init__(self) -> None:
+            self.clear_calls: list[str] = []
+            self.run_calls: list[dict] = []
+
+        async def clear_chat_context_state(self, user_id: str) -> None:
+            self.clear_calls.append(user_id)
+
+        async def get_or_create_session(
+            self,
+            user_id: str,
+            conversation_id: str | None = None,
+        ) -> str:
+            _ = user_id
+            _ = conversation_id
+            return "session-with-previous-state"
+
+        def run_agent(self, **kwargs):
+            self.run_calls.append(kwargs)
+            return "agent should not run", {}, []
+
+    async def fake_transcribe_audio(audio_data: bytes) -> str:
+        assert audio_data.startswith(b"RIFF")
+        return "ачысці гісторыю"
+
+    backend = InMemorySupabaseBackend()
+    conversation_store = ConversationStore(backend)
+    chat_message_store = ChatMessageStore(backend)
+    adk_session_store = ADKSessionStore(backend)
+    fake_adk_service = FakeADKService()
+
+    conversation = conversation_store.get_or_create_active_conversation("auth-user-123")
+    chat_message_store.append_message(
+        conversation["id"],
+        "auth-user-123",
+        "assistant",
+        "keep",
+    )
+    adk_session_store.set_active_session(
+        user_id="auth-user-123",
+        app_name=fake_adk_service.app_name,
+        adk_session_id="session-with-previous-state",
+        conversation_id=conversation["id"],
+    )
+
+    monkeypatch.setattr(config, "LOCAL_ASR", False)
+    monkeypatch.setattr(
+        voice_simple,
+        "_transcribe_audio_with_model",
+        fake_transcribe_audio,
+    )
+    monkeypatch.setattr(
+        "api.auth.get_jwt_verifier",
+        lambda: FakeVerifier(
+            {
+                "good-token": {
+                    "sub": "auth-user-123",
+                    "aud": "authenticated",
+                    "iss": "https://project-ref.supabase.co/auth/v1",
+                }
+            }
+        ),
+    )
+    monkeypatch.setattr(chat_module, "conversation_store", conversation_store)
+    monkeypatch.setattr(chat_module, "chat_message_store", chat_message_store)
+    monkeypatch.setattr(chat_module, "adk_session_store", adk_session_store)
+    monkeypatch.setattr(chat_module, "adk_service", fake_adk_service)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/chat",
+            files={"files": ("voice.wav", b"RIFFvoice-command", "audio/wav")},
+            headers=auth_headers("good-token"),
+        )
+        get_response = client.get(
+            "/api/chat/history",
+            headers=auth_headers("good-token"),
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "text": "Гісторыя ачышчана. Пачынаем новую сесію.",
+        "audio": None,
+        "image": None,
+        "artifacts": [],
+    }
+    assert get_response.status_code == 200
+    assert get_response.json() == {"history": []}
+    assert conversation_store.get_active_conversation("auth-user-123") is None
+    assert (
+        adk_session_store.get_active_session("auth-user-123", fake_adk_service.app_name)
+        is None
+    )
+    assert fake_adk_service.clear_calls == ["auth-user-123"]
+    assert fake_adk_service.run_calls == []
+    assert backend.tables["adk_sessions"][0]["status"] == "closed"
+
+
 def test_chat_dialogue_log_uses_authenticated_email_when_available(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,

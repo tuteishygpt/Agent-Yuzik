@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
 from google.genai import types
 
 from api.voice_utils import ensure_wav
+from services.chat_commands import CLEAR_HISTORY_REPLY, is_clear_history_command
 from services.dialogue_logging import append_dialogue_turn, log_adk_turn
 from services.gemini_file_policy import normalize_mime_type, validate_gemini_chat_file
 
@@ -74,12 +76,14 @@ class ChatService:
         chat_message_store,
         artifact_store,
         adk_session_store=None,
+        clear_chat_session: Callable[[str], Awaitable[None]] | None = None,
     ) -> None:
         self.adk_service = adk_service
         self.conversation_store = conversation_store
         self.chat_message_store = chat_message_store
         self.artifact_store = artifact_store
         self.adk_session_store = adk_session_store
+        self.clear_chat_session = clear_chat_session
 
     async def process(self, request: ChatRequest) -> ChatResult:
         if request.conversation_id:
@@ -159,6 +163,25 @@ class ChatService:
                     text_for_agent = audio_only_transcript
                     history_text_override = audio_only_transcript
                     diagnostics["audio_transcript"] = audio_only_transcript
+
+            if (
+                audio_only_transcript
+                and self.clear_chat_session is not None
+                and is_clear_history_command(audio_only_transcript)
+            ):
+                await self.clear_chat_session(request.user_id)
+                diagnostics["clear_history_command"] = True
+                return ChatResult(
+                    text=CLEAR_HISTORY_REPLY,
+                    artifacts=[],
+                    audio=None,
+                    image=None,
+                    error=None,
+                    diagnostics=diagnostics,
+                    conversation_id=conversation_id,
+                    session_id=session_id,
+                    user_history_text=None,
+                )
 
             for attachment in request.files:
                 mime_type = normalize_mime_type(attachment.mime_type) or attachment.mime_type
