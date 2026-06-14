@@ -108,6 +108,34 @@ def test_intent_policy_removes_previous_context_for_self_contained_news_tts_requ
     assert ctx.state["temp:turn_previous_summary"] is None
 
 
+def test_intent_policy_removes_previous_context_for_latest_news_request():
+    ctx, _ = make_context(
+        {
+            "temp:turn_current_text": (
+                "\u0430\u043f\u043e\u0448\u043d\u0456\u044f "
+                "\u043d\u0430\u0432\u0456\u043d\u044b "
+                "\u0437 \u0431\u0435\u043b\u0430\u0440\u0443\u0441\u0456"
+            ),
+            "temp:turn_previous_text": "Previous clarification question.",
+            "temp:turn_previous_summary": "Previous answer.",
+        }
+    )
+
+    asyncio.run(
+        intent_policy_node(
+            ctx,
+            {
+                "route": "default",
+                "needs_previous_context": True,
+                "confidence": 0.9,
+            },
+        )
+    )
+
+    assert ctx.state["temp:turn_previous_text"] is None
+    assert ctx.state["temp:turn_previous_summary"] is None
+
+
 def test_intent_policy_keeps_previous_context_for_explicit_anaphora_tts_request():
     ctx, _ = make_context(
         {
@@ -130,6 +158,25 @@ def test_intent_policy_keeps_previous_context_for_explicit_anaphora_tts_request(
 
     assert ctx.state["temp:tts_requested"] is True
     assert ctx.state["temp:turn_previous_text"] == "Папярэдні адказ."
+
+
+def test_intent_policy_does_not_echo_when_classifier_returns_direct_route():
+    ctx, content = make_context(
+        {
+            "temp:turn_current_text": (
+                "\u0437\u0430 \u044f\u043a\u0443\u044e "
+                "\u0433\u044d\u0442\u0430 \u0434\u0430\u0442\u0443?"
+            )
+        }
+    )
+
+    result = asyncio.run(
+        intent_policy_node(ctx, {"route": "direct", "confidence": 0.95})
+    )
+
+    assert result is content
+    assert ctx.route == "default"
+    assert ctx.state.get("temp:primary_route") != "direct"
 
 
 def test_intent_policy_sets_minsk_timezone_state():

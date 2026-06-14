@@ -26,13 +26,27 @@ def _register_handlers(application: Application) -> None:
     application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
 
 
+async def _clear_telegram_chat_session(user_id: str, adk_service: object | None) -> None:
+    conversation_store.clear_active_conversation(user_id)
+    if adk_service is not None:
+        await adk_service.clear_chat_context_state(user_id)
+        adk_session_store.clear_active_session(
+            user_id,
+            adk_service.app_name,
+        )
+
+
 def _build_chat_service(adk_service: object | None) -> ChatService:
+    async def clear_chat_session(user_id: str) -> None:
+        await _clear_telegram_chat_session(user_id, adk_service)
+
     return ChatService(
         adk_service=adk_service,
         conversation_store=conversation_store,
         chat_message_store=chat_message_store,
         artifact_store=artifact_store,
         adk_session_store=adk_session_store,
+        clear_chat_session=clear_chat_session,
     )
 
 

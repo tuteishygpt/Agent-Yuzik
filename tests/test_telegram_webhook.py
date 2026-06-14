@@ -164,6 +164,59 @@ def test_handler_reads_chat_service_from_application_bot_data() -> None:
     assert get_context_chat_service(context) is fake_service
 
 
+def test_telegram_chat_service_wires_clear_chat_session_callback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from api import telegram as telegram_module
+    from services.supabase.adk_session_store import ADKSessionStore
+    from services.supabase.backend import InMemorySupabaseBackend
+    from services.supabase.chat_message_store import ChatMessageStore
+    from services.supabase.conversation_store import ConversationStore
+
+    class FakeADKService:
+        app_name = "router-agent"
+
+        def __init__(self) -> None:
+            self.clear_calls: list[str] = []
+
+        async def clear_chat_context_state(self, user_id: str) -> None:
+            self.clear_calls.append(user_id)
+
+    backend = InMemorySupabaseBackend()
+    conversation_store = ConversationStore(backend)
+    adk_session_store = ADKSessionStore(backend)
+    fake_adk_service = FakeADKService()
+    conversation = conversation_store.get_or_create_active_conversation("telegram-user")
+    adk_session_store.set_active_session(
+        user_id="telegram-user",
+        app_name=fake_adk_service.app_name,
+        adk_session_id="session-1",
+        conversation_id=conversation["id"],
+    )
+
+    monkeypatch.setattr(telegram_module, "conversation_store", conversation_store)
+    monkeypatch.setattr(
+        telegram_module,
+        "chat_message_store",
+        ChatMessageStore(backend),
+    )
+    monkeypatch.setattr(telegram_module, "adk_session_store", adk_session_store)
+
+    chat_service = telegram_module._build_chat_service(fake_adk_service)
+
+    assert chat_service.clear_chat_session is not None
+    asyncio.run(chat_service.clear_chat_session("telegram-user"))
+    assert fake_adk_service.clear_calls == ["telegram-user"]
+    assert conversation_store.get_active_conversation("telegram-user") is None
+    assert (
+        adk_session_store.get_active_session(
+            "telegram-user",
+            fake_adk_service.app_name,
+        )
+        is None
+    )
+
+
 def test_telegram_media_renderer_sends_generic_artifacts_as_documents(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

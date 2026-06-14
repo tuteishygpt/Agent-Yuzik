@@ -403,6 +403,47 @@ def test_chat_service_uses_no_answer_reply_when_agent_returns_no_visible_output(
     ]
 
 
+def test_chat_service_text_clear_command_uses_clear_callback_without_agent() -> None:
+    from services.chat_service import ChatRequest, ChatService
+
+    metadata_backend = InMemorySupabaseBackend()
+    conversation_store = ConversationStore(metadata_backend)
+    clear_calls: list[str] = []
+
+    async def clear_chat_session(user_id: str) -> None:
+        clear_calls.append(user_id)
+        conversation_store.clear_active_conversation(user_id)
+
+    service = ChatService(
+        adk_service=FakeADKService(),
+        conversation_store=conversation_store,
+        chat_message_store=ChatMessageStore(metadata_backend),
+        artifact_store=ArtifactStore(metadata_backend, InMemoryStorageBackend()),
+        clear_chat_session=clear_chat_session,
+    )
+    conversation = conversation_store.get_or_create_active_conversation(
+        "telegram-user-42"
+    )
+
+    result = asyncio.run(
+        service.process(
+            ChatRequest(
+                user_id="telegram-user-42",
+                channel="telegram",
+                text="\u0430\u0447\u044b\u0441\u0446\u0456 "
+                "\u0433\u0456\u0441\u0442\u043e\u0440\u044b\u044e",
+            )
+        )
+    )
+
+    assert result.text
+    assert "\u0413\u0456\u0441\u0442\u043e\u0440\u044b\u044f" in result.text
+    assert result.conversation_id == conversation["id"]
+    assert clear_calls == ["telegram-user-42"]
+    assert service.adk_service.run_calls == []
+    assert conversation_store.get_active_conversation("telegram-user-42") is None
+
+
 def test_chat_service_rejects_unsupported_file_without_calling_agent() -> None:
     from services.chat_service import ChatFile, ChatRequest
     from services.gemini_file_policy import unsupported_file_reply

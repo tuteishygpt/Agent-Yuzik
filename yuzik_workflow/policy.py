@@ -44,6 +44,11 @@ FRESH_TASK_MARKERS = (
     "news",
 )
 
+NEWS_TASK_MARKERS = (
+    "наві",
+    "news",
+)
+
 PREVIOUS_CONTEXT_MARKERS = (
     "яго",
     "яе",
@@ -124,6 +129,8 @@ def _is_self_contained_fresh_task(text: str | None) -> bool:
     if not text:
         return False
     lowered = text.casefold()
+    if any(marker in lowered for marker in NEWS_TASK_MARKERS):
+        return True
     if _has_previous_context_reference(lowered):
         return False
     return any(marker in lowered for marker in FRESH_TASK_MARKERS)
@@ -180,8 +187,7 @@ async def intent_policy_node(ctx, node_input):
     elif intent.route == "image":
         ctx.route = "image"
     elif intent.route == "direct":
-        ctx.state["temp:primary_route"] = "direct"
-        ctx.route = "direct"
+        ctx.route = "default"
     else:
         ctx.route = "default"
 

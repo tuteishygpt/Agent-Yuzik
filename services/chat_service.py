@@ -98,6 +98,28 @@ class ChatService:
             conversation_id=conversation_id,
         )
 
+        if (
+            not request.files
+            and self.clear_chat_session is not None
+            and is_clear_history_command(request.text)
+        ):
+            await self.clear_chat_session(request.user_id)
+            return ChatResult(
+                text=CLEAR_HISTORY_REPLY,
+                artifacts=[],
+                audio=None,
+                image=None,
+                error=None,
+                diagnostics={
+                    "channel": request.channel,
+                    "metadata": request.metadata,
+                    "clear_history_command": True,
+                },
+                conversation_id=conversation_id,
+                session_id=session_id,
+                user_history_text=None,
+            )
+
         response_text: str | None = None
         audio_url: str | None = None
         image_url: str | None = None
