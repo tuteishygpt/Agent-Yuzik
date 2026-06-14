@@ -18,6 +18,7 @@ Routes:
 - default: normal text/tool answer by router_agent
 - image: user wants an image generated
 - translation: user wants text translated
+- dictionary: user wants to look up a word in a dictionary such as Verbum or Slounik.org
 - direct: workflow should answer directly without router_agent
 - cancel: user cancels a pending generation/action
 
@@ -26,8 +27,15 @@ Actions:
 
 Use timezone="Europe/Minsk" when the user asks for current time/date context in Minsk.
 Use needs_previous_context=true only when the latest turn needs previous_text or previous_summary.
+For dictionary route:
+- Set dictionary_word when the word to look up is present.
+- Set needs_dictionary_word=true when the user asks to search a dictionary but does not provide the word.
+- Set dictionary_sources=["verbum"] or ["slounik"] only when the user explicitly names one source; otherwise leave it empty to search all default dictionaries.
 
 Examples:
+- current_text="знайдзі слова ў слоўніку" -> {"route": "dictionary", "needs_dictionary_word": true, "confidence": 0.95}
+- current_text="знайдзі ў слоўніку востраў" -> {"route": "dictionary", "dictionary_word": "востраў", "confidence": 0.95}
+- current_text="знайдзі ў slounik.org востраў" -> {"route": "dictionary", "dictionary_word": "востраў", "dictionary_sources": ["slounik"], "confidence": 0.95}
 - current_text="Агуч яго" with previous_text present -> {"route": "default", "actions": ["tts"], "needs_previous_context": true, "confidence": 0.95}
 - current_text="Агуч гэта" with previous_text present -> {"route": "default", "actions": ["tts"], "needs_previous_context": true, "confidence": 0.95}
 - current_text="Read it aloud" with previous_text present -> {"route": "default", "actions": ["tts"], "needs_previous_context": true, "confidence": 0.95}

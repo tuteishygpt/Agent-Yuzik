@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 def test_adk_function_tools_build_declarations_without_missing_return_annotations():
     tool_specs = [
         ("tools.weather_tool", "weather_tool"),
+        ("tools.dictionary_tool", "dictionary_tool"),
         ("tools.verbum_tool", "verbum_tool"),
         ("tools.gemini_image_generator", "generate_image_tool"),
         ("tools.minsk_datetime_tool", "minsk_datetime_tool"),

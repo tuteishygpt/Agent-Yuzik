@@ -84,6 +84,15 @@ def pending_translation_target(state: dict[str, Any]) -> str | None:
     return target_language if isinstance(target_language, str) else None
 
 
+def pending_dictionary_action(state: dict[str, Any]) -> dict[str, Any] | None:
+    pending = state.get(PENDING_TEXT_ACTION_KEY)
+    if not isinstance(pending, dict):
+        return None
+    if pending.get("kind") != "dictionary":
+        return None
+    return pending
+
+
 def translation_text_request(target_language: str) -> str:
     target_label = TARGET_LANGUAGE_LABELS.get(target_language, target_language)
     return (
@@ -165,6 +174,21 @@ def _set_translation_state(ctx, target_language: str | None) -> None:
     )
 
 
+def _set_dictionary_state(
+    ctx,
+    *,
+    word: str | None,
+    sources: list[str] | None = None,
+    slounik_dicts: list[str] | None = None,
+    needs_word: bool = False,
+) -> None:
+    ctx.state["temp:primary_route"] = "dictionary"
+    ctx.state["temp:dictionary_word"] = word
+    ctx.state["temp:dictionary_sources"] = sources or []
+    ctx.state["temp:slounik_dicts"] = slounik_dicts or []
+    ctx.state["temp:dictionary_needs_word"] = needs_word
+
+
 async def intent_policy_node(ctx, node_input):
     raw_intent = coerce_turn_intent(node_input)
     intent = _effective_intent(raw_intent)
@@ -173,17 +197,35 @@ async def intent_policy_node(ctx, node_input):
 
     content = _current_content_from_state(ctx.state)
     pending_target = pending_translation_target(ctx.state)
+    pending_dictionary = pending_dictionary_action(ctx.state)
     current_text = ctx.state.get("temp:turn_current_text")
 
     if intent.route == "cancel":
         ctx.state[PENDING_TEXT_ACTION_KEY] = None
         ctx.route = "cancel"
+    elif pending_dictionary and current_text:
+        _set_dictionary_state(
+            ctx,
+            word=current_text,
+            sources=pending_dictionary.get("sources") or [],
+            slounik_dicts=pending_dictionary.get("slounik_dicts") or [],
+        )
+        ctx.route = "dictionary"
     elif pending_target and current_text:
         _set_translation_state(ctx, pending_target)
         ctx.route = "translate"
     elif intent.route == "translation":
         _set_translation_state(ctx, intent.target_language)
         ctx.route = "translate"
+    elif intent.route == "dictionary":
+        _set_dictionary_state(
+            ctx,
+            word=intent.dictionary_word,
+            sources=intent.dictionary_sources,
+            slounik_dicts=intent.slounik_dicts,
+            needs_word=intent.needs_dictionary_word or not intent.dictionary_word,
+        )
+        ctx.route = "dictionary"
     elif intent.route == "image":
         ctx.route = "image"
     elif intent.route == "direct":

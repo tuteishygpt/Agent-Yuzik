@@ -13,7 +13,7 @@ def test_router_exposes_all_backend_text_tools():
         "meme_agent",
         "get_minsk_datetime",
         "get_weather",
-        "lookup_verbum",
+        "lookup_dictionary",
     }
 
 
@@ -42,7 +42,7 @@ def test_router_function_tools_have_vertex_compatible_declarations():
     assert {tool.name for tool in function_tools} == {
         "get_minsk_datetime",
         "get_weather",
-        "lookup_verbum",
+        "lookup_dictionary",
     }
     for tool in function_tools:
         declaration = tool._get_declaration()

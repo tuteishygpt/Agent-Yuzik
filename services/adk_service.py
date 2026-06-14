@@ -28,6 +28,10 @@ CHAT_CONTEXT_STATE_RESET = {
     "user:last_assistant_artifact_id": None,
     "user:pending_text_action": None,
     "user:tts_requested_for_turn": False,
+    "temp:dictionary_word": None,
+    "temp:dictionary_sources": [],
+    "temp:slounik_dicts": [],
+    "temp:dictionary_needs_word": False,
 }
 
 

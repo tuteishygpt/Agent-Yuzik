@@ -61,3 +61,21 @@ def test_coerce_turn_intent_parses_json_content_from_adk_output_schema():
     assert intent.actions == ["tts"]
     assert intent.needs_previous_context is True
     assert intent.confidence == 0.95
+
+
+def test_coerce_turn_intent_accepts_dictionary_route_fields():
+    intent = coerce_turn_intent(
+        {
+            "route": "dictionary",
+            "dictionary_word": "\u0432\u043e\u0441\u0442\u0440\u0430\u045e",
+            "dictionary_sources": ["slounik"],
+            "slounik_dicts": ["bn", "bulykabr"],
+            "needs_dictionary_word": False,
+            "confidence": 0.95,
+        }
+    )
+
+    assert intent.route == "dictionary"
+    assert intent.dictionary_word == "\u0432\u043e\u0441\u0442\u0440\u0430\u045e"
+    assert intent.dictionary_sources == ["slounik"]
+    assert intent.slounik_dicts == ["bn", "bulykabr"]

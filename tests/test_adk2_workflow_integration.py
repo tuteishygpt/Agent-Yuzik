@@ -34,7 +34,14 @@ def test_router_agent_route_first_tools_removed():
 
     assert "synthesize_speech" not in tool_names
     assert "generate_image" not in tool_names
-    assert {"search_agent", "meme_agent", "get_weather", "lookup_verbum"} <= tool_names
+    assert {"search_agent", "meme_agent", "get_weather", "lookup_dictionary"} <= tool_names
+
+
+def test_router_instruction_uses_generic_dictionary_lookup():
+    instruction = router_agent.instruction.casefold()
+
+    assert "lookup_dictionary" in instruction
+    assert "\u0441\u043b\u043e\u045e\u043d\u0456\u043a" in instruction
 
 
 def test_adk_agents_use_retry_enabled_gemini_models():
@@ -150,6 +157,17 @@ def test_translation_route_runs_translation_agent_before_postprocess():
 
     assert ("intent_policy_node", "translation_agent") in edge_names
     assert ("translation_agent", "translation_postprocess_node") in edge_names
+
+
+def test_dictionary_route_runs_dictionary_node_before_postprocess():
+    workflow = create_yuzik_workflow()
+    edge_names = {
+        (edge.from_node.name, edge.to_node.name)
+        for edge in workflow.graph.edges
+    }
+
+    assert ("intent_policy_node", "dictionary_lookup_node") in edge_names
+    assert ("dictionary_lookup_node", "dictionary_postprocess_node") in edge_names
 
 
 def test_translation_callbacks_add_structured_context_and_clear_pending_state():

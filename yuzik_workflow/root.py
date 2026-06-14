@@ -7,6 +7,7 @@ from yuzik_workflow.file_policy import file_policy_node
 from yuzik_workflow.errors import error_fallback_node
 from yuzik_workflow.image_workflow import execute_image_workflow, image_prompt_agent
 from yuzik_workflow.context import turn_context_node
+from yuzik_workflow.dictionary import dictionary_lookup_node
 from yuzik_workflow.intent_classifier import intent_classifier_agent
 from yuzik_workflow.policy import intent_policy_node
 from yuzik_workflow.post_actions import post_action_node
@@ -30,6 +31,8 @@ def create_yuzik_workflow() -> Workflow:
     translation_postprocess = node(
         postprocess_node, name="translation_postprocess_node"
     )
+    dictionary_lookup = node(dictionary_lookup_node, name="dictionary_lookup_node")
+    dictionary_postprocess = node(postprocess_node, name="dictionary_postprocess_node")
     route_validation_cancel = node(
         route_validation_node, name="route_validation_cancel_node"
     )
@@ -54,12 +57,14 @@ def create_yuzik_workflow() -> Workflow:
                     "image": image_prompt_agent,
                     "direct": direct_postprocess,
                     "translate": translation_agent,
+                    "dictionary": dictionary_lookup,
                     DEFAULT_ROUTE: router_agent,
                 },
             ),
             (router_agent, route_validation, post_action, postprocess),
             (image_prompt_agent, image_node, image_post_action, image_postprocess),
             (translation_agent, translation_postprocess),
+            (dictionary_lookup, dictionary_postprocess),
             (route_validation_cancel, postprocess_cancel),
         ],
     )

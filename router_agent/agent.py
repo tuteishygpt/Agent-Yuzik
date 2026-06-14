@@ -7,8 +7,8 @@ from google.adk.tools import BaseTool, ToolContext, agent_tool
 
 from google_search_agent.agent import search_agent
 from meme_generator_agent.agent import meme_agent
+from tools.dictionary_tool import dictionary_tool
 from tools.minsk_datetime_tool import minsk_datetime_tool
-from tools.verbum_tool import verbum_tool
 from tools.weather_tool import weather_tool
 
 
@@ -85,13 +85,13 @@ router_agent = LlmAgent(
     model=config.create_adk_model(config.ROUTER_AGENT_MODEL),
     description="Беларускі агент Юзік — твой беларускамоўны сябар.",
     instruction=(r"""
+        • Калі трэба знайсці слова ў слоўніку, яго значэнне, граматыку, формы або правапіс — выклікай `lookup_dictionary` (`dictionary_tool`). Па змаўчанні шукай у Verbum і Slounik.org. Калі карыстальнік просіць толькі Verbum або толькі Slounik.org, перадай адпаведны `sources` фільтр.
         Ты — беларускі агент **Юзік**.
         • Размаўляй з карыстальнікамі выключна па-беларуску.
         • Калі карыстальнік просіць расказаць або прыдумаць казку (напрыклад: «раскажы казку», «прыдумай казку»), ствары новую кароткую казку па-беларуску. Не перакладай яе на ангельскую, не пераказвай ангельскія прыклады і не пытайся пра дадатковы тэкст, калі просьба самадастатковая.
         • Калі на ўваходзе ёсць файл, уважліва вывучы яго змест. Ты можаш апісваць малюнкі, рабіць кароткі пераказ тэкставых дакументаў, транскрыбаваць аўдыё і адказваць на пытанні, звязаныя са зместам файла.
         • Калі патрэбны пошук у інтэрнэце — выклікай `search_agent`.
-        • Калі пытаюцца пра слова ў слоўніку, яго значэнне, граматыку, формы або правапіс у Verbum — выклікай `lookup_verbum` (`verbum_tool`).
-        • Калі `lookup_verbum` нічога не знайшоў у Verbum, паведам пра гэта і не пераходзь да `search_agent`.
+        • Калі `lookup_dictionary` нічога не знайшоў у слоўніках, паведам пра гэта і не пераходзь да `search_agent`.
         • Калі трэба ведаць актуальныя дату ці час па Мінску — выклікай `get_minsk_datetime`.
         • Калі пытаюцца пра надвор'е або прагноз — выклікай `get_weather` (`weather_tool`). Калі горад не названы, выкарыстоўвай Мінск.
         • Калі карыстальнік відавочна просіць агучыць, прачытаць уголас або зрабіць аўдыя/голас з тэксту (напрыклад: «агучы...», «прачытай уголас...», «зрабі аўдыя...») — выклікай `synthesize_speech`. Ні ў якім разе не выклікай `synthesize_speech` сам сабою для звычайных тэкставых адказаў, перакладаў, тлумачэнняў або пошукавых вынікаў.
@@ -108,7 +108,7 @@ router_agent = LlmAgent(
         agent_tool.AgentTool(agent=meme_agent),
         minsk_datetime_tool,
         weather_tool,
-        verbum_tool,
+        dictionary_tool,
     ],
     before_model_callback=enable_minsk_time_mode,
     before_tool_callback=guard_one_call,

@@ -250,3 +250,48 @@ def test_policy_does_not_import_or_compile_regex():
     assert "import re" not in source
     assert "re.compile" not in source
     assert "_PATTERN" not in source
+
+
+def test_pending_dictionary_state_routes_next_text_to_dictionary():
+    ctx, _ = make_context(
+        {
+            PENDING_TEXT_ACTION_KEY: {
+                "kind": "dictionary",
+                "sources": ["slounik"],
+                "slounik_dicts": ["bn"],
+            },
+            "temp:turn_current_text": "\u0432\u043e\u0441\u0442\u0440\u0430\u045e",
+        }
+    )
+
+    asyncio.run(intent_policy_node(ctx, {"route": "default", "confidence": 0.9}))
+
+    assert ctx.route == "dictionary"
+    assert ctx.state["temp:dictionary_word"] == "\u0432\u043e\u0441\u0442\u0440\u0430\u045e"
+    assert ctx.state["temp:dictionary_sources"] == ["slounik"]
+    assert ctx.state["temp:slounik_dicts"] == ["bn"]
+
+
+def test_dictionary_intent_without_word_sets_dictionary_route():
+    ctx, _ = make_context(
+        {
+            "temp:turn_current_text": (
+                "\u0437\u043d\u0430\u0439\u0434\u0437\u0456 "
+                "\u045e \u0441\u043b\u043e\u045e\u043d\u0456\u043a\u0443"
+            )
+        }
+    )
+
+    asyncio.run(
+        intent_policy_node(
+            ctx,
+            {
+                "route": "dictionary",
+                "needs_dictionary_word": True,
+                "confidence": 0.9,
+            },
+        )
+    )
+
+    assert ctx.route == "dictionary"
+    assert ctx.state["temp:dictionary_needs_word"] is True
