@@ -192,4 +192,8 @@ async def input_policy_node(ctx, node_input):
     file_result = await file_policy_node(ctx, node_input)
     if isinstance(file_result, Event):
         return file_result
-    return await intent_policy_node(ctx, {"route": "default", "confidence": 1.0})
+
+    default_intent = TurnIntent(route="default", confidence=1.0)
+    _set_intent_state(ctx, default_intent, default_intent)
+    ctx.route = "default"
+    return _current_content_from_state(ctx.state)
