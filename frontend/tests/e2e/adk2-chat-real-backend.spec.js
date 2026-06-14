@@ -9,10 +9,11 @@ const prompts = {
   speakForecast: 'Агуч яго',
   speakStory: 'Прыдумай і агуч казку',
   drawStory: 'Зрабі малюнак па ёй',
-  checkWord: 'Правер гэта слова ў вербум',
+  checkWord: 'Правер гэта слова назвы галоўнага героя ў вербум',
   describeFile: 'Атрымай файл і раскажы пра яго',
   readNews: 'Знайдзі і прачытай навіны пра Беларусь',
   tellJoke: 'Раскажы анекдот',
+  clearHistory: 'Ачысці гісторыю',
 };
 
 async function sendChatTurn(page, prompt, options = {}) {
@@ -175,6 +176,21 @@ async function waitForBackendAuth(page) {
   ).toBe(200);
 }
 
+async function readBackendHistory(page) {
+  return page.evaluate(async () => {
+    const { getSupabaseAccessToken } = await import('/src/supabase.js');
+    const accessToken = await getSupabaseAccessToken();
+    const response = await fetch('/api/chat/history', {
+      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+    });
+
+    return {
+      status: response.status,
+      body: await response.text(),
+    };
+  });
+}
+
 test('chat mode keeps one ADK2 conversation context across weather, TTS, story, image, and Verbum tools', async ({
   page,
 }, testInfo) => {
@@ -285,8 +301,8 @@ test('chat mode keeps one ADK2 conversation context across weather, TTS, story, 
   expect(verbum.text).toEqual(expect.any(String));
   expect(verbum.text).toMatch(/Verbum|вербум|слова/i);
   expect
-    .soft(verbum.text, 'Verbum turn should resolve "гэта слова" from the existing chat context')
-    .not.toMatch(/якое менавіта|напішыце яго|напішы.*слова|удакладні/i);
+    .soft(verbum.text, 'Verbum turn should resolve the main character name from the existing chat context')
+    .not.toMatch(/якое менавіта|напішыце яго|напішы.*слова|назаві.*слова|якое трэба праверыць|удакладні/i);
 
   const inputFilePath = testInfo.outputPath('turn-07-input-file.txt');
   await writeFile(
@@ -318,6 +334,31 @@ test('chat mode keeps one ADK2 conversation context across weather, TTS, story, 
   expect(joke.text).toEqual(expect.any(String));
   expect(joke.text.trim().length).toBeGreaterThan(20);
 
+  const historyBeforeClear = await readBackendHistory(page);
+  expect(
+    historyBeforeClear.status,
+    `chat history before clear returned HTTP ${historyBeforeClear.status}: ${historyBeforeClear.body}`,
+  ).toBe(200);
+  expect(JSON.parse(historyBeforeClear.body).history.length).toBeGreaterThan(0);
+
+  const clearHistory = await sendChatTurn(page, prompts.clearHistory);
+  await recordTurn(testInfo, turns, {
+    prompt: prompts.clearHistory,
+    text: clearHistory.text,
+    payload: clearHistory,
+  });
+  expect(clearHistory.text).toEqual(expect.any(String));
+  expect(clearHistory.text).toMatch(/гісторыя|ачышчана|новую сесію/i);
+  expect(clearHistory.audio).toBeFalsy();
+  expect(clearHistory.image).toBeFalsy();
+
+  const historyAfterClear = await readBackendHistory(page);
+  expect(
+    historyAfterClear.status,
+    `chat history after clear returned HTTP ${historyAfterClear.status}: ${historyAfterClear.body}`,
+  ).toBe(200);
+  expect(JSON.parse(historyAfterClear.body).history).toEqual([]);
+
   for (const prompt of [
     prompts.weather,
     prompts.speakForecast,
@@ -327,6 +368,7 @@ test('chat mode keeps one ADK2 conversation context across weather, TTS, story, 
     prompts.describeFile,
     prompts.readNews,
     prompts.tellJoke,
+    prompts.clearHistory,
   ]) {
     await expect(
       page.locator('.message.user .message-content').filter({ hasText: prompt }).first(),
@@ -336,5 +378,5 @@ test('chat mode keeps one ADK2 conversation context across weather, TTS, story, 
     .poll(async () => page.locator('.message.bot:not(#typing-indicator)').count(), {
       timeout: 30 * 1000,
     })
-    .toBeGreaterThan(8);
+    .toBeGreaterThan(9);
 });
