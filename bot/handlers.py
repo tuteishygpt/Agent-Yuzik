@@ -14,7 +14,7 @@ from bot import helpers
 from services.adk_service import ADKService
 from services.chat_service import ChatFile, ChatMedia, ChatRequest, ChatService
 from services.dialogue_logging import append_dialogue_turn, log_adk_turn
-from services.gemini_file_policy import validate_gemini_chat_file
+from services.gemini_file_policy import resolve_mime_type, validate_gemini_chat_file
 
 try:
     from chat_dataset_logger import save_message
@@ -217,6 +217,9 @@ async def _process_message_task(update: Update, context: ContextTypes.DEFAULT_TY
                 file_name = f"{file_to_download.file_unique_id}{ext or '.dat'}"
             if not mime_type and file_name:
                 mime_type, _ = mimetypes.guess_type(file_name)
+            resolved_mime_type = resolve_mime_type(mime_type, filename=file_name)
+            if resolved_mime_type:
+                mime_type = resolved_mime_type
             log.info(
                 "Telegram file downloaded: %s bytes, mime=%s, name=%s",
                 len(file_data),
@@ -239,6 +242,7 @@ async def _process_message_task(update: Update, context: ContextTypes.DEFAULT_TY
 
         file_policy = validate_gemini_chat_file(
             mime_type=mime_type,
+            filename=file_name,
             size_bytes=len(file_data) if file_data else 0,
         )
         if file_data and not file_policy.supported:

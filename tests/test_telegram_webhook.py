@@ -300,6 +300,117 @@ def test_telegram_media_renderer_deduplicates_audio_artifacts(
     assert sent_wavs == [b"same-audio"]
 
 
+@pytest.mark.parametrize(
+    ("field", "expected_mime", "expected_name"),
+    [
+        ("document", "application/pdf", "file.pdf"),
+        ("photo", "image/jpeg", None),
+        ("audio", "audio/mpeg", "song.mp3"),
+        ("voice", "audio/ogg", None),
+        ("video", "video/mp4", "clip.mp4"),
+        ("video_note", "video/mp4", None),
+        ("animation", "video/mp4", "anim.mp4"),
+        ("sticker", "image/webp", None),
+    ],
+)
+def test_telegram_message_file_extracts_supported_media_fields(
+    field,
+    expected_mime,
+    expected_name,
+) -> None:
+    from bot.handlers import _message_file
+
+    media = {
+        "document": SimpleNamespace(
+            file_id="document-id",
+            file_unique_id="document-unique-id",
+            file_name="file.pdf",
+            mime_type="application/pdf",
+        ),
+        "photo": [
+            SimpleNamespace(file_id="small-photo-id", file_unique_id="small-photo-unique-id"),
+            SimpleNamespace(file_id="large-photo-id", file_unique_id="large-photo-unique-id"),
+        ],
+        "audio": SimpleNamespace(
+            file_id="audio-id",
+            file_unique_id="audio-unique-id",
+            file_name="song.mp3",
+            mime_type="audio/mpeg",
+        ),
+        "voice": SimpleNamespace(
+            file_id="voice-id",
+            file_unique_id="voice-unique-id",
+            mime_type=None,
+        ),
+        "video": SimpleNamespace(
+            file_id="video-id",
+            file_unique_id="video-unique-id",
+            file_name="clip.mp4",
+            mime_type="video/mp4",
+        ),
+        "video_note": SimpleNamespace(
+            file_id="video-note-id",
+            file_unique_id="video-note-unique-id",
+        ),
+        "animation": SimpleNamespace(
+            file_id="animation-id",
+            file_unique_id="animation-unique-id",
+            file_name="anim.mp4",
+            mime_type=None,
+        ),
+        "sticker": SimpleNamespace(
+            file_id="sticker-id",
+            file_unique_id="sticker-unique-id",
+            is_animated=False,
+            is_video=False,
+        ),
+    }
+    message = SimpleNamespace(
+        document=None,
+        photo=None,
+        audio=None,
+        voice=None,
+        video=None,
+        video_note=None,
+        animation=None,
+        sticker=None,
+    )
+    setattr(message, field, media[field])
+
+    file_to_download, mime_type, file_name = _message_file(message)
+
+    if field == "photo":
+        assert file_to_download.file_id == "large-photo-id"
+    else:
+        assert file_to_download is media[field]
+    assert mime_type == expected_mime
+    assert file_name == expected_name
+
+
+@pytest.mark.parametrize(
+    "sticker",
+    [
+        SimpleNamespace(is_animated=True, is_video=False),
+        SimpleNamespace(is_animated=False, is_video=True),
+    ],
+)
+def test_telegram_message_file_skips_non_static_stickers(sticker) -> None:
+    from bot.handlers import _message_file
+
+    message = SimpleNamespace(
+        document=None,
+        photo=None,
+        audio=None,
+        voice=None,
+        video=None,
+        video_note=None,
+        animation=None,
+        sticker=sticker,
+    )
+
+    assert _message_file(message) == (None, None, None)
+
+
 def test_telegram_voice_message_uses_transcript_as_chat_text(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -379,6 +490,83 @@ def test_telegram_voice_message_uses_transcript_as_chat_text(
     assert captured_requests[0].text == "раскажы казку"
     assert captured_requests[0].files == []
     assert sent_messages == [(42, "казка")]
+
+
+def test_telegram_document_uses_supported_filename_when_mime_type_is_unhelpful(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from bot import handlers
+    from services.chat_service import ChatResult
+
+    captured_requests = []
+    sent_messages = []
+
+    class FakeChatService:
+        async def process(self, request):
+            captured_requests.append(request)
+            return ChatResult(
+                text="parsed",
+                artifacts=[],
+                audio=None,
+                image=None,
+                error=None,
+                diagnostics={},
+                conversation_id="conversation-1",
+                session_id="session-1",
+                user_history_text=request.text,
+            )
+
+    class FakeDownloadedFile:
+        async def download_to_memory(self, stream):
+            stream.write(b"a,b\n1,2\n")
+
+    class FakeBot:
+        async def get_file(self, file_id):
+            assert file_id == "document-file-id"
+            return FakeDownloadedFile()
+
+        async def send_chat_action(self, chat_id, action):
+            return None
+
+        async def send_message(self, chat_id, text):
+            sent_messages.append((chat_id, text))
+            return None
+
+    monkeypatch.setattr(handlers, "save_message", lambda **kwargs: None)
+
+    update = SimpleNamespace(
+        effective_chat=SimpleNamespace(id=42),
+        effective_user=SimpleNamespace(id=7, first_name="User", username="tester"),
+        message=SimpleNamespace(
+            text="check table",
+            caption=None,
+            document=SimpleNamespace(
+                file_id="document-file-id",
+                file_unique_id="document-unique-id",
+                file_name="table.csv",
+                mime_type="application/octet-stream",
+            ),
+            photo=None,
+            audio=None,
+            voice=None,
+            video=None,
+            video_note=None,
+            animation=None,
+            sticker=None,
+        ),
+    )
+    context = SimpleNamespace(
+        bot=FakeBot(),
+        application=SimpleNamespace(bot_data={"chat_service": FakeChatService()}),
+    )
+
+    asyncio.run(handlers._process_message_task(update, context))
+
+    assert len(captured_requests) == 1
+    assert captured_requests[0].files[0].filename == "table.csv"
+    assert captured_requests[0].files[0].mime_type == "text/csv"
+    assert captured_requests[0].files[0].data == b"a,b\n1,2\n"
+    assert sent_messages == [(42, "parsed")]
 
 
 def test_telegram_dialogue_user_label_prefers_username() -> None:

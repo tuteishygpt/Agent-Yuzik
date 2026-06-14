@@ -11,7 +11,10 @@ from google.genai import types
 from api.voice_utils import ensure_wav
 from services.chat_commands import CLEAR_HISTORY_REPLY, is_clear_history_command
 from services.dialogue_logging import append_dialogue_turn, log_adk_turn
-from services.gemini_file_policy import normalize_mime_type, validate_gemini_chat_file
+from services.gemini_file_policy import (
+    resolve_mime_type,
+    validate_gemini_chat_file,
+)
 
 log = logging.getLogger(__name__)
 
@@ -207,7 +210,10 @@ class ChatService:
 
             agent_file_parts: list[tuple[bytes, str]] = []
             for attachment in request.files:
-                mime_type = normalize_mime_type(attachment.mime_type) or attachment.mime_type
+                mime_type = (
+                    resolve_mime_type(attachment.mime_type, filename=attachment.filename)
+                    or attachment.mime_type
+                )
                 self.artifact_store.store_user_upload(
                     user_id=request.user_id,
                     conversation_id=conversation_id,
@@ -377,7 +383,7 @@ class ChatService:
             raise
 
     async def _agent_file_payload(self, attachment: ChatFile) -> tuple[bytes, str | None]:
-        mime_type = normalize_mime_type(attachment.mime_type)
+        mime_type = resolve_mime_type(attachment.mime_type, filename=attachment.filename)
         if mime_type == "audio/webm":
             return await asyncio.to_thread(ensure_wav, attachment.data), "audio/wav"
         return attachment.data, mime_type
@@ -389,7 +395,10 @@ class ChatService:
     ) -> bool:
         if text_for_agent or len(request.files) != 1:
             return False
-        mime_type = normalize_mime_type(request.files[0].mime_type)
+        mime_type = resolve_mime_type(
+            request.files[0].mime_type,
+            filename=request.files[0].filename,
+        )
         return bool(mime_type and mime_type.startswith("audio/"))
 
     async def _transcribe_audio_file(self, attachment: ChatFile) -> str | None:
@@ -495,6 +504,7 @@ class ChatService:
         for attachment in files:
             result = validate_gemini_chat_file(
                 mime_type=attachment.mime_type,
+                filename=attachment.filename,
                 size_bytes=len(attachment.data),
             )
             if not result.supported:

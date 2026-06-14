@@ -358,6 +358,31 @@ def test_chat_service_forwards_normalized_supported_mime_type_to_adk() -> None:
     assert service.adk_service.run_calls[0]["mime_type"] == "audio/wav"
 
 
+def test_chat_service_resolves_supported_filename_when_mime_type_is_unhelpful() -> None:
+    from services.chat_service import ChatFile, ChatRequest
+
+    service, _metadata_backend = build_service()
+
+    result = asyncio.run(
+        service.process(
+            ChatRequest(
+                user_id="auth-user-123",
+                text="describe this",
+                files=[
+                    ChatFile(
+                        filename="table.csv",
+                        mime_type="application/octet-stream",
+                        data=b"a,b\n1,2\n",
+                    )
+                ],
+            )
+        )
+    )
+
+    assert result.error is None
+    assert service.adk_service.run_calls[0]["mime_type"] == "text/csv"
+
+
 def test_chat_service_converts_browser_webm_recording_to_wav_for_agent() -> None:
     from services.chat_service import ChatFile, ChatRequest
 
