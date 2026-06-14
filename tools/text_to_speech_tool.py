@@ -662,12 +662,12 @@ async def synthesize_speech(
         audio_part = types.Part.from_bytes(
             data=audio_bytes, mime_type="audio/wav"
         )
-        artifact_part = await tool_context.save_artifact(
+        await tool_context.save_artifact(
             filename="tts_output.wav",
             artifact=audio_part,
         )
 
-        return artifact_part
+        return audio_part
 
     except Exception as exc:  # pylint: disable=broad-except
         traceback.print_exc()

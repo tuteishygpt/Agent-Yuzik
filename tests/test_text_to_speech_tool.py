@@ -177,17 +177,43 @@ def test_synthesize_speech_falls_back_to_local_when_api_fails(monkeypatch, tmp_p
         async def save_artifact(self, *, filename, artifact):
             saved["filename"] = filename
             saved["artifact"] = artifact
-            return tts.types.Part(text="saved artifact")
+            return 3
 
     monkeypatch.setattr(tts, "_synthesize_api", failing_api)
     monkeypatch.setattr(tts, "_synthesize_local", fallback_local)
 
     result = asyncio.run(tts.synthesize_speech("Прывітанне", tool_context=FakeToolContext()))
 
-    assert result.text == "saved artifact"
+    assert result.inline_data.mime_type == "audio/wav"
+    assert result.inline_data.data == b"RIFFfallback-wav"
     assert saved["filename"] == "tts_output.wav"
     assert saved["artifact"].inline_data.mime_type == "audio/wav"
     assert saved["artifact"].inline_data.data == b"RIFFfallback-wav"
+
+
+def test_synthesize_speech_returns_audio_part_when_adk_save_returns_version(monkeypatch, tmp_path):
+    tts = _load_tts_module(monkeypatch)
+    wav_path = tmp_path / "speech.wav"
+    wav_path.write_bytes(b"RIFFspeech-wav")
+
+    async def synthesize_api(text, speaker_audio_path=None):
+        return str(wav_path)
+
+    saved = {}
+
+    class FakeToolContext:
+        async def save_artifact(self, *, filename, artifact):
+            saved["filename"] = filename
+            saved["artifact"] = artifact
+            return 7
+
+    monkeypatch.setattr(tts, "_synthesize_api", synthesize_api)
+
+    result = asyncio.run(tts.synthesize_speech("Прывітанне", tool_context=FakeToolContext()))
+
+    assert result.inline_data.mime_type == "audio/wav"
+    assert result.inline_data.data == b"RIFFspeech-wav"
+    assert saved["filename"] == "tts_output.wav"
 
 
 def test_api_mode_uses_hf_token_keyword_for_gradio_client(monkeypatch):

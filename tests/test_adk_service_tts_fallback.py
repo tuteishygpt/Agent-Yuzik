@@ -58,6 +58,36 @@ def test_service_tts_fallback_saves_artifact_and_appends_audio(monkeypatch):
     assert service.artifact_service.saved[0]["session_id"] == "session-1"
 
 
+def test_service_tts_fallback_skips_when_workflow_already_saved_tts(monkeypatch):
+    import tools.text_to_speech_tool as tts_module
+
+    service = ADKService.__new__(ADKService)
+    service.app_name = "yuzik_workflow"
+    service.artifact_service = FakeArtifactService()
+
+    def fail_if_called(**kwargs):
+        _ = kwargs
+        raise AssertionError("service fallback must not synthesize duplicate TTS")
+
+    monkeypatch.setattr(tts_module, "synthesize_speech", fail_if_called)
+
+    delta = {"tts_output.wav": 4}
+    parts = [types.Part(text="Hello")]
+
+    service._maybe_run_service_tts_post_action(
+        user_id="user-1",
+        session_id="session-1",
+        text="read aloud this",
+        reply="Hello",
+        final_parts=parts,
+        delta=delta,
+        tts_requested=True,
+    )
+
+    assert delta == {"tts_output.wav": 4}
+    assert parts == [types.Part(text="Hello")]
+
+
 def test_service_tts_fallback_uses_explicit_target_text(monkeypatch):
     import tools.text_to_speech_tool as tts_module
 

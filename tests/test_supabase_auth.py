@@ -146,6 +146,34 @@ def test_chat_endpoint_ignores_client_supplied_user_id(
     ]
 
 
+def test_chat_endpoint_returns_503_when_adk_service_unavailable(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "api.auth.get_jwt_verifier",
+        lambda: FakeVerifier(
+            claims_by_token={
+                "good-token": {
+                    "sub": "auth-user-123",
+                    "aud": "authenticated",
+                    "iss": "https://project-ref.supabase.co/auth/v1",
+                }
+            }
+        ),
+    )
+    monkeypatch.setattr(chat_module, "adk_service", None)
+
+    response = client.post(
+        "/api/chat",
+        headers=auth_headers("good-token"),
+        data={"text": "hello"},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "ADK service is unavailable"
+
+
 def test_history_endpoints_return_only_authenticated_user_rows(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,

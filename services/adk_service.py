@@ -255,11 +255,22 @@ class ADKService:
         text: str | None,
         file_data: bytes | None = None,
         mime_type: str | None = None,
+        file_parts: list[tuple[bytes, str]] | None = None,
     ) -> Tuple[str, Dict, List[types.Part]]:
         parts = []
         if text:
             parts.append(types.Part(text=text))
-        if file_data and mime_type:
+        if file_parts:
+            for part_data, part_mime_type in file_parts:
+                parts.append(
+                    types.Part(
+                        inline_data=types.Blob(
+                            data=part_data,
+                            mime_type=part_mime_type,
+                        )
+                    )
+                )
+        elif file_data and mime_type:
             blob = types.Blob(data=file_data, mime_type=mime_type)
             parts.append(types.Part(inline_data=blob))
 
@@ -325,6 +336,8 @@ class ADKService:
             )
             for part in final_parts
         ):
+            return
+        if "tts_output.wav" in delta:
             return
 
         target_text = _extract_explicit_tts_target_text(text)
@@ -421,13 +434,18 @@ class ADKService:
                 loop.call_soon_threadsafe(event_queue.put_nowait, None)
 
         executor = ThreadPoolExecutor(max_workers=1)
-        loop.run_in_executor(executor, sync_run_and_push)
+        future = loop.run_in_executor(executor, sync_run_and_push)
 
-        while True:
-            ev = await event_queue.get()
-            if ev is None:
-                break
-            yield ev
+        try:
+            while True:
+                ev = await event_queue.get()
+                if ev is None:
+                    break
+                yield ev
+        finally:
+            if not future.done():
+                future.cancel()
+            executor.shutdown(wait=False, cancel_futures=True)
 
     async def send_media_from_parts(
         self, chat_id: int, context, parts: List[types.Part]

@@ -101,6 +101,36 @@ def test_first_valid_auth_message_establishes_authenticated_context(
     assert fake_service.session_users == ["auth-user-123"]
 
 
+def test_voice_socket_reports_adk_service_unavailable_after_auth(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "api.auth.get_jwt_verifier",
+        lambda: FakeVerifier(
+            claims_by_token={
+                "good-token": {
+                    "sub": "auth-user-123",
+                    "aud": "authenticated",
+                    "iss": "https://project-ref.supabase.co/auth/v1",
+                }
+            }
+        ),
+    )
+    monkeypatch.setattr("api.voice.adk_service", None)
+
+    with client.websocket_connect("/api/voice") as websocket:
+        websocket.send_json({"type": "auth", "access_token": "good-token"})
+        assert websocket.receive_json() == {
+            "type": "error",
+            "message": "ADK service is unavailable",
+        }
+        with pytest.raises(WebSocketDisconnect) as exc:
+            websocket.receive_json()
+
+    assert exc.value.code == 1011
+
+
 def test_simple_voice_handler_requires_authenticated_user_id() -> None:
     from api.voice_simple import handle_simple_voice
 

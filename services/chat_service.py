@@ -205,6 +205,7 @@ class ChatService:
                     user_history_text=None,
                 )
 
+            agent_file_parts: list[tuple[bytes, str]] = []
             for attachment in request.files:
                 mime_type = normalize_mime_type(attachment.mime_type) or attachment.mime_type
                 self.artifact_store.store_user_upload(
@@ -221,34 +222,44 @@ class ChatService:
                 )
 
                 if audio_only_transcript:
-                    agent_file_data, agent_mime_type = None, None
+                    continue
                 else:
                     agent_file_data, agent_mime_type = await self._agent_file_payload(
                         attachment
                     )
+                    if agent_file_data is not None and agent_mime_type:
+                        agent_file_parts.append((agent_file_data, agent_mime_type))
 
-                reply, delta, parts, run_error, error_type = await self._run_agent(
-                    request=request,
-                    session_id=session_id,
-                    text=text_for_agent,
-                    file_data=agent_file_data,
-                    mime_type=agent_mime_type,
-                )
-                if run_error:
-                    error = run_error
-                    diagnostics["error_type"] = error_type
-                response_text = reply or response_text
-                artifacts.extend(self._media_from_parts(parts))
-                artifact_media = await self._collect_artifacts(
-                    user_id=request.user_id,
-                    session_id=session_id,
-                    conversation_id=conversation_id,
-                    delta=delta,
-                )
-                artifacts.extend(artifact_media)
-                audio_url = self._first_url(artifact_media, "audio") or audio_url
-                image_url = self._first_url(artifact_media, "image") or image_url
-                text_for_agent = None
+            file_data = None
+            mime_type = None
+            file_parts = None
+            if len(agent_file_parts) == 1:
+                file_data, mime_type = agent_file_parts[0]
+            elif len(agent_file_parts) > 1:
+                file_parts = agent_file_parts
+
+            reply, delta, parts, run_error, error_type = await self._run_agent(
+                request=request,
+                session_id=session_id,
+                text=text_for_agent,
+                file_data=file_data,
+                mime_type=mime_type,
+                file_parts=file_parts,
+            )
+            if run_error:
+                error = run_error
+                diagnostics["error_type"] = error_type
+            response_text = reply or response_text
+            artifacts.extend(self._media_from_parts(parts))
+            artifact_media = await self._collect_artifacts(
+                user_id=request.user_id,
+                session_id=session_id,
+                conversation_id=conversation_id,
+                delta=delta,
+            )
+            artifacts.extend(artifact_media)
+            audio_url = self._first_url(artifact_media, "audio") or audio_url
+            image_url = self._first_url(artifact_media, "image") or image_url
         elif text_for_agent:
             reply, delta, parts, run_error, error_type = await self._run_agent(
                 request=request,
@@ -256,6 +267,7 @@ class ChatService:
                 text=text_for_agent,
                 file_data=None,
                 mime_type=None,
+                file_parts=None,
             )
             if run_error:
                 error = run_error
@@ -334,16 +346,19 @@ class ChatService:
         text: str | None,
         file_data: bytes | None,
         mime_type: str | None,
+        file_parts: list[tuple[bytes, str]] | None = None,
     ) -> tuple[str, dict, list[types.Part], str | None, str | None]:
         try:
-            coro = asyncio.to_thread(
-                self.adk_service.run_agent,
-                session_id=session_id,
-                user_id=request.user_id,
-                text=text,
-                file_data=file_data,
-                mime_type=mime_type,
-            )
+            run_kwargs = {
+                "session_id": session_id,
+                "user_id": request.user_id,
+                "text": text,
+                "file_data": file_data,
+                "mime_type": mime_type,
+            }
+            if file_parts is not None:
+                run_kwargs["file_parts"] = file_parts
+            coro = asyncio.to_thread(self.adk_service.run_agent, **run_kwargs)
             if request.timeout_seconds is not None:
                 reply, delta, parts = await asyncio.wait_for(
                     coro, timeout=request.timeout_seconds

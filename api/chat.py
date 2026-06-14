@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 from typing import Dict, List
 
-from fastapi import APIRouter, Depends, File, Form, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 import config
 from api.auth import AuthenticatedUser, get_current_user
@@ -33,6 +33,8 @@ def _authenticated_user_log_label(current_user: AuthenticatedUser) -> str | None
 
 
 def _chat_service() -> ChatService:
+    if adk_service is None:
+        raise HTTPException(status_code=503, detail="ADK service is unavailable")
     return ChatService(
         adk_service=adk_service,
         conversation_store=conversation_store,

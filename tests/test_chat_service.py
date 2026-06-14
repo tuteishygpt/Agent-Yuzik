@@ -69,6 +69,30 @@ class EmptyADKService(FakeADKService):
         return "", {}, []
 
 
+class MultiFileADKService(FakeADKService):
+    def run_agent(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        text: str | None,
+        file_data: bytes | None = None,
+        mime_type: str | None = None,
+        file_parts: list[tuple[bytes, str]] | None = None,
+    ) -> tuple[str, dict, list]:
+        self.run_calls.append(
+            {
+                "session_id": session_id,
+                "user_id": user_id,
+                "text": text,
+                "file_data": file_data,
+                "mime_type": mime_type,
+                "file_parts": file_parts,
+            }
+        )
+        return "assistant reply", {"assistant.wav": 1}, []
+
+
 def build_service():
     from services.chat_service import ChatService
 
@@ -268,6 +292,43 @@ def test_chat_service_forwards_supported_file_inputs_to_adk(filename, mime_type,
             "text": "describe this",
             "file_data": data,
             "mime_type": mime_type,
+        }
+    ]
+
+
+def test_chat_service_batches_multiple_files_into_one_adk_turn() -> None:
+    from services.chat_service import ChatFile, ChatRequest, ChatService
+
+    metadata_backend = InMemorySupabaseBackend()
+    service = ChatService(
+        adk_service=MultiFileADKService(),
+        conversation_store=ConversationStore(metadata_backend),
+        chat_message_store=ChatMessageStore(metadata_backend),
+        artifact_store=ArtifactStore(metadata_backend, InMemoryStorageBackend()),
+    )
+
+    result = asyncio.run(
+        service.process(
+            ChatRequest(
+                user_id="auth-user-123",
+                text="compare these",
+                files=[
+                    ChatFile(filename="first.png", mime_type="image/png", data=b"one"),
+                    ChatFile(filename="second.png", mime_type="image/png", data=b"two"),
+                ],
+            )
+        )
+    )
+
+    assert result.error is None
+    assert service.adk_service.run_calls == [
+        {
+            "session_id": "session-1",
+            "user_id": "auth-user-123",
+            "text": "compare these",
+            "file_data": None,
+            "mime_type": None,
+            "file_parts": [(b"one", "image/png"), (b"two", "image/png")],
         }
     ]
 

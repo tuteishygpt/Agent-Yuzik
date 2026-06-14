@@ -41,12 +41,15 @@ Passed:
 
 ```powershell
 python -m pytest tests/test_chat_service.py tests/test_chat_persistence.py tests/test_adk_service_errors.py -q
+cd frontend
+npx playwright test tests/e2e/adk2-chat-real-backend.spec.js --project=chromium
 ```
 
 Result:
 
 ```text
 16 passed, 6 warnings
+ADK2 real-backend chat e2e: 1 passed (3.1m)
 ```
 
 Warnings observed:
@@ -88,6 +91,7 @@ The ADK 2 workflow migration plan exists at `docs/adk2-workflow-migration-plan.m
 
 - Decide whether to keep and commit the current no-answer/ADK event fallback changes.
 - Run the full backend suite before commit or PR.
+- Run `frontend/tests/e2e/adk2-chat-real-backend.spec.js` against the real backend after ADK2 chat/backend changes.
 - Run frontend/mobile checks if the intended release scope includes those clients.
 - Address or explicitly defer dependency deprecations.
 - Consider normalizing line-ending behavior if CRLF churn becomes noisy.

@@ -208,6 +208,16 @@ async def voice_websocket(websocket: WebSocket):
         user_label = _authenticated_user_log_label(authenticated_user)
         log.info(f"Voice WebSocket authenticated for user {user_id}, session {ws_session_id}")
 
+        if adk_service is None:
+            await websocket.send_json(
+                {
+                    "type": "error",
+                    "message": "ADK service is unavailable",
+                }
+            )
+            await websocket.close(code=1011)
+            return
+
         await websocket.send_json(
             {
                 "type": "voice_config",
