@@ -15,3 +15,7 @@ thumbnail: >-
 ---
 
 An example chatbot using [Gradio](https://gradio.app), [`huggingface_hub`](https://huggingface.co/docs/huggingface_hub/v0.22.2/en/index), and the [Hugging Face Inference API](https://huggingface.co/docs/api-inference/index).
+
+Operational notes:
+
+- VM access and remote command template: [docs/vm-operations.md](docs/vm-operations.md)
