@@ -42,18 +42,15 @@ cd ..
 echo "[6/6] Запуск..."
 echo "-------------------------------------------------------------------"
 
-# Калі GOOGLE_API_KEY не зададзены, просім у карыстальніка
-if [ -z "$GOOGLE_API_KEY" ]; then
-    echo "⚠️ Ключ GOOGLE_API_KEY не знойдзены ў асяроддзі."
-    read -p "Увядзіце ваш ключ Vertex AI in express mode: " USER_KEY
-    export GOOGLE_API_KEY="$USER_KEY"
-fi
-
+unset GOOGLE_API_KEY
 unset GEMINI_API_KEY
-unset GOOGLE_CLOUD_PROJECT
-unset GOOGLE_CLOUD_LOCATION
 export GOOGLE_GENAI_USE_VERTEXAI="true"
 export PORT="7861"
+
+if [ -z "$GOOGLE_APPLICATION_CREDENTIALS" ] || [ -z "$GOOGLE_CLOUD_PROJECT" ]; then
+    echo "ERROR: Set GOOGLE_APPLICATION_CREDENTIALS and GOOGLE_CLOUD_PROJECT before starting."
+    exit 1
+fi
 
 echo "✅ Усё гатова! Запуск сервера на порце $PORT..."
 python app.py
