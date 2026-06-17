@@ -55,6 +55,22 @@ def test_config_promotes_legacy_gemini_key_to_google_api_key_for_vertex_express(
     assert "GEMINI_API_KEY" not in os.environ
 
 
+def test_config_does_not_warn_when_service_account_vertex_configured(monkeypatch, capsys):
+    monkeypatch.setenv("GOOGLE_API_KEY", "")
+    monkeypatch.setenv("GEMINI_API_KEY", "")
+    monkeypatch.setenv("GOOGLE_APPLICATION_CREDENTIALS", "service-account.json")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "vertex-project")
+    monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "global")
+    monkeypatch.setenv("GOOGLE_GENAI_USE_VERTEXAI", "true")
+
+    sys.modules.pop("config", None)
+    config = importlib.import_module("config")
+
+    captured = capsys.readouterr()
+    assert "GOOGLE_API_KEY not found" not in captured.out
+    assert config.GOOGLE_API_KEY == ""
+
+
 def test_adk_gemini_model_uses_vertex_backend_after_config_setup(monkeypatch):
     _reload_config(
         monkeypatch,
@@ -115,6 +131,21 @@ def test_config_create_genai_client_uses_vertex_ai_express_mode(monkeypatch):
     retry_options = captured["http_options"].retry_options
     assert retry_options.attempts == 5
     assert retry_options.http_status_codes == [408, 429, 500, 502, 503, 504]
+
+
+def test_config_genai_http_options_use_httpx_async_transport_for_streaming(monkeypatch):
+    config = _reload_config(
+        monkeypatch,
+        google_api_key=None,
+        gemini_api_key=None,
+        use_vertex="true",
+    )
+
+    http_options = config.create_genai_http_options()
+
+    transport = http_options.async_client_args["transport"]
+    assert hasattr(transport, "handle_async_request")
+    assert hasattr(transport, "aclose")
 
 
 def test_config_create_adk_model_adds_retry_options(monkeypatch):

@@ -8,6 +8,7 @@ python-multipart
 # AI SDKs
 google-genai>=2.4,<3
 google-adk>=2.0,<3.0
+httpx
 aiosqlite
 sqlalchemy>=2.0,<3
 

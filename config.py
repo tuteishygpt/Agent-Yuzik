@@ -1,5 +1,6 @@
 import os
 from dotenv import load_dotenv
+import httpx
 from google import genai
 from google.genai import types
 
@@ -12,6 +13,8 @@ load_dotenv()
 _legacy_gemini_api_key = os.getenv("GEMINI_API_KEY")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY") or _legacy_gemini_api_key
 GEMINI_API_KEY = GOOGLE_API_KEY
+GOOGLE_APPLICATION_CREDENTIALS = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+GOOGLE_CLOUD_PROJECT = os.getenv("GOOGLE_CLOUD_PROJECT")
 
 if GOOGLE_API_KEY:
     os.environ["GOOGLE_API_KEY"] = GOOGLE_API_KEY
@@ -22,7 +25,7 @@ if GOOGLE_API_KEY:
     os.environ.pop("GOOGLE_CLOUD_PROJECT", None)
     os.environ.pop("GOOGLE_CLOUD_LOCATION", None)
 
-if not GOOGLE_API_KEY:
+if not GOOGLE_API_KEY and not (GOOGLE_APPLICATION_CREDENTIALS and GOOGLE_CLOUD_PROJECT):
     print("WARNING: GOOGLE_API_KEY not found in environment variables or .env file.")
 
 
@@ -38,7 +41,10 @@ def create_genai_retry_options() -> types.HttpRetryOptions:
 
 
 def create_genai_http_options() -> types.HttpOptions:
-    return types.HttpOptions(retry_options=create_genai_retry_options())
+    return types.HttpOptions(
+        retry_options=create_genai_retry_options(),
+        async_client_args={"transport": httpx.AsyncHTTPTransport()},
+    )
 
 
 def create_adk_model(model_name: str):
@@ -58,8 +64,8 @@ def create_genai_client(*, api_key: str | None = None, location: str | None = No
             http_options=create_genai_http_options(),
         )
 
-    creds_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-    project = os.getenv("GOOGLE_CLOUD_PROJECT")
+    creds_path = GOOGLE_APPLICATION_CREDENTIALS
+    project = GOOGLE_CLOUD_PROJECT
     resolved_location = location or os.getenv("GOOGLE_CLOUD_LOCATION", "global")
     if creds_path and project:
         return genai.Client(
