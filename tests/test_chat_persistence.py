@@ -156,6 +156,10 @@ def test_adk_service_clear_chat_context_resets_user_previous_state() -> None:
                 "user:last_assistant_text": "old forecast",
                 "user:last_assistant_summary": "old summary",
                 "user:last_assistant_artifact_id": "artifact-1",
+                "user:rolling_summary": "old rolling summary",
+                "user:last_route": "search",
+                "user:last_tool_result_summary": "old tool result",
+                "user:external_context_pack": {"recent_messages": ["old"]},
                 "user:pending_text_action": {"kind": "translate"},
                 "user:tts_requested_for_turn": True,
                 "user:timezone": "Europe/Minsk",
@@ -174,6 +178,10 @@ def test_adk_service_clear_chat_context_resets_user_previous_state() -> None:
     assert user_state["last_assistant_text"] is None
     assert user_state["last_assistant_summary"] is None
     assert user_state["last_assistant_artifact_id"] is None
+    assert user_state["rolling_summary"] is None
+    assert user_state["last_route"] is None
+    assert user_state["last_tool_result_summary"] is None
+    assert user_state["external_context_pack"] is None
     assert user_state["pending_text_action"] is None
     assert user_state["tts_requested_for_turn"] is False
     assert user_state["timezone"] == "Europe/Minsk"

@@ -26,6 +26,10 @@ CHAT_CONTEXT_STATE_RESET = {
     "user:last_assistant_text": None,
     "user:last_assistant_summary": None,
     "user:last_assistant_artifact_id": None,
+    "user:rolling_summary": None,
+    "user:last_route": None,
+    "user:last_tool_result_summary": None,
+    "user:external_context_pack": None,
     "user:pending_text_action": None,
     "user:tts_requested_for_turn": False,
     "temp:dictionary_word": None,
@@ -260,6 +264,7 @@ class ADKService:
         file_data: bytes | None = None,
         mime_type: str | None = None,
         file_parts: list[tuple[bytes, str]] | None = None,
+        context_pack_data: dict | None = None,
     ) -> Tuple[str, Dict, List[types.Part]]:
         parts = []
         if text:
@@ -286,6 +291,12 @@ class ADKService:
         tts_requested = False
 
         try:
+            if context_pack_data:
+                self._prime_external_context_pack(
+                    user_id=user_id,
+                    session_id=session_id,
+                    context_pack_data=context_pack_data,
+                )
             for ev in self.runner.run(
                 user_id=user_id, session_id=session_id, new_message=content
             ):
@@ -317,6 +328,37 @@ class ADKService:
         )
         reply = "\n".join(p.text for p in final_parts if p.text)
         return reply, delta, final_parts
+
+    def _prime_external_context_pack(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        context_pack_data: dict,
+    ) -> None:
+        async def append_context_event():
+            session = await self.session_service.get_session(
+                app_name=self.app_name,
+                user_id=user_id,
+                session_id=session_id,
+            )
+            if session is None:
+                return
+            await self.session_service.append_event(
+                session=session,
+                event=Event(
+                    id=str(uuid4()),
+                    invocation_id=f"context-pack-{uuid4()}",
+                    author="system",
+                    actions=EventActions(
+                        state_delta={
+                            "user:external_context_pack": context_pack_data,
+                        }
+                    ),
+                ),
+            )
+
+        _run_async_blocking(append_context_event)
 
     def _maybe_run_service_tts_post_action(
         self,

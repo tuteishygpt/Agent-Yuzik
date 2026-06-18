@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -15,6 +16,7 @@ from services.gemini_file_policy import (
     resolve_mime_type,
     validate_gemini_chat_file,
 )
+from yuzik_workflow.context_pack import build_context_pack, context_pack_payload
 
 log = logging.getLogger(__name__)
 
@@ -247,6 +249,7 @@ class ChatService:
             reply, delta, parts, run_error, error_type = await self._run_agent(
                 request=request,
                 session_id=session_id,
+                conversation_id=conversation_id,
                 text=text_for_agent,
                 file_data=file_data,
                 mime_type=mime_type,
@@ -270,6 +273,7 @@ class ChatService:
             reply, delta, parts, run_error, error_type = await self._run_agent(
                 request=request,
                 session_id=session_id,
+                conversation_id=conversation_id,
                 text=text_for_agent,
                 file_data=None,
                 mime_type=None,
@@ -349,6 +353,7 @@ class ChatService:
         *,
         request: ChatRequest,
         session_id: str,
+        conversation_id: str,
         text: str | None,
         file_data: bytes | None,
         mime_type: str | None,
@@ -364,6 +369,13 @@ class ChatService:
             }
             if file_parts is not None:
                 run_kwargs["file_parts"] = file_parts
+            context_pack_data = self._context_pack_data(
+                request=request,
+                conversation_id=conversation_id,
+                text=text,
+            )
+            if self._run_agent_accepts("context_pack_data"):
+                run_kwargs["context_pack_data"] = context_pack_data
             coro = asyncio.to_thread(self.adk_service.run_agent, **run_kwargs)
             if request.timeout_seconds is not None:
                 reply, delta, parts = await asyncio.wait_for(
@@ -381,6 +393,37 @@ class ChatService:
                 log.exception("Error running chat agent for user %s", request.user_id)
                 return request.error_reply, {}, [], str(exc), exc.__class__.__name__
             raise
+
+    def _run_agent_accepts(self, parameter: str) -> bool:
+        try:
+            signature = inspect.signature(self.adk_service.run_agent)
+        except (TypeError, ValueError):
+            return False
+        return parameter in signature.parameters
+
+    def _context_pack_data(
+        self,
+        *,
+        request: ChatRequest,
+        conversation_id: str,
+        text: str | None,
+    ) -> dict[str, Any]:
+        current = types.Content(
+            role="user",
+            parts=[types.Part(text=text or request.text or "")],
+        )
+        pack = build_context_pack(
+            type("Context", (), {"state": {}})(),
+            current,
+            user_id=request.user_id,
+            conversation_id=conversation_id,
+            chat_message_store=self.chat_message_store,
+            artifact_store=self.artifact_store,
+        )
+        payload = context_pack_payload(pack)
+        payload["user_id"] = request.user_id
+        payload["conversation_id"] = conversation_id
+        return payload
 
     async def _agent_file_payload(self, attachment: ChatFile) -> tuple[bytes, str | None]:
         mime_type = resolve_mime_type(attachment.mime_type, filename=attachment.filename)

@@ -93,6 +93,30 @@ class MultiFileADKService(FakeADKService):
         return "assistant reply", {"assistant.wav": 1}, []
 
 
+class ContextAwareADKService(FakeADKService):
+    def run_agent(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        text: str | None,
+        file_data: bytes | None = None,
+        mime_type: str | None = None,
+        context_pack_data: dict | None = None,
+    ) -> tuple[str, dict, list]:
+        self.run_calls.append(
+            {
+                "session_id": session_id,
+                "user_id": user_id,
+                "text": text,
+                "file_data": file_data,
+                "mime_type": mime_type,
+                "context_pack_data": context_pack_data,
+            }
+        )
+        return "assistant reply", {}, []
+
+
 def build_service():
     from services.chat_service import ChatService
 
@@ -168,6 +192,44 @@ def test_chat_service_sends_current_text_without_prompt_history_injection() -> N
 
     assert second.conversation_id == first.conversation_id
     assert service.adk_service.run_calls[1]["text"] == "Як мяне завуць?"
+
+
+def test_chat_service_passes_compact_context_payload_when_adk_accepts_it() -> None:
+    from services.chat_service import ChatRequest, ChatService
+
+    metadata_backend = InMemorySupabaseBackend()
+    conversation_store = ConversationStore(metadata_backend)
+    chat_message_store = ChatMessageStore(metadata_backend)
+    service = ChatService(
+        adk_service=ContextAwareADKService(),
+        conversation_store=conversation_store,
+        chat_message_store=chat_message_store,
+        artifact_store=ArtifactStore(metadata_backend, InMemoryStorageBackend()),
+    )
+    conversation = conversation_store.get_or_create_active_conversation("auth-user-123")
+    chat_message_store.append_message(
+        conversation["id"], "auth-user-123", "user", "hello"
+    )
+    chat_message_store.append_message(
+        conversation["id"], "auth-user-123", "assistant", "previous reply"
+    )
+
+    result = asyncio.run(
+        service.process(
+            ChatRequest(
+                user_id="auth-user-123",
+                conversation_id=conversation["id"],
+                text="read it aloud",
+            )
+        )
+    )
+
+    payload = service.adk_service.run_calls[0]["context_pack_data"]
+    assert result.text == "assistant reply"
+    assert payload["conversation_id"] == conversation["id"]
+    assert payload["recent_messages"][-1]["role"] == "assistant"
+    assert payload["recent_messages"][-1]["text"] == "previous reply"
+    assert payload["recent_messages"][-1]["content_type"] == "text"
 
 
 def test_chat_service_stores_uploads_and_uses_filename_for_history_when_text_empty() -> None:
