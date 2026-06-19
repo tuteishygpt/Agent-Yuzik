@@ -1,21 +1,18 @@
 import { useEffect, useRef } from "react";
-import {
-  FlatList,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  SafeAreaView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { FlatList, KeyboardAvoidingView, Platform, StyleSheet, Text, View } from "react-native";
 
-import { useI18n } from "@/lib/i18n";
+import {
+  MobileActionButton,
+  MobileScreenShell,
+  MobileStatusPill,
+  YuzikAvatar,
+} from "@/components/mobile";
 import { createChatApiClient } from "@/lib/api";
 import { getRuntimeEnv } from "@/lib/env";
+import { pickSingleAttachment } from "@/lib/file-picker";
+import { useI18n } from "@/lib/i18n";
 import { getLegacyMobileUserId } from "@/lib/legacy-user-id";
 import { getSupabaseSession } from "@/lib/supabase";
-import { pickSingleAttachment } from "@/lib/file-picker";
 import { useMenu } from "@/navigation/MenuContext";
 import { webTheme } from "@/theme/webTheme";
 
@@ -58,9 +55,7 @@ export default function ChatScreen() {
   }, [controller.messages.length]);
 
   return (
-    <SafeAreaView style={styles.screen}>
-      <View style={styles.bgGlowTop} />
-      <View style={styles.bgGlowBottom} />
+    <MobileScreenShell contentStyle={styles.shellContent}>
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
@@ -68,28 +63,38 @@ export default function ChatScreen() {
       >
         <View style={styles.header}>
           <View style={styles.headerTitle}>
-            <Text style={styles.logo}>🤖</Text>
-            <Text style={styles.title}>Юзік</Text>
+            <YuzikAvatar size="md" state={controller.isSending ? "thinking" : "default"} />
+            <View style={styles.headerCopy}>
+              <Text style={styles.title}>Yuzik</Text>
+              <MobileStatusPill
+                label={
+                  controller.isLoadingHistory
+                    ? t("chat.loadingHistory")
+                    : controller.isSending
+                      ? "Thinking"
+                      : "Ready"
+                }
+                tone={controller.error ? "danger" : controller.isSending ? "warning" : "accent"}
+              />
+            </View>
           </View>
-          <View style={styles.headerActions}>
-            <Pressable onPress={() => void controller.clearHistory()} style={styles.iconBtn}>
-              <Text style={styles.iconBtnText}>🗑️</Text>
-            </Pressable>
-          </View>
+          <MobileActionButton
+            accessibilityLabel="Clear chat history"
+            label="Clear"
+            onPress={() => void controller.clearHistory()}
+            variant="ghost"
+          />
         </View>
 
         {controller.error ? <Text style={styles.error}>{controller.error}</Text> : null}
-        {controller.isLoadingHistory ? (
-          <Text style={styles.loading}>{t("chat.loadingHistory")}</Text>
-        ) : null}
 
         <View style={styles.messages}>
           <MessageList
-            ref={listRef}
-            messages={controller.messages}
             isSending={controller.isSending}
-            onSelectPrompt={handleSelectPrompt}
+            messages={controller.messages}
             onContentSizeChange={scrollToEnd}
+            onSelectPrompt={handleSelectPrompt}
+            ref={listRef}
           />
         </View>
 
@@ -100,36 +105,18 @@ export default function ChatScreen() {
           onAttach={controller.pickAttachment}
           onChangeDraftText={controller.setDraftText}
           onClearAttachment={controller.clearAttachment}
-          onSend={controller.sendMessage}
           onOpenMenu={openMenu}
+          onSend={controller.sendMessage}
         />
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </MobileScreenShell>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: webTheme.colors.background,
-  },
-  bgGlowTop: {
-    position: "absolute",
-    top: -90,
-    left: -80,
-    width: 260,
-    height: 260,
-    borderRadius: 130,
-    backgroundColor: webTheme.colors.bgGlowPrimary,
-  },
-  bgGlowBottom: {
-    position: "absolute",
-    right: -90,
-    bottom: 120,
-    width: 270,
-    height: 270,
-    borderRadius: 135,
-    backgroundColor: webTheme.colors.bgGlowSecondary,
+  shellContent: {
+    paddingHorizontal: 0,
+    paddingTop: 0,
   },
   flex: {
     flex: 1,
@@ -138,51 +125,34 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    gap: 12,
     paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: webTheme.colors.border,
+    backgroundColor: webTheme.colors.background,
   },
   headerTitle: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 12,
   },
-  logo: {
-    fontSize: 28,
+  headerCopy: {
+    flex: 1,
+    gap: 6,
   },
   title: {
+    color: webTheme.colors.text,
     fontSize: 22,
-    fontWeight: "600",
-    color: webTheme.colors.primary,
-  },
-  headerActions: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  iconBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: webTheme.colors.glassBg,
-    borderWidth: 1,
-    borderColor: webTheme.colors.border,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  iconBtnText: {
-    fontSize: 18,
+    fontWeight: "800",
   },
   error: {
-    color: "#ff6688",
+    color: webTheme.colors.danger,
     paddingHorizontal: 16,
-    paddingBottom: 8,
-  },
-  loading: {
-    color: webTheme.colors.textMuted,
-    paddingHorizontal: 16,
-    paddingBottom: 8,
+    paddingTop: 10,
+    fontSize: 13,
+    fontWeight: "700",
   },
   messages: {
     flex: 1,
