@@ -9,7 +9,7 @@ import { useVoiceSettings } from "@/providers/VoiceSettingsProvider";
 import { webTheme } from "@/theme/webTheme";
 
 const LANGUAGES: { code: Locale; label: string }[] = [
-  { code: "be", label: "Belarusian" },
+  { code: "be", label: "Беларуская" },
   { code: "en", label: "English" },
 ];
 

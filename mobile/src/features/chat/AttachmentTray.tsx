@@ -16,16 +16,16 @@ export function AttachmentTray({ attachment, onClear }: AttachmentTrayProps) {
   return (
     <View style={styles.container}>
       <View style={styles.meta}>
-        <Text style={styles.label}>Attachment</Text>
+        <Text style={styles.label}>Укладанне</Text>
         <Text numberOfLines={1} style={styles.name}>
           {attachment.name}
         </Text>
         <Text numberOfLines={1} style={styles.mime}>
-          {attachment.mimeType ?? "unknown type"}
+          {attachment.mimeType ?? "невядомы тып"}
         </Text>
       </View>
       <Pressable onPress={onClear} style={styles.clearButton}>
-        <Text style={styles.clearText}>Remove</Text>
+        <Text style={styles.clearText}>Выдаліць</Text>
       </Pressable>
     </View>
   );

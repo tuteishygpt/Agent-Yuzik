@@ -71,8 +71,8 @@ export default function ChatScreen() {
                   controller.isLoadingHistory
                     ? t("chat.loadingHistory")
                     : controller.isSending
-                      ? "Thinking"
-                      : "Ready"
+                      ? t("voice.processing")
+                      : t("voice.idle")
                 }
                 tone={controller.error ? "danger" : controller.isSending ? "warning" : "accent"}
               />
@@ -80,7 +80,7 @@ export default function ChatScreen() {
           </View>
           <MobileActionButton
             accessibilityLabel="Clear chat history"
-            label="Clear"
+            label="Ачысціць"
             onPress={() => void controller.clearHistory()}
             variant="ghost"
           />

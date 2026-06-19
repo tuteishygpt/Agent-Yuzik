@@ -67,7 +67,7 @@ export function TranscriptPanel({ transcript }: TranscriptPanelProps) {
         style={styles.scroll}
       >
         {visibleTranscript.length === 0 ? (
-          <Text style={styles.empty}>Conversation has not started yet</Text>
+          <Text style={styles.empty}>Размова яшчэ не пачалася</Text>
         ) : (
           visibleTranscript.map((entry) => (
             <TranscriptTurn entry={entry} key={entry.id} />

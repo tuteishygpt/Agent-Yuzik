@@ -14,15 +14,15 @@ export function TeacherBanner({
   stepPrompt,
   isActive,
 }: TeacherBannerProps) {
-  const statusLabel = isActive ? "Active" : "Idle";
+  const statusLabel = isActive ? "Актыўна" : "Чакае";
 
   return (
     <View style={[styles.card, isActive ? styles.cardActive : null]}>
       <View style={styles.header}>
         <View style={styles.copy}>
-          <Text style={styles.eyebrow}>Teacher</Text>
+          <Text style={styles.eyebrow}>Настаўнік</Text>
           <Text numberOfLines={1} style={styles.title}>
-            {lesson?.title ?? "No lesson selected"}
+            {lesson?.title ?? "Занятак не абраны"}
           </Text>
         </View>
         <Text style={[styles.status, isActive ? styles.statusActive : null]}>
@@ -30,9 +30,9 @@ export function TeacherBanner({
         </Text>
       </View>
       <Text style={styles.meta}>
-        {lesson ? `${lesson.level} - ${lesson.goal}` : "Choose a lesson to begin."}
+        {lesson ? `${lesson.level} - ${lesson.goal}` : "Абярыце занятак, каб пачаць."}
       </Text>
-      <Text style={styles.prompt}>{stepPrompt ?? "No prompt selected yet."}</Text>
+      <Text style={styles.prompt}>{stepPrompt ?? "Падказка яшчэ не абрана."}</Text>
     </View>
   );
 }

@@ -34,7 +34,7 @@ export function LessonPicker({
             {selectedLesson.level} - {selectedLesson.stepsCount} steps
           </Text>
         </View>
-        <Text style={styles.activeBadge}>Active</Text>
+        <Text style={styles.activeBadge}>Актыўна</Text>
       </View>
     );
   }
@@ -42,13 +42,13 @@ export function LessonPicker({
   return (
     <View style={styles.panel}>
       <View style={styles.panelHeader}>
-        <Text style={styles.eyebrow}>Teacher lesson</Text>
+        <Text style={styles.eyebrow}>Занятак</Text>
         <Text style={[styles.status, isActive ? styles.statusActive : null]}>
-          {isActive ? "Active" : selectedLesson ? "Ready" : "Choose"}
+          {isActive ? "Актыўна" : selectedLesson ? "Гатова" : "Абярыце"}
         </Text>
       </View>
       {lessons.length === 0 ? (
-        <Text style={styles.empty}>No lessons loaded yet.</Text>
+        <Text style={styles.empty}>Заняткі яшчэ не загружаны.</Text>
       ) : (
         <>
           <Pressable
@@ -62,12 +62,12 @@ export function LessonPicker({
           >
             <View style={styles.selectedCopy}>
               <Text numberOfLines={1} style={styles.lessonTitle}>
-                {selectedLesson?.title ?? "Choose a lesson"}
+                {selectedLesson?.title ?? "Абярыце занятак"}
               </Text>
               <Text numberOfLines={1} style={styles.lessonMeta}>
                 {selectedLesson
                   ? `${selectedLesson.level} - ${selectedLesson.stepsCount} steps`
-                  : "Tap to choose"}
+                  : "Націсніце, каб абраць"}
               </Text>
               {selectedLesson && stepPrompt ? (
                 <Text numberOfLines={2} style={styles.stepPrompt}>
@@ -108,7 +108,7 @@ export function LessonPicker({
                         {lesson.goal}
                       </Text>
                     </View>
-                    {isSelected ? <Text style={styles.selectedBadge}>Selected</Text> : null}
+                    {isSelected ? <Text style={styles.selectedBadge}>Абрана</Text> : null}
                   </Pressable>
                 );
               })}

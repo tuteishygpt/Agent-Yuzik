@@ -8,12 +8,14 @@ import { VoiceStage } from "@/features/voice/VoiceStage";
 import { resolveVoiceUiState } from "@/features/voice/voice-ui-state";
 import { useVoiceAnimations } from "@/features/voice/useVoiceAnimations";
 import { useVoiceSession } from "@/features/voice/useVoiceSession";
+import { useI18n } from "@/lib/i18n";
 import { useMenu } from "@/navigation/MenuContext";
 import { useAuth } from "@/providers/AuthProvider";
 import { useVoiceSettings } from "@/providers/VoiceSettingsProvider";
 
 export default function VoiceScreen() {
   const auth = useAuth();
+  const { t } = useI18n();
   const { openMenu } = useMenu();
   const { preferNativeTenVad } = useVoiceSettings();
   const voiceSession = useVoiceSession({
@@ -33,16 +35,6 @@ export default function VoiceScreen() {
   });
   const { styles: animatedStyles, visualizerPulse } =
     useVoiceAnimations(uiState);
-
-  const isReconnecting =
-    voiceSession.status === "connecting" || voiceSession.status === "reconnecting";
-  const isDisconnected =
-    voiceSession.status === "idle" || voiceSession.status === "error";
-  const connectionLabel = isReconnecting
-    ? "Reconnecting"
-    : isDisconnected
-      ? "Disconnected"
-      : uiState.connectionLabel;
 
   const isAuthenticated = auth.status === "ready" && !!auth.session;
   const shouldAutoConnect =
@@ -121,7 +113,6 @@ export default function VoiceScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         <VoiceStage
           animatedStyles={animatedStyles}
-          connectionLabel={connectionLabel}
           error={voiceSession.error}
           notice={voiceSession.retryNotice}
           onPrimaryPress={() => {
@@ -132,7 +123,7 @@ export default function VoiceScreen() {
               void voiceSession.startListening();
             }
           }}
-          title="Voice"
+          title={t("voice.title")}
           transcript={voiceSession.transcript}
           uiState={uiState}
           visualizerPulse={visualizerPulse}

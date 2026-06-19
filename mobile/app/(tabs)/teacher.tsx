@@ -11,12 +11,14 @@ import { resolveVoiceUiState } from "@/features/voice/voice-ui-state";
 import { useVoiceAnimations } from "@/features/voice/useVoiceAnimations";
 import { useVoiceSession } from "@/features/voice/useVoiceSession";
 import { getRuntimeEnv } from "@/lib/env";
+import { useI18n } from "@/lib/i18n";
 import { getSupabaseSession } from "@/lib/supabase";
 import { useMenu } from "@/navigation/MenuContext";
 import { useAuth } from "@/providers/AuthProvider";
 
 export default function TeacherScreen() {
   const auth = useAuth();
+  const { t } = useI18n();
   const { openMenu } = useMenu();
   const env = getRuntimeEnv();
   const teacherMode = useTeacherMode();
@@ -66,7 +68,7 @@ export default function TeacherScreen() {
     const hasSelectedLesson = selectedLessonId != null;
 
     if (!hasSelectedLesson) {
-      setStartNotice("Choose a lesson from the list.");
+      setStartNotice("Абярыце занятак са спісу.");
     } else {
       setStartNotice(null);
     }
@@ -118,20 +120,10 @@ export default function TeacherScreen() {
     isAuthenticated &&
     !manualStopRef.current &&
     (voiceSession.status === "idle" || voiceSession.status === "error");
-  const isReconnecting =
-    voiceSession.status === "connecting" ||
-    voiceSession.status === "reconnecting";
-  const isDisconnected =
-    voiceSession.status === "idle" || voiceSession.status === "error";
-  const connectionLabel = isReconnecting
-    ? "Reconnecting"
-    : isDisconnected
-      ? "Disconnected"
-      : "Lesson ready";
   const selectionNotice =
     startNotice ??
     (!teacherMode.selectedLesson && teacherMode.lessons.length > 0
-      ? "Choose a lesson from the list."
+      ? "Абярыце занятак са спісу."
       : null);
 
   useEffect(() => {
@@ -185,7 +177,6 @@ export default function TeacherScreen() {
               stepPrompt={teacherMode.currentPrompt}
             />
           }
-          connectionLabel={connectionLabel}
           error={voiceSession.error}
           eyebrow="Yuzik"
           notice={voiceSession.retryNotice ?? selectionNotice}
@@ -196,7 +187,7 @@ export default function TeacherScreen() {
               startTeacherSession();
             }
           }}
-          title="Teacher"
+          title={t("voice.teacher")}
           transcript={voiceSession.transcript}
           uiState={uiState}
           visualizerPulse={visualizerPulse}

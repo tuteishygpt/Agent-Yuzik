@@ -123,6 +123,17 @@ jest.mock("@/navigation/MenuContext", () => ({
   }),
 }));
 
+jest.mock("@/lib/i18n", () => ({
+  useI18n: () => ({
+    t: (key: string) =>
+      ({
+        "voice.teacher": "Настаўнік",
+        "voice.start": "Пачаць",
+        "voice.stop": "Спыніць",
+      })[key] ?? key,
+  }),
+}));
+
 jest.mock("@/providers/AuthProvider", () => ({
   useAuth: () => ({
     status: "ready",
@@ -229,10 +240,10 @@ describe("TeacherScreen", () => {
     });
 
     const text = readText(renderer);
-    expect(text).toContain("Teacher");
+    expect(text).toContain("Настаўнік");
     expect(text).toContain("Greetings");
-    expect(text).toContain("Lesson ready");
-    expect(text).toContain("Start");
+    expect(text).toContain("Падключана");
+    expect(text).toContain("Пачаць");
     expect(mockLoadLessons).toHaveBeenCalledWith({
       backendUrl: "https://api.yuzik.example",
       accessToken: "token-123",
@@ -277,7 +288,7 @@ describe("TeacherScreen", () => {
     });
 
     const text = readText(renderer);
-    expect(text).toContain("Choose a lesson");
+    expect(text).toContain("Абярыце занятак");
     expect(mockConnect).toHaveBeenCalledTimes(1);
     expect(mockStartListening).toHaveBeenCalledTimes(1);
     expect(mockStartTeacherLesson).not.toHaveBeenCalled();
@@ -349,7 +360,7 @@ describe("TeacherScreen", () => {
 
     text = readText(renderer);
     expect(text).toContain("Travel basics");
-    expect(text).toContain("Active");
+    expect(text).toContain("Актыўна");
     expect(text).not.toContain("Ask for a ticket.");
   });
 

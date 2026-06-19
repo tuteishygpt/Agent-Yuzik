@@ -1,6 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { useI18n } from "@/lib/i18n";
 import { BottomMenuButton } from "@/navigation/BottomMenuButton";
 import { webTheme } from "@/theme/webTheme";
 
@@ -21,6 +22,7 @@ export function VoiceControls({
   onStopListening,
   onInterrupt,
 }: VoiceControlsProps) {
+  const { t } = useI18n();
   const insets = useSafeAreaInsets();
   const connected = status === "connected" || status === "processing" || isListening;
 
@@ -51,7 +53,9 @@ export function VoiceControls({
           !connected ? styles.buttonDisabled : null,
         ]}
       >
-        <Text style={styles.buttonText}>{isListening ? "Stop" : "Start"}</Text>
+        <Text style={styles.buttonText}>
+          {isListening ? t("voice.stop") : t("voice.start")}
+        </Text>
       </Pressable>
     </View>
   );
