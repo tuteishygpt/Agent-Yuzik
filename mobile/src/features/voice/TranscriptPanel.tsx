@@ -1,7 +1,8 @@
 import { useEffect, useRef } from "react";
 import { Animated, ScrollView, StyleSheet, Text, View } from "react-native";
 
-import { webGlassPanel, webTheme } from "@/theme/webTheme";
+import { webTheme } from "@/theme/webTheme";
+
 import type { VoiceTranscriptEntry } from "./useVoiceSession";
 
 type TranscriptPanelProps = {
@@ -19,12 +20,13 @@ function TranscriptTurn({ entry }: { entry: VoiceTranscriptEntry }) {
     }).start();
   }, [progress]);
 
+  const isUser = entry.role === "user";
+
   return (
     <Animated.View
       style={[
         styles.entry,
-        entry.role === "user" ? styles.userEntry : null,
-        entry.role === "assistant" ? styles.assistantEntry : null,
+        isUser ? styles.userEntry : styles.assistantEntry,
         {
           opacity: progress,
           transform: [
@@ -38,7 +40,9 @@ function TranscriptTurn({ entry }: { entry: VoiceTranscriptEntry }) {
         },
       ]}
     >
-      <Text style={styles.text}>{entry.text}</Text>
+      <Text style={[styles.text, isUser ? styles.userText : null]}>
+        {entry.text}
+      </Text>
     </Animated.View>
   );
 }
@@ -57,18 +61,18 @@ export function TranscriptPanel({ transcript }: TranscriptPanelProps) {
   return (
     <View style={styles.panel}>
       <ScrollView
-        ref={scrollRef}
         contentContainerStyle={styles.content}
         onContentSizeChange={scrollToLatest}
+        ref={scrollRef}
         style={styles.scroll}
       >
-      {visibleTranscript.length === 0 ? (
-        <Text style={styles.empty}>Размова яшчэ не пачалася</Text>
-      ) : (
-        visibleTranscript.map((entry) => (
-          <TranscriptTurn key={entry.id} entry={entry} />
-        ))
-      )}
+        {visibleTranscript.length === 0 ? (
+          <Text style={styles.empty}>Conversation has not started yet</Text>
+        ) : (
+          visibleTranscript.map((entry) => (
+            <TranscriptTurn entry={entry} key={entry.id} />
+          ))
+        )}
       </ScrollView>
     </View>
   );
@@ -77,11 +81,12 @@ export function TranscriptPanel({ transcript }: TranscriptPanelProps) {
 const styles = StyleSheet.create({
   panel: {
     width: "100%",
-    maxHeight: 360,
+    maxHeight: 340,
     borderRadius: webTheme.radii.lg,
     padding: 10,
-    ...webGlassPanel,
-    backgroundColor: "rgba(255, 255, 255, 0.06)",
+    backgroundColor: webTheme.colors.surface,
+    borderWidth: 1,
+    borderColor: webTheme.colors.border,
   },
   scroll: {
     minHeight: 150,
@@ -91,35 +96,41 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
   },
   empty: {
-    color: "rgba(255, 255, 255, 0.56)",
-    fontSize: 16,
-    lineHeight: 24,
     padding: 18,
-    textAlign: "center",
-    borderRadius: webTheme.radii.lg,
+    borderRadius: webTheme.radii.md,
     borderColor: webTheme.colors.border,
     borderStyle: "dashed",
     borderWidth: 1,
+    color: webTheme.colors.textMuted,
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: "center",
   },
   entry: {
+    maxWidth: "86%",
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.08)",
-    backgroundColor: "rgba(255, 255, 255, 0.045)",
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
   userEntry: {
-    borderColor: "rgba(96, 160, 255, 0.18)",
-    backgroundColor: "rgba(78, 130, 238, 0.10)",
+    alignSelf: "flex-end",
+    backgroundColor: webTheme.colors.userMsgBg,
+    borderColor: webTheme.colors.userMsgBg,
+    borderBottomRightRadius: 4,
   },
   assistantEntry: {
-    borderColor: "rgba(68, 255, 170, 0.16)",
-    backgroundColor: "rgba(68, 255, 170, 0.08)",
+    alignSelf: "flex-start",
+    backgroundColor: webTheme.colors.botMsgBg,
+    borderColor: webTheme.colors.border,
+    borderBottomLeftRadius: 4,
   },
   text: {
     color: webTheme.colors.text,
     fontSize: 15,
     lineHeight: 22,
+  },
+  userText: {
+    color: webTheme.colors.surface,
   },
 });
