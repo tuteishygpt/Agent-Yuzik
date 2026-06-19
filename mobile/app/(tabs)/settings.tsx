@@ -1,14 +1,15 @@
 import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { MobileScreenShell } from "@/components/mobile";
 import { useI18n, type Locale } from "@/lib/i18n";
 import { BottomMenuButton } from "@/navigation/BottomMenuButton";
 import { useMenu } from "@/navigation/MenuContext";
 import { useVoiceSettings } from "@/providers/VoiceSettingsProvider";
-import { webTextStyles, webTheme } from "@/theme/webTheme";
+import { webTheme } from "@/theme/webTheme";
 
 const LANGUAGES: { code: Locale; label: string }[] = [
-  { code: "be", label: "Беларуская" },
+  { code: "be", label: "Belarusian" },
   { code: "en", label: "English" },
 ];
 
@@ -19,11 +20,9 @@ export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
 
   return (
-    <View style={styles.screen}>
-      <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
-        <View style={styles.bgGlowTop} />
-        <View style={styles.bgGlowBottom} />
-        <View style={styles.hero}>
+    <MobileScreenShell contentStyle={styles.shellContent}>
+      <ScrollView contentContainerStyle={styles.content}>
+        <View style={styles.header}>
           <Text style={styles.eyebrow}>{t("settings.eyebrow")}</Text>
           <Text style={styles.title}>{t("settings.title")}</Text>
           <Text style={styles.subtitle}>{t("settings.subtitle")}</Text>
@@ -36,9 +35,17 @@ export default function SettingsScreen() {
               <Pressable
                 key={lang.code}
                 onPress={() => setLocale(lang.code)}
-                style={[styles.langButton, locale === lang.code && styles.langButtonActive]}
+                style={[
+                  styles.langButton,
+                  locale === lang.code ? styles.langButtonActive : null,
+                ]}
               >
-                <Text style={[styles.langLabel, locale === lang.code && styles.langLabelActive]}>
+                <Text
+                  style={[
+                    styles.langLabel,
+                    locale === lang.code ? styles.langLabelActive : null,
+                  ]}
+                >
                   {lang.label}
                 </Text>
               </Pressable>
@@ -57,115 +64,95 @@ export default function SettingsScreen() {
             </View>
             <Switch
               accessibilityLabel={t("settings.nativeTenVad")}
-              value={preferNativeTenVad}
               onValueChange={setPreferNativeTenVad}
+              thumbColor={
+                preferNativeTenVad ? webTheme.colors.primary : webTheme.colors.surface
+              }
               trackColor={{
-                false: "rgba(148, 163, 184, 0.36)",
-                true: "rgba(100, 149, 237, 0.48)",
+                false: webTheme.colors.surfaceMuted,
+                true: webTheme.colors.primaryGlow,
               }}
-              thumbColor={preferNativeTenVad ? webTheme.colors.primary : "#f8fafc"}
+              value={preferNativeTenVad}
             />
           </View>
         </View>
       </ScrollView>
-      <View style={[styles.bottomMenu, { paddingBottom: Math.max(insets.bottom, 12) + 8 }]}>
+
+      <View
+        style={[
+          styles.bottomMenu,
+          { paddingBottom: Math.max(insets.bottom, 12) + 8 },
+        ]}
+      >
         <BottomMenuButton onPress={openMenu} />
       </View>
-    </View>
+    </MobileScreenShell>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: webTheme.colors.background,
+  shellContent: {
+    paddingHorizontal: 0,
+    paddingTop: 0,
   },
   content: {
-    padding: 20,
-    paddingBottom: 112,
     gap: 20,
     minHeight: "100%",
+    padding: 20,
+    paddingBottom: 112,
   },
-  bottomMenu: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: webTheme.colors.border,
-    backgroundColor: "rgba(12, 14, 24, 0.96)",
-  },
-  bgGlowTop: {
-    position: "absolute",
-    top: -80,
-    left: -70,
-    width: 240,
-    height: 240,
-    borderRadius: 120,
-    backgroundColor: webTheme.colors.bgGlowPrimary,
-  },
-  bgGlowBottom: {
-    position: "absolute",
-    right: -90,
-    bottom: 70,
-    width: 260,
-    height: 260,
-    borderRadius: 130,
-    backgroundColor: webTheme.colors.bgGlowSecondary,
-  },
-  hero: {
-    paddingTop: 24,
+  header: {
     gap: 6,
+    paddingTop: 18,
   },
   eyebrow: {
-    ...webTextStyles.eyebrow,
+    color: webTheme.colors.textMuted,
+    fontSize: 12,
+    fontWeight: "800",
+    textTransform: "uppercase",
   },
   title: {
-    fontSize: 32,
-    fontWeight: "700",
     color: webTheme.colors.text,
+    fontSize: 30,
+    fontWeight: "800",
   },
   subtitle: {
-    fontSize: 16,
-    lineHeight: 24,
     color: webTheme.colors.textMuted,
+    fontSize: 15,
+    lineHeight: 22,
   },
   section: {
-    gap: 12,
+    gap: 10,
   },
   sectionTitle: {
-    fontSize: 14,
-    fontWeight: "700",
     color: webTheme.colors.textMuted,
+    fontSize: 13,
+    fontWeight: "800",
     textTransform: "uppercase",
-    letterSpacing: 0.8,
   },
   langRow: {
     flexDirection: "row",
-    gap: 12,
+    gap: 10,
   },
   langButton: {
-    flexDirection: "row",
+    flex: 1,
+    minHeight: 52,
     alignItems: "center",
-    gap: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderRadius: 16,
+    justifyContent: "center",
+    borderRadius: webTheme.radii.md,
     backgroundColor: webTheme.colors.surface,
     borderWidth: 1,
     borderColor: webTheme.colors.border,
-    flex: 1,
+    paddingHorizontal: 12,
   },
   langButtonActive: {
     borderColor: webTheme.colors.primary,
-    backgroundColor: "rgba(100, 149, 237, 0.12)",
+    backgroundColor: webTheme.colors.surfaceStrong,
   },
   langLabel: {
-    fontSize: 15,
-    fontWeight: "600",
     color: webTheme.colors.text,
+    fontSize: 15,
+    fontWeight: "800",
   },
   langLabelActive: {
     color: webTheme.colors.primary,
@@ -175,24 +162,31 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     gap: 16,
-    padding: 16,
-    borderRadius: 16,
+    padding: 14,
+    borderRadius: webTheme.radii.lg,
     backgroundColor: webTheme.colors.surface,
     borderWidth: 1,
     borderColor: webTheme.colors.border,
   },
   settingCopy: {
     flex: 1,
-    gap: 6,
+    gap: 5,
   },
   settingLabel: {
-    fontSize: 15,
-    fontWeight: "700",
     color: webTheme.colors.text,
+    fontSize: 15,
+    fontWeight: "800",
   },
   settingDescription: {
+    color: webTheme.colors.textMuted,
     fontSize: 13,
     lineHeight: 18,
-    color: webTheme.colors.textMuted,
+  },
+  bottomMenu: {
+    borderTopWidth: 1,
+    borderTopColor: webTheme.colors.border,
+    backgroundColor: webTheme.colors.background,
+    paddingHorizontal: 16,
+    paddingTop: 10,
   },
 });
