@@ -1,25 +1,21 @@
 import { useState } from "react";
 import { Tabs, useRouter, useSegments } from "expo-router";
-import {
-  ActivityIndicator,
-  Modal,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from "react-native";
 
+import { MobileMenu, type MobileMenuItem } from "@/components/mobile";
 import { useI18n } from "@/lib/i18n";
 import { MenuProvider } from "@/navigation/MenuContext";
-import { webTextStyles, webTheme } from "@/theme/webTheme";
 import { useAuth } from "@/providers/AuthProvider";
+import { webTextStyles, webTheme } from "@/theme/webTheme";
 
 const MENU_ITEMS = [
-  { route: "voice", icon: "🎤", key: "tab.voice" },
-  { route: "teacher", icon: "📚", key: "tab.teacher" },
-  { route: "chat", icon: "💬", key: "tab.chat" },
-  { route: "settings", icon: "⚙️", key: "tab.settings" },
+  { route: "voice", key: "tab.voice" },
+  { route: "teacher", key: "tab.teacher" },
+  { route: "chat", key: "tab.chat" },
+  { route: "settings", key: "tab.settings" },
 ] as const;
+
+type MenuRoute = (typeof MENU_ITEMS)[number]["route"];
 
 export default function TabsLayout() {
   const auth = useAuth();
@@ -28,7 +24,8 @@ export default function TabsLayout() {
   const segments = useSegments();
   const [menuOpen, setMenuOpen] = useState(false);
 
-  const currentRoute = segments[segments.length - 1] ?? "voice";
+  const currentRoute = (segments[segments.length - 1] ?? "voice") as MenuRoute;
+
   if (auth.status === "error") {
     return (
       <View style={styles.centered}>
@@ -43,46 +40,36 @@ export default function TabsLayout() {
   if (auth.status !== "ready" || !auth.session) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator size="large" color={webTheme.colors.primary} />
+        <ActivityIndicator color={webTheme.colors.primary} size="large" />
         <Text style={styles.title}>{t("auth.preparing")}</Text>
       </View>
     );
   }
 
+  const menuItems: MobileMenuItem<MenuRoute>[] = MENU_ITEMS.map((item) => ({
+    route: item.route,
+    label: t(item.key as any),
+  }));
+
   return (
     <MenuProvider value={{ openMenu: () => setMenuOpen(true) }}>
       <View style={styles.root}>
         <Modal
-          visible={menuOpen}
-          transparent
           animationType="fade"
           onRequestClose={() => setMenuOpen(false)}
+          transparent
+          visible={menuOpen}
         >
           <Pressable style={styles.overlay} onPress={() => setMenuOpen(false)}>
-            <View style={styles.menu}>
-              {MENU_ITEMS.map((item) => (
-                <Pressable
-                  key={item.route}
-                  style={[
-                    styles.menuItem,
-                    currentRoute === item.route && styles.menuItemActive,
-                  ]}
-                  onPress={() => {
-                    setMenuOpen(false);
-                    router.replace(`/(tabs)/${item.route}` as any);
-                  }}
-                >
-                  <Text style={styles.menuIcon}>{item.icon}</Text>
-                  <Text
-                    style={[
-                      styles.menuLabel,
-                      currentRoute === item.route && styles.menuLabelActive,
-                    ]}
-                  >
-                    {t(item.key as any)}
-                  </Text>
-                </Pressable>
-              ))}
+            <View style={styles.menuWrap}>
+              <MobileMenu
+                activeRoute={currentRoute}
+                items={menuItems}
+                onSelect={(route) => {
+                  setMenuOpen(false);
+                  router.replace(`/(tabs)/${route}` as any);
+                }}
+              />
             </View>
           </Pressable>
         </Modal>
@@ -112,71 +99,15 @@ const styles = StyleSheet.create({
   scene: {
     backgroundColor: webTheme.colors.background,
   },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingTop: 44,
-    paddingHorizontal: 16,
-    paddingBottom: 8,
-    backgroundColor: "rgba(12, 14, 24, 0.96)",
-    borderBottomWidth: 1,
-    borderBottomColor: webTheme.colors.border,
-  },
-  hamburger: {
-    width: 40,
-    height: 40,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 12,
-    backgroundColor: "rgba(255, 255, 255, 0.06)",
-  },
-  hamburgerIcon: {
-    fontSize: 22,
-    color: webTheme.colors.text,
-  },
-  headerTitle: {
-    fontSize: 17,
-    fontWeight: "700",
-    color: webTheme.colors.text,
-  },
   overlay: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    backgroundColor: "rgba(31, 29, 27, 0.28)",
   },
-  menu: {
+  menuWrap: {
     position: "absolute",
-    bottom: 96,
     left: 16,
-    backgroundColor: "rgba(22, 24, 40, 0.98)",
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: webTheme.colors.border,
-    padding: 8,
-    minWidth: 200,
-    gap: 4,
-  },
-  menuItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderRadius: 12,
-  },
-  menuItemActive: {
-    backgroundColor: "rgba(100, 149, 237, 0.15)",
-  },
-  menuIcon: {
-    fontSize: 18,
-  },
-  menuLabel: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: webTheme.colors.text,
-  },
-  menuLabelActive: {
-    color: webTheme.colors.primary,
+    right: 16,
+    bottom: 96,
   },
   centered: {
     flex: 1,

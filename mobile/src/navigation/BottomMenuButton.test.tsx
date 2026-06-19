@@ -11,8 +11,6 @@ describe("BottomMenuButton", () => {
 
     const screen = render(<BottomMenuButton onPress={onPress} />);
 
-    expect(screen.getTextContent()).toContain("☰");
-
     const button = screen.renderer.root.findByProps({
       accessibilityLabel: "Open menu",
     });

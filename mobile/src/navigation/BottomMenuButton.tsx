@@ -1,4 +1,4 @@
-import { Pressable, StyleSheet, Text, type StyleProp, type ViewStyle } from "react-native";
+import { Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
 
 import { webTheme } from "@/theme/webTheme";
 
@@ -12,9 +12,15 @@ export function BottomMenuButton({ onPress, style }: BottomMenuButtonProps) {
     <Pressable
       accessibilityLabel="Open menu"
       onPress={onPress}
-      style={[styles.button, style]}
+      style={({ pressed }) => [
+        styles.button,
+        pressed ? styles.buttonPressed : null,
+        style,
+      ]}
     >
-      <Text style={styles.icon}>☰</Text>
+      <View style={styles.line} />
+      <View style={styles.line} />
+      <View style={styles.line} />
     </Pressable>
   );
 }
@@ -25,14 +31,19 @@ const styles = StyleSheet.create({
     height: 56,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 16,
-    backgroundColor: "rgba(255, 255, 255, 0.08)",
+    gap: 4,
+    borderRadius: webTheme.radii.lg,
+    backgroundColor: webTheme.colors.surface,
     borderColor: webTheme.colors.border,
     borderWidth: 1,
   },
-  icon: {
-    color: webTheme.colors.text,
-    fontSize: 24,
-    fontWeight: "700",
+  buttonPressed: {
+    backgroundColor: webTheme.colors.surfaceStrong,
+  },
+  line: {
+    width: 18,
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: webTheme.colors.text,
   },
 });
