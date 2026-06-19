@@ -1,11 +1,18 @@
 import { webTheme } from "./webTheme";
 
 describe("webTheme", () => {
-  it("keeps mobile aligned with the web voice reference colors", () => {
-    expect(webTheme.colors.background).toBe("#141423");
-    expect(webTheme.colors.primary).toBe("#6495ED");
-    expect(webTheme.colors.listening).toBe("#ff4466");
-    expect(webTheme.colors.processing).toBe("#ffaa00");
-    expect(webTheme.colors.speaking).toBe("#44ffaa");
+  it("keeps mobile aligned with the Figma light reference colors", () => {
+    expect(webTheme.colors.background).toBe("#f8f5f0");
+    expect(webTheme.colors.surface).toBe("#ffffff");
+    expect(webTheme.colors.primary).toBe("#d83324");
+    expect(webTheme.colors.text).toBe("#1f1d1b");
+    expect(webTheme.radii.md).toBe(8);
+  });
+
+  it("keeps compatibility status color names", () => {
+    expect(webTheme.colors.listening).toBeTruthy();
+    expect(webTheme.colors.processing).toBeTruthy();
+    expect(webTheme.colors.speaking).toBeTruthy();
+    expect(webTheme.colors.danger).toBeTruthy();
   });
 });
