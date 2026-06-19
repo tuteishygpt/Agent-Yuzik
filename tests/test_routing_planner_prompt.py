@@ -61,6 +61,14 @@ def test_routing_planner_instruction_covers_required_example_intents():
     assert "cancel" in instruction
 
 
+def test_routing_planner_instruction_requires_weather_city_updates():
+    instruction = ROUTING_PLANNER_INSTRUCTION
+
+    assert "pending_action_update.city" in instruction
+    assert "\u0430 \u045e \u041b\u0456\u0434\u0437\u0435?" in instruction
+    assert "\u041b\u0456\u0434\u0430" in instruction
+
+
 def test_routing_planner_instruction_covers_tts_synonyms():
     instruction = ROUTING_PLANNER_INSTRUCTION
 

@@ -334,6 +334,44 @@ def test_route_executor_weather_sets_deterministic_weather_branch():
     assert ctx.state["temp:weather_forecast_days"] == 2
 
 
+def test_route_executor_weather_uses_current_text_city_when_plan_omits_city():
+    ctx, content = make_context({"temp:turn_current_text": "\u0443 \u041b\u0456\u0434\u0437\u0435!"})
+
+    result = asyncio.run(
+        route_executor_node(
+            ctx,
+            {
+                "route": "weather",
+                "confidence": 0.95,
+                "pending_action_update": {},
+            },
+        )
+    )
+
+    assert result is content
+    assert ctx.route == "weather"
+    assert ctx.state["temp:weather_city"] == "\u041b\u0456\u0434\u0430"
+
+
+def test_route_executor_weather_keeps_default_city_for_generic_weather_question():
+    ctx, content = make_context({"temp:turn_current_text": "\u044f\u043a\u043e\u0435 \u043d\u0430\u0434\u0432\u043e\u0440'\u0435?"})
+
+    result = asyncio.run(
+        route_executor_node(
+            ctx,
+            {
+                "route": "weather",
+                "confidence": 0.95,
+                "pending_action_update": {},
+            },
+        )
+    )
+
+    assert result is content
+    assert ctx.route == "weather"
+    assert ctx.state["temp:weather_city"] == ""
+
+
 def test_route_executor_search_sets_search_branch_with_query():
     ctx, content = make_context({"temp:turn_current_text": "latest news"})
 

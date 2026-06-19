@@ -60,6 +60,42 @@ NEGATED_TTS_MARKERS = (
     "no audio",
     "without audio",
 )
+WEATHER_CITY_STOPWORDS = {
+    "а",
+    "and",
+    "weather",
+    "forecast",
+    "for",
+    "the",
+    "v",
+    "u",
+    "в",
+    "у",
+    "ў",
+    "и",
+    "надвор'е",
+    "надворе",
+    "прагноз",
+    "погода",
+    "погоду",
+    "погоде",
+    "якое",
+    "якая",
+    "які",
+    "какое",
+    "какая",
+    "какой",
+    "what",
+}
+WEATHER_CITY_PREPOSITIONS = {"in", "v", "u", "в", "у", "ў"}
+WEATHER_CITY_ALIASES = {
+    "лідзе": "Ліда",
+    "ліда": "Ліда",
+    "лиде": "Лида",
+    "лида": "Лида",
+    "lida": "Lida",
+}
+WEATHER_CITY_TOKEN_STRIP = " \t\r\n.,!?;:()[]{}\"'`«»"
 
 
 def _field(value: Any, name: str, default: Any = None) -> Any:
@@ -113,6 +149,38 @@ def _has_explicit_tts_request(text: Any) -> bool:
     if any(marker in lowered for marker in NEGATED_TTS_MARKERS):
         return False
     return any(marker in lowered for marker in TTS_REQUEST_MARKERS)
+
+
+def _title_city_token(value: str) -> str:
+    if not value:
+        return value
+    return value[:1].upper() + value[1:]
+
+
+def _weather_city_from_current_text(text: Any) -> str:
+    if not isinstance(text, str):
+        return ""
+    tokens = [token.strip(WEATHER_CITY_TOKEN_STRIP) for token in text.split()]
+    for index, token in enumerate(tokens[:-1]):
+        if token.casefold() not in WEATHER_CITY_PREPOSITIONS:
+            continue
+        for city in tokens[index + 1 :]:
+            if city and city.casefold() not in WEATHER_CITY_STOPWORDS:
+                return WEATHER_CITY_ALIASES.get(
+                    city.casefold(), _title_city_token(city)
+                )
+
+    candidates = [
+        token
+        for token in tokens
+        if token and token.casefold() not in WEATHER_CITY_STOPWORDS
+    ]
+    if len(candidates) != 1:
+        return ""
+    city = candidates[0]
+    if city.casefold() in WEATHER_CITY_ALIASES or city[:1].isupper():
+        return WEATHER_CITY_ALIASES.get(city.casefold(), _title_city_token(city))
+    return ""
 
 
 def _ensure_tts_post_action(plan: dict[str, Any]) -> None:
@@ -355,8 +423,11 @@ async def route_executor_node(ctx, node_input):
 
     if route == "weather":
         update = _dict(plan["pending_action_update"])
+        city = str(update.get("city") or "").strip()
+        if not city:
+            city = _weather_city_from_current_text(state.get("temp:turn_current_text"))
         state["temp:primary_route"] = "weather"
-        state["temp:weather_city"] = str(update.get("city") or "").strip()
+        state["temp:weather_city"] = city
         state["temp:weather_forecast_days"] = _int_value(
             update.get("forecast_days"), 1
         )

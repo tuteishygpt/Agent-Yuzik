@@ -49,6 +49,9 @@ Tools:
   "\u043e\u0437\u0432\u0443\u0447\u044c", read aloud, voice, audio, or TTS.
 - For search, set pending_action_update.query to the final web search query
   when the query is selected, rewritten, or derived from referenced context.
+- For weather, set pending_action_update.city when the current text names a
+  city, including short follow-ups like "and in Lida?", "\u0430 \u045e \u041b\u0456\u0434\u0437\u0435?",
+  or "\u041b\u0456\u0434\u0430!". If no city is named, omit city so Minsk remains the default.
 - Use pending_action_update for route-specific details such as dictionary_word,
   target_language, sources, or clearing a pending action.
 - Keep rationale short. It is for diagnostics, not the user.
@@ -61,7 +64,10 @@ Examples:
 - current_text="draw an image based on that" with previous_assistant_text ->
   route=image, tools=["image_generation"], needs_previous_context=true,
   target_text_ref=previous_assistant_text.
-- current_text asks for weather in Minsk -> route=weather, tools=["weather"].
+- current_text asks for weather in Minsk -> route=weather, tools=["weather"],
+  pending_action_update.city="Minsk".
+- current_text="\u0430 \u045e \u041b\u0456\u0434\u0437\u0435?" after a weather answer -> route=weather,
+  tools=["weather"], pending_action_update.city="\u041b\u0456\u0434\u0430".
 - current_text asks to look up a word in a dictionary -> route=dictionary,
   tools=["dictionary"].
 - current_text asks for latest/current facts -> route=search, tools=["search"],

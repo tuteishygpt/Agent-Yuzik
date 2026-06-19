@@ -18,6 +18,71 @@ WEATHER_CODE_LABELS = {
     61: "дождж",
 }
 CITY_NAME_LABELS = {
+    "\u041b\u0456\u0434\u0430": (
+        "\u041b\u0456\u0434\u0430",
+        "\u041b\u0456\u0434\u0437\u0435",
+        "\u041b\u0456\u0434\u044b",
+    ),
+    "\u041b\u0438\u0434\u0430": (
+        "\u041b\u0456\u0434\u0430",
+        "\u041b\u0456\u0434\u0437\u0435",
+        "\u041b\u0456\u0434\u044b",
+    ),
+    "Lida": (
+        "\u041b\u0456\u0434\u0430",
+        "\u041b\u0456\u0434\u0437\u0435",
+        "\u041b\u0456\u0434\u044b",
+    ),
+    "\u0413\u0440\u043e\u0434\u043d\u0430": (
+        "\u0413\u0440\u043e\u0434\u043d\u0430",
+        "\u0413\u0440\u043e\u0434\u043d\u0435",
+        "\u0413\u0440\u043e\u0434\u043d\u0430",
+    ),
+    "Grodno": (
+        "\u0413\u0440\u043e\u0434\u043d\u0430",
+        "\u0413\u0440\u043e\u0434\u043d\u0435",
+        "\u0413\u0440\u043e\u0434\u043d\u0430",
+    ),
+    "\u0413\u043e\u043c\u0435\u043b\u044c": (
+        "\u0413\u043e\u043c\u0435\u043b\u044c",
+        "\u0413\u043e\u043c\u0435\u043b\u0456",
+        "\u0413\u043e\u043c\u0435\u043b\u044f",
+    ),
+    "\u041c\u0430\u0433\u0456\u043b\u0451\u045e": (
+        "\u041c\u0430\u0433\u0456\u043b\u0451\u045e",
+        "\u041c\u0430\u0433\u0456\u043b\u0451\u0432\u0435",
+        "\u041c\u0430\u0433\u0456\u043b\u0451\u0432\u0430",
+    ),
+    "\u0412\u0456\u0446\u0435\u0431\u0441\u043a": (
+        "\u0412\u0456\u0446\u0435\u0431\u0441\u043a",
+        "\u0412\u0456\u0446\u0435\u0431\u0441\u043a\u0443",
+        "\u0412\u0456\u0446\u0435\u0431\u0441\u043a\u0430",
+    ),
+    "\u041f\u043e\u043b\u0430\u0446\u043a": (
+        "\u041f\u043e\u043b\u0430\u0446\u043a",
+        "\u041f\u043e\u043b\u0430\u0446\u043a\u0443",
+        "\u041f\u043e\u043b\u0430\u0446\u043a\u0430",
+    ),
+    "\u041f\u0456\u043d\u0441\u043a": (
+        "\u041f\u0456\u043d\u0441\u043a",
+        "\u041f\u0456\u043d\u0441\u043a\u0443",
+        "\u041f\u0456\u043d\u0441\u043a\u0430",
+    ),
+    "\u0411\u0430\u0431\u0440\u0443\u0439\u0441\u043a": (
+        "\u0411\u0430\u0431\u0440\u0443\u0439\u0441\u043a",
+        "\u0411\u0430\u0431\u0440\u0443\u0439\u0441\u043a\u0443",
+        "\u0411\u0430\u0431\u0440\u0443\u0439\u0441\u043a\u0430",
+    ),
+    "\u0411\u0430\u0440\u044b\u0441\u0430\u045e": (
+        "\u0411\u0430\u0440\u044b\u0441\u0430\u045e",
+        "\u0411\u0430\u0440\u044b\u0441\u0430\u0432\u0435",
+        "\u0411\u0430\u0440\u044b\u0441\u0430\u0432\u0430",
+    ),
+    "\u041e\u0440\u0448\u0430": (
+        "\u041e\u0440\u0448\u0430",
+        "\u041e\u0440\u0448\u044b",
+        "\u041e\u0440\u0448\u044b",
+    ),
     "Minsk": ("Мінск", "Мінску", "Мінска"),
     "Минск": ("Мінск", "Мінску", "Мінска"),
     "Мінск": ("Мінск", "Мінску", "Мінска"),
@@ -25,6 +90,27 @@ CITY_NAME_LABELS = {
     "Брест": ("Брэст", "Брэсьце", "Брэста"),
     "Брэст": ("Брэст", "Брэсьце", "Брэста"),
 }
+CITY_QUERY_ALIASES = {
+    "\u043b\u0456\u0434\u0437\u0435": "\u041b\u0456\u0434\u0430",
+    "\u043b\u0456\u0434\u044b": "\u041b\u0456\u0434\u0430",
+    "\u043b\u0438\u0434\u0435": "\u041b\u0438\u0434\u0430",
+    "\u043b\u0438\u0434\u044b": "\u041b\u0438\u0434\u0430",
+}
+CITY_DECLENSION_SUFFIXES = (
+    ("\u0446\u043a\u0443", "\u0446\u043a"),
+    ("\u0441\u043a\u0443", "\u0441\u043a"),
+    ("\u0434\u0437\u0435", "\u0434\u0430"),
+    ("\u0451\u0432\u0435", "\u0451\u045e"),
+    ("\u0430\u0432\u0435", "\u0430\u045e"),
+    ("\u0435\u0432\u0435", "\u0435\u045e"),
+    ("\u043e\u0432\u0435", "\u043e\u0432"),
+    ("\u043d\u0435", "\u043d\u0430"),
+    ("\u043d\u0435", "\u043d"),
+    ("\u043b\u0456", "\u043b\u044c"),
+    ("\u0436\u044b", "\u0436"),
+    ("\u0440\u044b", "\u0440"),
+    ("\u0448\u044b", "\u0448\u0430"),
+)
 
 
 def _format_number(value: Any) -> str:
@@ -42,6 +128,27 @@ def _normalize_city_name(city_name: str) -> tuple[str, str, str]:
         return CITY_NAME_LABELS[city_name]
     cleaned = city_name.strip()
     return cleaned, cleaned, cleaned
+
+
+def _normalize_city_query(city_name: str) -> str:
+    cleaned = city_name.strip()
+    return CITY_QUERY_ALIASES.get(cleaned.casefold(), cleaned)
+
+
+def _replace_city_suffix(city_name: str, suffix: str, replacement: str) -> str | None:
+    if not city_name.casefold().endswith(suffix):
+        return None
+    return city_name[: -len(suffix)] + replacement
+
+
+def _city_query_candidates(city_name: str) -> list[str]:
+    primary = _normalize_city_query(city_name)
+    candidates = [primary] if primary else []
+    for suffix, replacement in CITY_DECLENSION_SUFFIXES:
+        candidate = _replace_city_suffix(primary, suffix, replacement)
+        if candidate and candidate not in candidates:
+            candidates.append(candidate)
+    return candidates
 
 
 def _weather_label(code: Any) -> str:
@@ -107,23 +214,24 @@ async def _fetch_json(url: str, *, params: dict[str, Any]) -> dict[str, Any]:
 
 
 async def _resolve_belarus_city(city_query: str) -> dict[str, Any] | None:
-    data = await _fetch_json(
-        GEOCODING_URL,
-        params={
-            "name": city_query,
-            "count": 10,
-            "language": "be",
-            "format": "json",
-        },
-    )
-    for item in data.get("results") or []:
-        if item.get("country_code") != "BY":
-            continue
-        return {
-            "name": item.get("name") or city_query,
-            "latitude": item["latitude"],
-            "longitude": item["longitude"],
-        }
+    for query in _city_query_candidates(city_query):
+        data = await _fetch_json(
+            GEOCODING_URL,
+            params={
+                "name": query,
+                "count": 10,
+                "language": "be",
+                "format": "json",
+            },
+        )
+        for item in data.get("results") or []:
+            if item.get("country_code") != "BY":
+                continue
+            return {
+                "name": item.get("name") or query,
+                "latitude": item["latitude"],
+                "longitude": item["longitude"],
+            }
     return None
 
 
@@ -147,7 +255,7 @@ async def _fetch_weather_forecast(
 
 
 async def get_weather(city: str = "", forecast_days: int = 1) -> types.Part:
-    city_query = (city or "").strip() or "Minsk"
+    city_query = _normalize_city_query(city or "") or "Minsk"
     days = max(1, min(int(forecast_days or 1), 3))
     try:
         place = await _resolve_belarus_city(city_query)
