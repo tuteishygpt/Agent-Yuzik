@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import type { TeacherLesson } from "@/features/teacher/teacher-types";
-import { webGlassPanel, webTheme } from "@/theme/webTheme";
+import { webTheme } from "@/theme/webTheme";
 
 type LessonPickerProps = {
   lessons: TeacherLesson[];
@@ -26,12 +26,15 @@ export function LessonPicker({
   if (isActive && selectedLesson) {
     return (
       <View style={[styles.panel, styles.activePanel]}>
-        <Text style={styles.activeTitle} numberOfLines={1}>
-          {selectedLesson.title}
-        </Text>
-        <Text style={styles.activeMeta} numberOfLines={1}>
-          Active
-        </Text>
+        <View style={styles.activeCopy}>
+          <Text numberOfLines={1} style={styles.activeTitle}>
+            {selectedLesson.title}
+          </Text>
+          <Text numberOfLines={1} style={styles.activeMeta}>
+            {selectedLesson.level} - {selectedLesson.stepsCount} steps
+          </Text>
+        </View>
+        <Text style={styles.activeBadge}>Active</Text>
       </View>
     );
   }
@@ -53,55 +56,64 @@ export function LessonPicker({
             accessibilityState={{ expanded: open }}
             onPress={() => setOpen((current) => !current)}
             style={({ pressed }) => [
-              styles.lessonCard,
-              styles.lessonCardSelected,
-              pressed ? styles.lessonCardPressed : null,
+              styles.selectedRow,
+              pressed ? styles.pressed : null,
             ]}
           >
-            <Text style={styles.lessonTitle}>
-              {selectedLesson?.title ?? "Choose a lesson"}
-            </Text>
-            <Text style={styles.lessonMeta}>
-              {selectedLesson
-                ? `${selectedLesson.level} - ${selectedLesson.stepsCount} steps`
-                : "Tap to choose"}
-            </Text>
-            {selectedLesson && stepPrompt ? (
-              <Text style={styles.stepPrompt}>{stepPrompt}</Text>
-            ) : null}
-            <Text style={styles.chevron}>{open ? "▲" : "▼"}</Text>
+            <View style={styles.selectedCopy}>
+              <Text numberOfLines={1} style={styles.lessonTitle}>
+                {selectedLesson?.title ?? "Choose a lesson"}
+              </Text>
+              <Text numberOfLines={1} style={styles.lessonMeta}>
+                {selectedLesson
+                  ? `${selectedLesson.level} - ${selectedLesson.stepsCount} steps`
+                  : "Tap to choose"}
+              </Text>
+              {selectedLesson && stepPrompt ? (
+                <Text numberOfLines={2} style={styles.stepPrompt}>
+                  {stepPrompt}
+                </Text>
+              ) : null}
+            </View>
+            <Text style={styles.chevron}>{open ? "^" : "v"}</Text>
           </Pressable>
 
-          {open
-            ? lessons.map((lesson) => {
+          {open ? (
+            <View style={styles.optionList}>
+              {lessons.map((lesson) => {
                 const isSelected = lesson.id === selectedLessonId;
 
                 return (
                   <Pressable
-                    key={lesson.id}
                     accessibilityRole="button"
+                    key={lesson.id}
                     onPress={() => {
                       onSelectLesson(lesson.id);
                       setOpen(false);
                     }}
                     style={({ pressed }) => [
-                      styles.lessonCard,
+                      styles.option,
                       isSelected ? styles.optionSelected : null,
-                      pressed ? styles.lessonCardPressed : null,
+                      pressed ? styles.pressed : null,
                     ]}
                   >
-                    <Text style={styles.lessonTitle}>{lesson.title}</Text>
-                    <Text style={styles.lessonMeta}>
-                      {lesson.level} - {lesson.stepsCount} steps
-                    </Text>
-                    <Text style={styles.lessonGoal}>{lesson.goal}</Text>
-                    {isSelected ? (
-                      <Text style={styles.selectedBadge}>Selected</Text>
-                    ) : null}
+                    <View style={styles.selectedCopy}>
+                      <Text numberOfLines={1} style={styles.lessonTitle}>
+                        {lesson.title}
+                      </Text>
+                      <Text style={styles.lessonMeta}>
+                        {lesson.level} - {lesson.stepsCount} steps
+                      </Text>
+                      <Text numberOfLines={2} style={styles.lessonGoal}>
+                        {lesson.goal}
+                      </Text>
+                    </View>
+                    {isSelected ? <Text style={styles.selectedBadge}>Selected</Text> : null}
                   </Pressable>
                 );
-              })
-            : null}
+              })}
+            </View>
+          ) : null}
         </>
       )}
     </View>
@@ -111,26 +123,35 @@ export function LessonPicker({
 const styles = StyleSheet.create({
   panel: {
     width: "100%",
-    gap: 12,
-    padding: 14,
+    gap: 10,
+    padding: 12,
     borderRadius: webTheme.radii.lg,
-    ...webGlassPanel,
+    backgroundColor: webTheme.colors.surface,
+    borderWidth: 1,
+    borderColor: webTheme.colors.border,
   },
   activePanel: {
-    minHeight: 48,
+    minHeight: 56,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
-    paddingVertical: 10,
+  },
+  activeCopy: {
+    flex: 1,
+    gap: 2,
   },
   activeTitle: {
-    flex: 1,
-    fontSize: 16,
-    fontWeight: "700",
     color: webTheme.colors.text,
+    fontSize: 16,
+    fontWeight: "800",
   },
   activeMeta: {
+    color: webTheme.colors.textMuted,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  activeBadge: {
     color: webTheme.colors.teacher,
     fontSize: 12,
     fontWeight: "800",
@@ -143,11 +164,10 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   eyebrow: {
+    color: webTheme.colors.textMuted,
     fontSize: 12,
     fontWeight: "800",
-    letterSpacing: 1,
     textTransform: "uppercase",
-    color: webTheme.colors.textMuted,
   },
   status: {
     color: webTheme.colors.textMuted,
@@ -159,59 +179,75 @@ const styles = StyleSheet.create({
     color: webTheme.colors.teacher,
   },
   empty: {
+    color: webTheme.colors.textMuted,
     fontSize: 15,
     lineHeight: 22,
-    color: webTheme.colors.textMuted,
   },
-  lessonCard: {
-    gap: 4,
-    paddingVertical: 4,
-    paddingRight: 30,
+  selectedRow: {
+    minHeight: 72,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    padding: 12,
+    borderRadius: webTheme.radii.md,
+    backgroundColor: webTheme.colors.surfaceStrong,
+    borderWidth: 1,
+    borderColor: webTheme.colors.border,
   },
-  lessonCardSelected: {
-    borderColor: "rgba(122, 168, 255, 0.48)",
-    backgroundColor: "rgba(78, 130, 238, 0.14)",
+  selectedCopy: {
+    flex: 1,
+    gap: 3,
   },
-  optionSelected: {
-    borderColor: "rgba(68, 255, 170, 0.36)",
-  },
-  lessonCardPressed: {
-    opacity: 0.85,
+  pressed: {
+    opacity: 0.82,
   },
   lessonTitle: {
-    fontSize: 18,
-    fontWeight: "700",
     color: webTheme.colors.text,
+    fontSize: 16,
+    fontWeight: "800",
   },
   lessonMeta: {
-    fontSize: 13,
     color: webTheme.colors.textMuted,
-  },
-  lessonGoal: {
-    fontSize: 14,
-    lineHeight: 20,
-    color: webTheme.colors.textMuted,
-  },
-  stepPrompt: {
-    fontSize: 14,
-    lineHeight: 19,
-    color: webTheme.colors.text,
-  },
-  selectedBadge: {
-    marginTop: 6,
     fontSize: 12,
     fontWeight: "700",
-    letterSpacing: 0.6,
-    textTransform: "uppercase",
-    color: webTheme.colors.teacher,
+  },
+  lessonGoal: {
+    color: webTheme.colors.textMuted,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  stepPrompt: {
+    color: webTheme.colors.text,
+    fontSize: 13,
+    lineHeight: 18,
   },
   chevron: {
-    position: "absolute",
-    right: 16,
-    top: 18,
     color: webTheme.colors.textMuted,
-    fontSize: 12,
+    fontSize: 16,
     fontWeight: "800",
+  },
+  optionList: {
+    gap: 8,
+  },
+  option: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    padding: 12,
+    borderRadius: webTheme.radii.md,
+    backgroundColor: webTheme.colors.surface,
+    borderWidth: 1,
+    borderColor: webTheme.colors.border,
+  },
+  optionSelected: {
+    borderColor: webTheme.colors.teacher,
+    backgroundColor: webTheme.colors.surfaceStrong,
+  },
+  selectedBadge: {
+    color: webTheme.colors.teacher,
+    fontSize: 11,
+    fontWeight: "800",
+    textTransform: "uppercase",
   },
 });
 

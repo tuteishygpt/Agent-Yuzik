@@ -1,7 +1,7 @@
 import { StyleSheet, Text, View } from "react-native";
 
 import type { TeacherLesson } from "@/features/teacher/teacher-types";
-import { webGlassPanel, webTheme } from "@/theme/webTheme";
+import { webTheme } from "@/theme/webTheme";
 
 type TeacherBannerProps = {
   lesson: TeacherLesson | null;
@@ -19,12 +19,11 @@ export function TeacherBanner({
   return (
     <View style={[styles.card, isActive ? styles.cardActive : null]}>
       <View style={styles.header}>
-        <View style={styles.iconBox}>
-          <Text style={styles.icon}>📚</Text>
-        </View>
         <View style={styles.copy}>
-          <Text style={styles.eyebrow}>Настаўнік</Text>
-          <Text style={styles.title}>{lesson?.title ?? "No lesson selected"}</Text>
+          <Text style={styles.eyebrow}>Teacher</Text>
+          <Text numberOfLines={1} style={styles.title}>
+            {lesson?.title ?? "No lesson selected"}
+          </Text>
         </View>
         <Text style={[styles.status, isActive ? styles.statusActive : null]}>
           {statusLabel}
@@ -42,72 +41,59 @@ const styles = StyleSheet.create({
   card: {
     width: "100%",
     gap: 10,
-    padding: 16,
+    padding: 14,
     borderRadius: webTheme.radii.lg,
-    ...webGlassPanel,
+    backgroundColor: webTheme.colors.surface,
+    borderWidth: 1,
+    borderColor: webTheme.colors.border,
   },
   cardActive: {
-    borderColor: "rgba(122, 168, 255, 0.35)",
+    borderColor: webTheme.colors.teacher,
   },
   header: {
-    alignItems: "center",
     flexDirection: "row",
-    gap: 12,
-  },
-  iconBox: {
     alignItems: "center",
-    justifyContent: "center",
-    width: 38,
-    height: 38,
-    borderRadius: 10,
-    borderColor: webTheme.colors.borderStrong,
-    borderWidth: 1,
-    backgroundColor: "rgba(255, 255, 255, 0.04)",
-  },
-  icon: {
-    fontSize: 18,
+    gap: 12,
   },
   copy: {
     flex: 1,
     gap: 2,
   },
   eyebrow: {
+    color: webTheme.colors.textMuted,
     fontSize: 11,
     fontWeight: "800",
-    letterSpacing: 1.1,
     textTransform: "uppercase",
-    color: webTheme.colors.textMuted,
   },
   title: {
-    fontSize: 17,
-    fontWeight: "700",
     color: webTheme.colors.text,
+    fontSize: 17,
+    fontWeight: "800",
   },
   meta: {
+    color: webTheme.colors.textMuted,
     fontSize: 14,
     lineHeight: 20,
-    color: webTheme.colors.textMuted,
   },
   status: {
-    borderRadius: 6,
+    borderRadius: webTheme.radii.sm,
     borderColor: webTheme.colors.border,
     borderWidth: 1,
     color: webTheme.colors.textMuted,
     fontSize: 11,
-    fontWeight: "700",
+    fontWeight: "800",
     paddingHorizontal: 8,
     paddingVertical: 4,
     textTransform: "uppercase",
-    letterSpacing: 0.8,
   },
   statusActive: {
     color: webTheme.colors.teacher,
-    borderColor: "rgba(68, 255, 170, 0.3)",
+    borderColor: webTheme.colors.teacher,
   },
   prompt: {
+    color: webTheme.colors.text,
     fontSize: 15,
     lineHeight: 22,
-    color: webTheme.colors.text,
   },
 });
 

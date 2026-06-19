@@ -229,10 +229,10 @@ describe("TeacherScreen", () => {
     });
 
     const text = readText(renderer);
-    expect(text).toContain("Настаўнік");
+    expect(text).toContain("Teacher");
     expect(text).toContain("Greetings");
-    expect(text).toContain("Слухаю ўрок");
-    expect(text).toContain("Пачаць");
+    expect(text).toContain("Lesson ready");
+    expect(text).toContain("Start");
     expect(mockLoadLessons).toHaveBeenCalledWith({
       backendUrl: "https://api.yuzik.example",
       accessToken: "token-123",
@@ -277,7 +277,7 @@ describe("TeacherScreen", () => {
     });
 
     const text = readText(renderer);
-    expect(text).toContain("Абярыце занятак");
+    expect(text).toContain("Choose a lesson");
     expect(mockConnect).toHaveBeenCalledTimes(1);
     expect(mockStartListening).toHaveBeenCalledTimes(1);
     expect(mockStartTeacherLesson).not.toHaveBeenCalled();
