@@ -61,6 +61,23 @@ def test_routing_planner_instruction_covers_required_example_intents():
     assert "cancel" in instruction
 
 
+def test_routing_planner_instruction_covers_tts_synonyms():
+    instruction = ROUTING_PLANNER_INSTRUCTION
+
+    for phrase in (
+        "\u0430\u0433\u0443\u0447",
+        "\u0430\u0433\u0443\u0447\u044b",
+        "\u0430\u0433\u0443\u0447\u044b\u0446\u044c",
+        "\u043f\u0440\u0430\u0447\u044b\u0442\u0430\u0439 \u0443\u0433\u043e\u043b\u0430\u0441",
+        "\u0437\u0440\u0430\u0431\u0456 \u0430\u045e\u0434\u044b\u044f",
+        "\u0433\u043e\u043b\u0430\u0441\u0430\u043c",
+        "\u043e\u0437\u0432\u0443\u0447\u044c",
+        "read aloud",
+        "voice",
+    ):
+        assert phrase in instruction
+
+
 def test_add_routing_context_appends_compact_context_pack_json_from_state():
     request = FakeRequest()
     context_pack = {

@@ -86,6 +86,64 @@ def test_route_executor_dictionary_with_word_routes_to_dictionary_node():
     assert ctx.state["temp:dictionary_word"] == "востраў"
 
 
+def test_route_executor_pending_dictionary_uses_current_text_as_word():
+    ctx, content = make_context(
+        {
+            PENDING_TEXT_ACTION_KEY: {
+                "kind": "dictionary",
+                "sources": ["verbum"],
+                "slounik_dicts": [],
+            },
+            "temp:turn_current_text": "\u0441\u043f\u0440\u0430\u0432\u0430",
+        }
+    )
+
+    result = asyncio.run(
+        route_executor_node(
+            ctx,
+            {
+                "route": "dictionary",
+                "confidence": 0.95,
+                "pending_action_update": {},
+            },
+        )
+    )
+
+    assert result is content
+    assert ctx.route == "dictionary"
+    assert ctx.state[PENDING_TEXT_ACTION_KEY] is None
+    assert ctx.state["temp:primary_route"] == "dictionary"
+    assert ctx.state["temp:dictionary_word"] == "\u0441\u043f\u0440\u0430\u0432\u0430"
+    assert ctx.state["temp:dictionary_sources"] == ["verbum"]
+
+
+def test_route_executor_pending_dictionary_overrides_low_confidence_plan():
+    ctx, _ = make_context(
+        {
+            PENDING_TEXT_ACTION_KEY: {
+                "kind": "dictionary",
+                "sources": ["verbum"],
+                "slounik_dicts": [],
+            },
+            "temp:turn_current_text": "\u0441\u043f\u0440\u0430\u0432\u0430",
+        }
+    )
+
+    asyncio.run(
+        route_executor_node(
+            ctx,
+            {
+                "route": "chat",
+                "confidence": 0.2,
+            },
+        )
+    )
+
+    assert ctx.route == "dictionary"
+    assert ctx.state[PENDING_TEXT_ACTION_KEY] is None
+    assert ctx.state["temp:dictionary_word"] == "\u0441\u043f\u0440\u0430\u0432\u0430"
+
+
 def test_route_executor_translate_uses_previous_text_reference():
     ctx, content = make_context({"temp:turn_current_text": "translate it"})
 
@@ -137,6 +195,69 @@ def test_route_executor_chat_tts_sets_post_action_state():
 
     assert result is content
     assert ctx.route == "chat"
+    assert ctx.state["temp:tts_requested"] is True
+    assert ctx.state["user:tts_requested_for_turn"] is True
+
+
+def test_route_executor_low_confidence_tts_plan_preserves_post_action_state():
+    ctx, content = make_context({"temp:turn_current_text": "\u0430\u0433\u0443\u0447"})
+
+    result = asyncio.run(
+        route_executor_node(
+            ctx,
+            {"route": "chat", "post_actions": ["tts"]},
+        )
+    )
+
+    assert result is content
+    assert ctx.route == "chat"
+    assert ctx.state["temp:primary_route"] == "chat"
+    assert ctx.state["temp:tts_requested"] is True
+    assert ctx.state["user:tts_requested_for_turn"] is True
+    assert ctx.state["temp:routing_diagnostics"]["fallback_reason"] == "low_confidence"
+
+
+def test_route_executor_explicit_tts_text_overrides_direct_clarification():
+    ctx, content = make_context(
+        {"temp:turn_current_text": "\u0430\u0433\u0443\u0447 \u0442\u044d\u043a\u0441\u0442 \u043f\u0440\u0430 \u0437\u0443\u0431\u0440\u0430"}
+    )
+
+    result = asyncio.run(
+        route_executor_node(
+            ctx,
+            {"route": "direct", "confidence": 0.95},
+        )
+    )
+
+    assert result is content
+    assert ctx.route == "chat"
+    assert ctx.state["temp:primary_route"] == "chat"
+    assert ctx.state["temp:tts_requested"] is True
+    assert ctx.state["user:tts_requested_for_turn"] is True
+
+
+def test_route_executor_explicit_tts_ignores_pending_dictionary_action():
+    ctx, content = make_context(
+        {
+            PENDING_TEXT_ACTION_KEY: {
+                "kind": "dictionary",
+                "sources": ["verbum"],
+                "slounik_dicts": [],
+            },
+            "temp:turn_current_text": "\u043f\u0440\u0430\u0447\u044b\u0442\u0430\u0439 \u0443\u0433\u043e\u043b\u0430\u0441",
+        }
+    )
+
+    result = asyncio.run(
+        route_executor_node(
+            ctx,
+            {"route": "chat", "confidence": 0.2},
+        )
+    )
+
+    assert result is content
+    assert ctx.route == "chat"
+    assert ctx.state[PENDING_TEXT_ACTION_KEY] is None
     assert ctx.state["temp:tts_requested"] is True
     assert ctx.state["user:tts_requested_for_turn"] is True
 

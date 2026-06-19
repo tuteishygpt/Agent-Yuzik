@@ -42,9 +42,49 @@ def test_lookup_dictionary_combines_verbum_and_slounik_entries(monkeypatch):
 
     result = asyncio.run(module.lookup_dictionary("\u0432\u043e\u0441\u0442\u0440\u0430\u045e"))
 
-    assert "\u0423 \u0441\u043b\u043e\u045e\u043d\u0456\u043a\u0430\u0445" in result.text
+    assert "\u0417\u043d\u043e\u0439\u0434\u0437\u0435\u043d\u0430 \u0434\u043b\u044f" in result.text
     assert "Verbum entry" in result.text
     assert "Slounik entry" in result.text
+
+
+def test_lookup_dictionary_formats_entries_as_compact_blocks(monkeypatch):
+    module = _load_module()
+
+    monkeypatch.setattr(
+        module,
+        "lookup_verbum_entries",
+        lambda word: [
+            module.DictionaryEntry(
+                source="Verbum",
+                dictionary="Verbum grammar DB",
+                text="\u043d\u0430\u0437\u043e\u045e\u043d\u0456\u043a; \u0436\u0430\u043d\u043e\u0447\u044b \u0440\u043e\u0434",
+                url="https://verbum.by/word",
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        module,
+        "lookup_slounik_entries",
+        lambda word, slounik_dicts=None: [
+            module.DictionaryEntry(
+                source="Slounik.org",
+                dictionary="\u0422\u043b\u0443\u043c\u0430\u0447\u0430\u043b\u044c\u043d\u044b",
+                text="\u0441\u043f\u0440\u0430\u0432\u0430 -\u044b, \u0436.",
+                url="https://slounik.org/search",
+            )
+        ],
+    )
+
+    result = asyncio.run(module.lookup_dictionary("\u0441\u043f\u0440\u0430\u0432\u0430"))
+
+    assert result.text == (
+        "\u0417\u043d\u043e\u0439\u0434\u0437\u0435\u043d\u0430 \u0434\u043b\u044f "
+        "\u00ab\u0441\u043f\u0440\u0430\u0432\u0430\u00bb:\n\n"
+        "Verbum \u00b7 Verbum grammar DB\n"
+        "\u043d\u0430\u0437\u043e\u045e\u043d\u0456\u043a; \u0436\u0430\u043d\u043e\u0447\u044b \u0440\u043e\u0434\n\n"
+        "Slounik.org \u00b7 \u0422\u043b\u0443\u043c\u0430\u0447\u0430\u043b\u044c\u043d\u044b\n"
+        "\u0441\u043f\u0440\u0430\u0432\u0430 -\u044b, \u0436."
+    )
 
 
 def test_lookup_dictionary_can_limit_to_slounik_source(monkeypatch):
@@ -80,6 +120,26 @@ def test_lookup_dictionary_can_limit_to_slounik_source(monkeypatch):
 
     assert called == {"verbum": False, "slounik": True}
     assert "Slounik.org" in result.text
+
+
+def test_lookup_dictionary_no_results_mentions_selected_verbum_source(monkeypatch):
+    module = _load_module()
+
+    monkeypatch.setattr(module, "lookup_verbum_entries", lambda word: [])
+    monkeypatch.setattr(
+        module,
+        "lookup_slounik_entries",
+        lambda word, slounik_dicts=None: (_ for _ in ()).throw(
+            AssertionError("Slounik.org should not be queried")
+        ),
+    )
+
+    result = asyncio.run(
+        module.lookup_dictionary("\u0428\u0443\u0441\u0442\u0440\u044b\u043a", sources=["verbum"])
+    )
+
+    assert "Verbum" in result.text
+    assert "\u043d\u0456\u0447\u043e\u0433\u0430 \u043d\u0435 \u0437\u043d\u043e\u0439\u0434\u0437\u0435\u043d\u0430" in result.text
 
 
 def test_lookup_slounik_entries_queries_each_dictionary_filter(monkeypatch):

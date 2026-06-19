@@ -27,6 +27,10 @@ SOURCE_ALIASES = {
     "slounik": "slounik",
     "slounik.org": "slounik",
 }
+SOURCE_LABELS = {
+    "verbum": "Verbum",
+    "slounik": "Slounik.org",
+}
 
 
 @dataclass(frozen=True)
@@ -195,6 +199,13 @@ def _entry_excerpt(text: str, max_chars: int = 700) -> str:
     return text[:max_chars].rstrip() + "..."
 
 
+def _source_label(sources: Iterable[str]) -> str:
+    labels = [SOURCE_LABELS.get(source, source) for source in sources]
+    if len(labels) == 2:
+        return f"{labels[0]} \u0456 {labels[1]}"
+    return ", ".join(labels)
+
+
 def lookup_verbum_entries(word: str) -> list[DictionaryEntry]:
     query = normalize_text(word)
     grammar_texts = try_grammardb_full_text(query)
@@ -285,14 +296,25 @@ def lookup_slounik_entries(
     return _dedupe_entries(entries)[:limit]
 
 
-def _format_dictionary_response(word: str, entries: list[DictionaryEntry]) -> str:
+def _format_dictionary_response(
+    word: str,
+    entries: list[DictionaryEntry],
+    sources: Iterable[str] = DEFAULT_SOURCES,
+) -> str:
     if not entries:
+        source_label = _source_label(sources)
+        if source_label:
+            return f"У {source_label} нічога не знойдзена для: {word}."
         return f"У слоўніках нічога не знойдзена для: {word}."
 
-    lines = [f"У слоўніках для «{word}»:"]
+    lines = [f"Знойдзена для «{word}»:"]
     for entry in entries[:8]:
-        lines.append(
-            f"- {entry.source} / {entry.dictionary}: {_entry_excerpt(entry.text)}"
+        lines.extend(
+            [
+                "",
+                f"{entry.source} · {entry.dictionary}",
+                _entry_excerpt(entry.text),
+            ]
         )
     return "\n".join(lines)
 
@@ -306,7 +328,8 @@ async def lookup_dictionary(
     entries: list[DictionaryEntry] = []
     errors: list[str] = []
 
-    for source in _normalize_sources(sources):
+    normalized_sources = _normalize_sources(sources)
+    for source in normalized_sources:
         try:
             if source == "verbum":
                 entries.extend(lookup_verbum_entries(query))
@@ -325,7 +348,7 @@ async def lookup_dictionary(
             errors.append(source)
 
     entries = _dedupe_entries(entries)
-    text = _format_dictionary_response(query, entries)
+    text = _format_dictionary_response(query, entries, normalized_sources)
     if errors and entries:
         text += "\n\nЧастка слоўнікаў часова недаступная: " + ", ".join(errors) + "."
     elif errors and not entries:

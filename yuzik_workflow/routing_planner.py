@@ -40,6 +40,13 @@ Tools:
 - Set tools to the deterministic tool family needed by the route, such as
   search, weather, dictionary, image_generation, or translation.
 - Set post_actions=["tts"] only when the user asks for audio/read-aloud.
+- Treat every wording whose meaning is "make this spoken/audio" as a TTS
+  request, including "\u0430\u0433\u0443\u0447", "\u0430\u0433\u0443\u0447\u044b",
+  "\u0430\u0433\u0443\u0447\u044b\u0446\u044c",
+  "\u043f\u0440\u0430\u0447\u044b\u0442\u0430\u0439 \u0443\u0433\u043e\u043b\u0430\u0441",
+  "\u0437\u0440\u0430\u0431\u0456 \u0430\u045e\u0434\u044b\u044f",
+  "\u0433\u043e\u043b\u0430\u0441\u0430\u043c",
+  "\u043e\u0437\u0432\u0443\u0447\u044c", read aloud, voice, audio, or TTS.
 - For search, set pending_action_update.query to the final web search query
   when the query is selected, rewritten, or derived from referenced context.
 - Use pending_action_update for route-specific details such as dictionary_word,

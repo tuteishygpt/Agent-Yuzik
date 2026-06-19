@@ -24,6 +24,42 @@ VALID_ROUTES = {
 }
 VALID_POST_ACTIONS = {"tts"}
 DEFAULT_PLAN_CONFIDENCE_THRESHOLD = 0.6
+TTS_REQUEST_MARKERS = (
+    "\u0430\u0433\u0443\u0447",
+    "\u0430\u0437\u0432\u0443\u0447",
+    "\u043e\u0437\u0432\u0443\u0447",
+    "\u043f\u0440\u0430\u0447\u044b\u0442\u0430\u0439 \u0443\u0433\u043e\u043b\u0430\u0441",
+    "\u043f\u0440\u0430\u0447\u044b\u0442\u0430\u0439 \u045e\u0433\u043e\u043b\u0430\u0441",
+    "\u0437\u0430\u0447\u044b\u0442\u0430\u0439",
+    "\u043d\u0430\u0447\u044b\u0442\u0430\u0439",
+    "\u0430\u045e\u0434\u044b\u044f",
+    "\u0430\u0443\u0434\u044b\u044f",
+    "\u0430\u0443\u0434\u0438\u043e",
+    "\u0433\u043e\u043b\u0430\u0441",
+    "\u0433\u043e\u043b\u043e\u0441",
+    "\u0443\u0433\u043e\u043b\u0430\u0441",
+    "\u045e\u0433\u043e\u043b\u0430\u0441",
+    "\u0432\u0441\u043b\u0443\u0445",
+    "\u0443\u0441\u043b\u0443\u0445",
+    "read aloud",
+    "say aloud",
+    "voice",
+    "audio",
+    "speech",
+    "tts",
+)
+NEGATED_TTS_MARKERS = (
+    "\u043d\u0435 \u0430\u0433\u0443\u0447",
+    "\u043d\u0435 \u0430\u0437\u0432\u0443\u0447",
+    "\u043d\u0435 \u043e\u0437\u0432\u0443\u0447",
+    "\u0431\u0435\u0437 \u0430\u045e\u0434\u044b\u044f",
+    "\u0431\u0435\u0437 \u0430\u0443\u0434\u044b\u044f",
+    "\u0431\u0435\u0437 \u0433\u043e\u043b\u0430\u0441",
+    "do not read aloud",
+    "don't read aloud",
+    "no audio",
+    "without audio",
+)
 
 
 def _field(value: Any, name: str, default: Any = None) -> Any:
@@ -68,6 +104,26 @@ def _str_list(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
     return [str(item).strip() for item in value if str(item).strip()]
+
+
+def _has_explicit_tts_request(text: Any) -> bool:
+    if not isinstance(text, str):
+        return False
+    lowered = text.casefold()
+    if any(marker in lowered for marker in NEGATED_TTS_MARKERS):
+        return False
+    return any(marker in lowered for marker in TTS_REQUEST_MARKERS)
+
+
+def _ensure_tts_post_action(plan: dict[str, Any]) -> None:
+    if "tts" not in plan["post_actions"]:
+        plan["post_actions"] = [*plan["post_actions"], "tts"]
+
+
+def _plan_requests_tts(state: dict[str, Any], plan: dict[str, Any]) -> bool:
+    if "tts" in plan["post_actions"]:
+        return True
+    return _has_explicit_tts_request(state.get("temp:turn_current_text"))
 
 
 def _dict(value: Any) -> dict[str, Any]:
@@ -170,6 +226,15 @@ def _dictionary_word(update: dict[str, Any]) -> str | None:
     return None
 
 
+def _pending_dictionary_action(state: dict[str, Any]) -> dict[str, Any] | None:
+    pending = state.get(PENDING_TEXT_ACTION_KEY)
+    if not isinstance(pending, Mapping):
+        return None
+    if pending.get("kind") != "dictionary":
+        return None
+    return dict(pending)
+
+
 def _model_text(text: str) -> types.Content:
     return types.Content(role="model", parts=[types.Part(text=text)])
 
@@ -186,6 +251,38 @@ async def route_executor_node(ctx, node_input):
     state = ctx.state
     content = _current_content_from_state(state)
     route = plan["route"]
+    tts_requested = _plan_requests_tts(state, plan)
+    if tts_requested:
+        _ensure_tts_post_action(plan)
+        if isinstance(state.get(PENDING_TEXT_ACTION_KEY), Mapping):
+            state[PENDING_TEXT_ACTION_KEY] = None
+        if route == "direct":
+            plan["route"] = "chat"
+            route = "chat"
+            if plan["target_text_ref"] == "none":
+                plan["target_text_ref"] = (
+                    "previous_assistant_text"
+                    if state.get("temp:turn_previous_text")
+                    else "current_text"
+                )
+
+    pending_dictionary = _pending_dictionary_action(state)
+    pending_dictionary_word = _context_ref_text(state, "current_text")
+    if (
+        route != "cancel"
+        and not tts_requested
+        and pending_dictionary
+        and pending_dictionary_word
+    ):
+        state[PENDING_TEXT_ACTION_KEY] = None
+        state["temp:primary_route"] = "dictionary"
+        state["temp:dictionary_word"] = pending_dictionary_word
+        state["temp:dictionary_sources"] = _str_list(pending_dictionary.get("sources"))
+        state["temp:slounik_dicts"] = _str_list(pending_dictionary.get("slounik_dicts"))
+        state["temp:dictionary_needs_word"] = False
+        ctx.route = "dictionary"
+        _record_diagnostics(state, plan, branch="dictionary")
+        return content
 
     if (
         plan["confidence"] < DEFAULT_PLAN_CONFIDENCE_THRESHOLD
@@ -194,6 +291,7 @@ async def route_executor_node(ctx, node_input):
         plan["route"] = "chat"
         state["temp:primary_route"] = "chat"
         ctx.route = "chat"
+        _apply_tts_post_action(state, plan)
         _record_diagnostics(state, plan, branch="chat", fallback_reason="low_confidence")
         return content
 
