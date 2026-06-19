@@ -1,8 +1,19 @@
 import { forwardRef, useEffect, useRef } from "react";
-import { Animated, FlatList, Image, Keyboard, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  Animated,
+  FlatList,
+  Image,
+  Keyboard,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 
+import { YuzikAvatar } from "@/components/mobile";
 import { useI18n } from "@/lib/i18n";
 import { webTheme } from "@/theme/webTheme";
+
 import type { ChatMessage } from "./useChatController";
 
 type MessageListProps = {
@@ -16,27 +27,29 @@ function MessageCard({ message }: { message: ChatMessage }) {
 
   return (
     <View style={[styles.messageRow, isUser && styles.messageRowUser]}>
-      {!isUser && (
-        <View style={styles.avatarBot}>
-          <Text style={styles.avatarEmoji}>🤖</Text>
-        </View>
-      )}
+      {!isUser ? <YuzikAvatar size="sm" state="default" /> : null}
       <View style={[styles.bubble, isUser ? styles.userBubble : styles.botBubble]}>
-        <Text style={[styles.content, isUser && styles.userContent]}>{message.content}</Text>
+        {message.content ? (
+          <Text style={[styles.content, isUser && styles.userContent]}>
+            {message.content}
+          </Text>
+        ) : null}
         {message.artifact?.kind === "image" ? (
           <Image source={{ uri: message.artifact.localUri }} style={styles.imagePreview} />
         ) : null}
         {message.artifact ? (
           <View style={styles.artifactActions}>
-            <Text style={styles.artifact}>
-              {message.artifact.kind === "image" ? t("chat.imageCached") : t("chat.audioCached")}
+            <Text style={[styles.artifact, isUser && styles.userArtifact]}>
+              {message.artifact.kind === "image"
+                ? t("chat.imageCached")
+                : t("chat.audioCached")}
             </Text>
             <View style={styles.actionRow}>
               {message.artifact.kind === "audio" && message.artifact.play ? (
                 <Pressable
-                  testID="chat-audio-play-button"
                   onPress={() => void message.artifact?.play?.()}
                   style={styles.actionButton}
+                  testID="chat-audio-play-button"
                 >
                   <Text style={styles.actionText}>{t("chat.play")}</Text>
                 </Pressable>
@@ -60,11 +73,11 @@ function MessageCard({ message }: { message: ChatMessage }) {
           <Text style={styles.artifactError}>{message.artifactError}</Text>
         ) : null}
       </View>
-      {isUser && (
+      {isUser ? (
         <View style={styles.avatarUser}>
-          <Text style={styles.avatarEmoji}>👤</Text>
+          <Text style={styles.avatarInitial}>U</Text>
         </View>
-      )}
+      ) : null}
     </View>
   );
 }
@@ -96,10 +109,8 @@ function TypingIndicator() {
   }, [opacity]);
 
   return (
-    <View testID="chat-typing-indicator" style={styles.messageRow}>
-      <View style={styles.avatarBot}>
-        <Text style={styles.avatarEmoji}>ðŸ¤–</Text>
-      </View>
+    <View style={styles.messageRow} testID="chat-typing-indicator">
+      <YuzikAvatar size="sm" state="thinking" />
       <View style={[styles.bubble, styles.botBubble, styles.typingBubble]}>
         <Animated.View style={[styles.typingDot, { opacity }]} />
         <Animated.View style={[styles.typingDot, { opacity }]} />
@@ -113,29 +124,43 @@ function EmptyState({ onSelectPrompt }: { onSelectPrompt?: (prompt: string) => v
   const { t } = useI18n();
 
   const promptCards = [
-    { icon: "📝", text: t("chat.promptEssay"), sub: t("chat.promptEssaySub"), prompt: t("chat.promptEssay") + " " + t("chat.promptEssaySub").toLowerCase() },
-    { icon: "💡", text: t("chat.promptExplain"), sub: t("chat.promptExplainSub"), prompt: t("chat.promptExplain") + " " + t("chat.promptExplainSub").toLowerCase() },
-    { icon: "🎨", text: t("chat.promptCreate"), sub: t("chat.promptCreateSub"), prompt: t("chat.promptCreate") + " " + t("chat.promptCreateSub").toLowerCase() },
-    { icon: "🗣️", text: t("chat.promptTranslate"), sub: t("chat.promptTranslateSub"), prompt: t("chat.promptTranslate") + " " + t("chat.promptTranslateSub").toLowerCase() },
+    {
+      text: t("chat.promptEssay"),
+      sub: t("chat.promptEssaySub"),
+      prompt: `${t("chat.promptEssay")} ${t("chat.promptEssaySub").toLowerCase()}`,
+    },
+    {
+      text: t("chat.promptExplain"),
+      sub: t("chat.promptExplainSub"),
+      prompt: `${t("chat.promptExplain")} ${t("chat.promptExplainSub").toLowerCase()}`,
+    },
+    {
+      text: t("chat.promptCreate"),
+      sub: t("chat.promptCreateSub"),
+      prompt: `${t("chat.promptCreate")} ${t("chat.promptCreateSub").toLowerCase()}`,
+    },
+    {
+      text: t("chat.promptTranslate"),
+      sub: t("chat.promptTranslateSub"),
+      prompt: `${t("chat.promptTranslate")} ${t("chat.promptTranslateSub").toLowerCase()}`,
+    },
   ];
 
   return (
     <View style={styles.emptyState}>
-      <Text style={styles.emptyLogo}>🤖</Text>
+      <Text style={styles.emptyLogo}>Y</Text>
       <Text style={styles.emptyTitle}>{t("chat.emptyTitle")}</Text>
       <Text style={styles.emptySubtitle}>{t("chat.emptySubtitle")}</Text>
       <View style={styles.promptGrid}>
         {promptCards.map((card) => (
           <Pressable
             key={card.text}
-            style={styles.promptCard}
             onPress={() => onSelectPrompt?.(card.prompt)}
+            style={styles.promptCard}
+            testID="chat-empty-prompt"
           >
-            <Text style={styles.promptIcon}>{card.icon}</Text>
-            <View>
-              <Text style={styles.promptText}>{card.text}</Text>
-              <Text style={styles.promptSub}>{card.sub}</Text>
-            </View>
+            <Text style={styles.promptText}>{card.text}</Text>
+            <Text style={styles.promptSub}>{card.sub}</Text>
           </Pressable>
         ))}
       </View>
@@ -149,80 +174,75 @@ type MessageListFullProps = MessageListProps & {
 };
 
 export const MessageList = forwardRef<FlatList, MessageListFullProps>(
-  function MessageList({ messages, isSending = false, onSelectPrompt, onContentSizeChange }, ref) {
+  function MessageList(
+    { messages, isSending = false, onSelectPrompt, onContentSizeChange },
+    ref,
+  ) {
     return (
       <FlatList
-        ref={ref}
+        ListEmptyComponent={<EmptyState onSelectPrompt={onSelectPrompt} />}
+        ListFooterComponent={isSending ? <TypingIndicator /> : null}
         contentContainerStyle={styles.listContent}
         data={messages}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => <MessageCard message={item} />}
-        ListFooterComponent={isSending ? <TypingIndicator /> : null}
-        ListEmptyComponent={<EmptyState onSelectPrompt={onSelectPrompt} />}
         keyboardDismissMode="interactive"
         keyboardShouldPersistTaps="handled"
+        keyExtractor={(item) => item.id}
         onContentSizeChange={onContentSizeChange}
         onScrollBeginDrag={Keyboard.dismiss}
+        ref={ref}
+        renderItem={({ item }) => <MessageCard message={item} />}
       />
     );
-  }
+  },
 );
 
 const styles = StyleSheet.create({
   listContent: {
-    gap: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
     flexGrow: 1,
+    gap: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 18,
   },
   messageRow: {
+    alignSelf: "flex-start",
     flexDirection: "row",
     alignItems: "flex-end",
     gap: 10,
-    maxWidth: "85%",
-    alignSelf: "flex-start",
+    maxWidth: "88%",
   },
   messageRowUser: {
     alignSelf: "flex-end",
     flexDirection: "row-reverse",
   },
-  avatarBot: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: webTheme.colors.glassBg,
-    borderWidth: 1,
-    borderColor: webTheme.colors.border,
-    alignItems: "center",
-    justifyContent: "center",
-  },
   avatarUser: {
     width: 36,
     height: 36,
-    borderRadius: 18,
-    backgroundColor: webTheme.colors.primary,
     alignItems: "center",
     justifyContent: "center",
+    borderRadius: 18,
+    backgroundColor: webTheme.colors.text,
   },
-  avatarEmoji: {
-    fontSize: 18,
+  avatarInitial: {
+    color: webTheme.colors.surface,
+    fontSize: 13,
+    fontWeight: "800",
   },
   bubble: {
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
     maxWidth: "100%",
     flexShrink: 1,
+    borderRadius: 14,
+    paddingHorizontal: 15,
+    paddingVertical: 12,
   },
   userBubble: {
-    backgroundColor: webTheme.colors.primary,
-    borderBottomRightRadius: 6,
+    backgroundColor: webTheme.colors.userMsgBg,
+    borderBottomRightRadius: 4,
   },
   botBubble: {
     backgroundColor: webTheme.colors.botMsgBg,
     borderWidth: 1,
     borderColor: webTheme.colors.border,
-    borderBottomLeftRadius: 6,
+    borderBottomLeftRadius: 4,
   },
   content: {
     color: webTheme.colors.text,
@@ -230,12 +250,16 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   userContent: {
-    color: "#ffffff",
+    color: webTheme.colors.surface,
   },
   artifact: {
+    marginTop: 8,
     color: webTheme.colors.textMuted,
     fontSize: 12,
-    marginTop: 8,
+    fontWeight: "700",
+  },
+  userArtifact: {
+    color: webTheme.colors.surface,
   },
   artifactActions: {
     gap: 8,
@@ -243,11 +267,12 @@ const styles = StyleSheet.create({
   },
   actionRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 8,
   },
   actionButton: {
-    borderRadius: 999,
-    backgroundColor: "rgba(255, 255, 255, 0.04)",
+    borderRadius: webTheme.radii.md,
+    backgroundColor: webTheme.colors.surfaceStrong,
     borderWidth: 1,
     borderColor: webTheme.colors.border,
     paddingHorizontal: 12,
@@ -256,26 +281,27 @@ const styles = StyleSheet.create({
   actionText: {
     color: webTheme.colors.text,
     fontSize: 12,
-    fontWeight: "700",
+    fontWeight: "800",
   },
   imagePreview: {
     width: 180,
     height: 180,
     marginTop: 10,
-    borderRadius: 14,
-    backgroundColor: webTheme.colors.surfaceStrong,
+    borderRadius: webTheme.radii.lg,
+    backgroundColor: webTheme.colors.surfaceMuted,
   },
   artifactError: {
-    color: "#ff4444",
-    fontSize: 12,
     marginTop: 8,
+    color: webTheme.colors.danger,
+    fontSize: 12,
+    fontWeight: "700",
   },
   typingBubble: {
+    minWidth: 70,
+    minHeight: 42,
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    minWidth: 70,
-    minHeight: 42,
   },
   typingDot: {
     width: 7,
@@ -290,50 +316,53 @@ const styles = StyleSheet.create({
     paddingVertical: 40,
   },
   emptyLogo: {
-    fontSize: 64,
     marginBottom: 12,
+    color: webTheme.colors.primary,
+    fontSize: 48,
+    fontWeight: "800",
   },
   emptyTitle: {
-    fontSize: 26,
-    fontWeight: "600",
-    color: webTheme.colors.primary,
     marginBottom: 6,
+    color: webTheme.colors.text,
+    fontSize: 24,
+    fontWeight: "800",
   },
   emptySubtitle: {
-    fontSize: 16,
+    maxWidth: 320,
+    marginBottom: 24,
     color: webTheme.colors.textMuted,
-    marginBottom: 28,
+    fontSize: 15,
+    lineHeight: 21,
+    textAlign: "center",
   },
   promptGrid: {
+    width: "100%",
+    maxWidth: 390,
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 12,
-    maxWidth: 360,
     justifyContent: "center",
+    gap: 10,
   },
   promptCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    backgroundColor: webTheme.colors.glassBg,
+    width: "47%",
+    minHeight: 74,
+    justifyContent: "center",
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: webTheme.radii.md,
+    backgroundColor: webTheme.colors.surface,
     borderWidth: 1,
     borderColor: webTheme.colors.border,
-    borderRadius: 16,
-    width: "47%",
-  },
-  promptIcon: {
-    fontSize: 22,
   },
   promptText: {
-    fontSize: 13,
     color: webTheme.colors.text,
-    fontWeight: "500",
+    fontSize: 13,
+    fontWeight: "800",
   },
   promptSub: {
-    fontSize: 11,
     color: webTheme.colors.textMuted,
-    marginTop: 2,
+    fontSize: 11,
+    lineHeight: 15,
   },
 });

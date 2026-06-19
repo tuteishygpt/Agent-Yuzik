@@ -66,4 +66,19 @@ describe("MessageList", () => {
 
     expect(play).toHaveBeenCalledTimes(1);
   });
+
+  it("marks empty state prompt actions for the redesigned prompt grid", async () => {
+    const onSelectPrompt = jest.fn();
+    let renderer!: TestRenderer.ReactTestRenderer;
+
+    await act(async () => {
+      renderer = TestRenderer.create(
+        <MessageList messages={[]} onSelectPrompt={onSelectPrompt} />,
+      );
+    });
+
+    expect(
+      renderer.root.findAllByProps({ testID: "chat-empty-prompt" }).length,
+    ).toBeGreaterThan(0);
+  });
 });

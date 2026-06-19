@@ -49,12 +49,20 @@ export function Composer({
     }
   };
 
-  const handleKeyPress = (e: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
-    if (Platform.OS === "web" && e.nativeEvent.key === "Enter" && !(e as any).nativeEvent.shiftKey) {
+  const handleKeyPress = (
+    e: NativeSyntheticEvent<TextInputKeyPressEventData>,
+  ) => {
+    if (
+      Platform.OS === "web" &&
+      e.nativeEvent.key === "Enter" &&
+      !(e as any).nativeEvent.shiftKey
+    ) {
       e.preventDefault();
       handleSubmitEditing();
     }
   };
+
+  const sendDisabled = isSending || !draftText.trim();
 
   return (
     <View
@@ -66,36 +74,38 @@ export function Composer({
       <AttachmentTray attachment={attachment} onClear={onClearAttachment} />
       <View style={styles.bottomRow}>
         {onOpenMenu ? <BottomMenuButton onPress={onOpenMenu} /> : null}
-        <View style={styles.inputContainer}>
-          <Pressable onPress={onAttach} style={styles.attachButton}>
-            <Text style={styles.iconText}>📎</Text>
+        <View style={styles.inputContainer} testID="chat-composer-input-shell">
+          <Pressable
+            accessibilityLabel="Attach file"
+            onPress={onAttach}
+            style={styles.attachButton}
+          >
+            <Text style={styles.iconText}>+</Text>
           </Pressable>
           <TextInput
-            ref={inputRef}
-            placeholder={t("chat.placeholder")}
-            placeholderTextColor={webTheme.colors.textMuted}
-            style={styles.input}
-            multiline
             blurOnSubmit={false}
-            returnKeyType="send"
             enablesReturnKeyAutomatically
-            onSubmitEditing={handleSubmitEditing}
-            onKeyPress={handleKeyPress}
-            value={draftText}
+            multiline
             onChangeText={onChangeDraftText}
+            onKeyPress={handleKeyPress}
+            onSubmitEditing={handleSubmitEditing}
+            placeholder={t("chat.placeholder")}
+            placeholderTextColor={webTheme.colors.textDim}
+            ref={inputRef}
+            returnKeyType="send"
+            style={styles.input}
+            value={draftText}
           />
           <Pressable
+            accessibilityLabel="Send message"
+            disabled={sendDisabled}
             onPress={() => {
               void onSend();
               inputRef.current?.focus();
             }}
-            disabled={isSending || !draftText.trim()}
-            style={[
-              styles.sendButton,
-              (isSending || !draftText.trim()) && styles.sendButtonDisabled,
-            ]}
+            style={[styles.sendButton, sendDisabled && styles.sendButtonDisabled]}
           >
-            <Text style={styles.sendIcon}>➤</Text>
+            <Text style={styles.sendIcon}>{">"}</Text>
           </Pressable>
         </View>
       </View>
@@ -108,65 +118,70 @@ const styles = StyleSheet.create({
   container: {
     borderTopColor: webTheme.colors.border,
     borderTopWidth: 1,
+    backgroundColor: webTheme.colors.background,
     paddingHorizontal: 12,
-    paddingTop: 12,
-    paddingBottom: 16,
+    paddingTop: 10,
   },
   bottomRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 10,
   },
   inputContainer: {
     flex: 1,
     flexShrink: 1,
+    minHeight: 54,
     flexDirection: "row",
     alignItems: "flex-end",
-    gap: 10,
-    minHeight: 56,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    backgroundColor: webTheme.colors.glassBg,
+    gap: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: webTheme.radii.lg,
+    backgroundColor: webTheme.colors.surface,
     borderWidth: 1,
     borderColor: webTheme.colors.border,
-    borderRadius: 30,
   },
   attachButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 38,
+    height: 38,
     alignItems: "center",
     justifyContent: "center",
+    borderRadius: webTheme.radii.md,
+    backgroundColor: webTheme.colors.surfaceStrong,
   },
   iconText: {
-    fontSize: 20,
+    color: webTheme.colors.text,
+    fontSize: 22,
+    fontWeight: "600",
   },
   input: {
     flex: 1,
+    maxHeight: 118,
+    paddingVertical: 9,
     color: webTheme.colors.text,
     fontSize: 15,
-    maxHeight: 120,
-    paddingVertical: 10,
+    lineHeight: 20,
   },
   sendButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: webTheme.colors.primary,
+    width: 40,
+    height: 40,
     alignItems: "center",
     justifyContent: "center",
+    borderRadius: webTheme.radii.md,
+    backgroundColor: webTheme.colors.primary,
   },
   sendButtonDisabled: {
     opacity: 0.4,
   },
   sendIcon: {
-    color: "#ffffff",
+    color: webTheme.colors.surface,
     fontSize: 18,
+    fontWeight: "800",
   },
   footer: {
-    textAlign: "center",
-    fontSize: 12,
+    marginTop: 8,
     color: webTheme.colors.textMuted,
-    marginTop: 10,
+    fontSize: 12,
+    textAlign: "center",
   },
 });

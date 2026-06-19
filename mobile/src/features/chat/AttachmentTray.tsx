@@ -1,7 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import type { ChatAttachment } from "@/lib/file-picker";
-import { webGlassPanel, webTheme } from "@/theme/webTheme";
+import { webTheme } from "@/theme/webTheme";
 
 type AttachmentTrayProps = {
   attachment: ChatAttachment | null;
@@ -17,8 +17,12 @@ export function AttachmentTray({ attachment, onClear }: AttachmentTrayProps) {
     <View style={styles.container}>
       <View style={styles.meta}>
         <Text style={styles.label}>Attachment</Text>
-        <Text style={styles.name}>{attachment.name}</Text>
-        <Text style={styles.mime}>{attachment.mimeType ?? "unknown type"}</Text>
+        <Text numberOfLines={1} style={styles.name}>
+          {attachment.name}
+        </Text>
+        <Text numberOfLines={1} style={styles.mime}>
+          {attachment.mimeType ?? "unknown type"}
+        </Text>
       </View>
       <Pressable onPress={onClear} style={styles.clearButton}>
         <Text style={styles.clearText}>Remove</Text>
@@ -29,42 +33,49 @@ export function AttachmentTray({ attachment, onClear }: AttachmentTrayProps) {
 
 const styles = StyleSheet.create({
   container: {
-    borderTopWidth: 1,
-    borderTopColor: webTheme.colors.border,
     flexDirection: "row",
-    gap: 12,
+    alignItems: "center",
     justifyContent: "space-between",
-    padding: 16,
+    gap: 12,
+    marginBottom: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: webTheme.radii.md,
+    backgroundColor: webTheme.colors.surface,
+    borderWidth: 1,
+    borderColor: webTheme.colors.border,
   },
   meta: {
     flex: 1,
-    gap: 4,
+    gap: 2,
   },
   label: {
     color: webTheme.colors.textMuted,
-    fontSize: 12,
-    fontWeight: "700",
-    letterSpacing: 0.4,
+    fontSize: 11,
+    fontWeight: "800",
     textTransform: "uppercase",
   },
   name: {
     color: webTheme.colors.text,
-    fontSize: 15,
-    fontWeight: "600",
+    fontSize: 14,
+    fontWeight: "800",
   },
   mime: {
     color: webTheme.colors.textMuted,
-    fontSize: 13,
+    fontSize: 12,
   },
   clearButton: {
     alignSelf: "center",
-    borderRadius: 999,
-    ...webGlassPanel,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    borderRadius: webTheme.radii.md,
+    backgroundColor: webTheme.colors.surfaceStrong,
+    borderWidth: 1,
+    borderColor: webTheme.colors.border,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
   clearText: {
     color: webTheme.colors.text,
-    fontWeight: "700",
+    fontSize: 12,
+    fontWeight: "800",
   },
 });
