@@ -11,21 +11,23 @@ jest.mock("react-native-safe-area-context", () => ({
 
 describe("VoiceControls", () => {
   it("renders a bottom menu button beside the start button", () => {
-    const onOpenMenu = jest.fn();
-
     const screen = render(
       <VoiceControls
-        status="connected"
         isListening={false}
-        onOpenMenu={onOpenMenu}
+        onInterrupt={jest.fn()}
+        onOpenMenu={jest.fn()}
         onStartListening={jest.fn()}
         onStopListening={jest.fn()}
-        onInterrupt={jest.fn()}
+        status="connected"
       />,
     );
 
-    expect(screen.getTextContent()).toContain("☰");
-    expect(screen.getTextContent()).toContain("Пачаць");
+    expect(
+      screen.renderer.root.findByProps({ accessibilityLabel: "Open menu" }),
+    ).toBeTruthy();
+    expect(
+      screen.renderer.root.findByProps({ accessibilityLabel: "Start listening" }),
+    ).toBeTruthy();
   });
 
   it("opens the menu from the bottom controls", () => {
@@ -33,12 +35,12 @@ describe("VoiceControls", () => {
 
     const screen = render(
       <VoiceControls
-        status="connected"
         isListening={false}
+        onInterrupt={jest.fn()}
         onOpenMenu={onOpenMenu}
         onStartListening={jest.fn()}
         onStopListening={jest.fn()}
-        onInterrupt={jest.fn()}
+        status="connected"
       />,
     );
 
@@ -51,5 +53,33 @@ describe("VoiceControls", () => {
     });
 
     expect(onOpenMenu).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops listening before interrupting when active", () => {
+    const calls: string[] = [];
+
+    const screen = render(
+      <VoiceControls
+        isListening
+        onInterrupt={() => {
+          calls.push("interrupt");
+        }}
+        onStartListening={jest.fn()}
+        onStopListening={() => {
+          calls.push("stop");
+        }}
+        status="connected"
+      />,
+    );
+
+    const stopButton = screen.renderer.root.findByProps({
+      accessibilityLabel: "Stop listening",
+    });
+
+    act(() => {
+      stopButton.props.onPress();
+    });
+
+    expect(calls).toEqual(["stop", "interrupt"]);
   });
 });

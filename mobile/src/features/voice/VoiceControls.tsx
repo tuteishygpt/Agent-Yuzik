@@ -34,18 +34,24 @@ export function VoiceControls({
   }
 
   return (
-    <View style={[styles.container, { paddingBottom: Math.max(insets.bottom, 12) + 8 }]}>
-      {onOpenMenu ? (
-        <BottomMenuButton onPress={onOpenMenu} />
-      ) : null}
+    <View
+      style={[
+        styles.container,
+        { paddingBottom: Math.max(insets.bottom, 12) + 8 },
+      ]}
+    >
+      {onOpenMenu ? <BottomMenuButton onPress={onOpenMenu} /> : null}
       <Pressable
-        onPress={handlePress}
-        style={[styles.button, isListening ? styles.buttonActive : null]}
+        accessibilityLabel={isListening ? "Stop listening" : "Start listening"}
         disabled={!connected}
+        onPress={handlePress}
+        style={[
+          styles.button,
+          isListening ? styles.buttonActive : null,
+          !connected ? styles.buttonDisabled : null,
+        ]}
       >
-        <Text style={styles.buttonText}>
-          {isListening ? "■ Спыніць" : "🎙 Пачаць"}
-        </Text>
+        <Text style={styles.buttonText}>{isListening ? "Stop" : "Start"}</Text>
       </Pressable>
     </View>
   );
@@ -55,27 +61,32 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 10,
     paddingHorizontal: 16,
-    paddingTop: 12,
+    paddingTop: 10,
     borderTopWidth: 1,
     borderTopColor: webTheme.colors.border,
-    backgroundColor: "rgba(12, 14, 24, 0.96)",
+    backgroundColor: webTheme.colors.background,
   },
   button: {
     flex: 1,
-    borderRadius: webTheme.radii.pill,
+    minHeight: 56,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: webTheme.radii.lg,
     backgroundColor: webTheme.colors.primary,
     paddingHorizontal: 16,
-    paddingVertical: 16,
   },
   buttonActive: {
-    backgroundColor: webTheme.colors.listening,
+    backgroundColor: webTheme.colors.text,
+  },
+  buttonDisabled: {
+    opacity: 0.45,
   },
   buttonText: {
-    color: "#ffffff",
-    fontWeight: "700",
+    color: webTheme.colors.surface,
     fontSize: 16,
+    fontWeight: "800",
     textAlign: "center",
   },
 });

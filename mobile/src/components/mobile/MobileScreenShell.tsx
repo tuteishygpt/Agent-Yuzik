@@ -6,7 +6,7 @@ import {
   type StyleProp,
   type ViewStyle,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView as ContextSafeAreaView } from "react-native-safe-area-context";
 
 import { webTheme } from "@/theme/webTheme";
 
@@ -25,6 +25,7 @@ export function MobileScreenShell({
   style,
   contentStyle,
 }: MobileScreenShellProps) {
+  const SafeAreaView = ContextSafeAreaView ?? View;
   const content = (
     <View
       style={[
