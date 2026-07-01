@@ -20,7 +20,7 @@ export function TeacherBanner({
     <View style={[styles.card, isActive ? styles.cardActive : null]}>
       <View style={styles.header}>
         <View style={styles.copy}>
-          <Text style={styles.eyebrow}>Настаўнік</Text>
+          <Text style={styles.eyebrow}>Заняткі</Text>
           <Text numberOfLines={1} style={styles.title}>
             {lesson?.title ?? "Занятак не абраны"}
           </Text>

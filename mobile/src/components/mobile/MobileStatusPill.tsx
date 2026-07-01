@@ -1,4 +1,11 @@
-import { StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
+import {
+  Animated,
+  StyleSheet,
+  Text,
+  View,
+  type StyleProp,
+  type ViewStyle,
+} from "react-native";
 
 import { webTheme } from "@/theme/webTheme";
 
@@ -32,7 +39,7 @@ export function MobileStatusPill({
 
   return (
     <View style={[styles.pill, { borderColor: `${toneColor}33` }]}>
-      <View
+      <Animated.View
         style={[styles.dot, { backgroundColor: toneColor }, animatedDotStyle]}
         testID="mobile-status-dot"
       />

@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View } from "react-native";
+import { Image, StyleSheet, View } from "react-native";
 
 import { webTheme } from "@/theme/webTheme";
 
@@ -11,7 +11,7 @@ export type YuzikAvatarState =
 
 type YuzikAvatarProps = {
   state?: YuzikAvatarState;
-  size?: "sm" | "md" | "lg";
+  size?: "sm" | "md" | "figma" | "lg";
   label?: string;
 };
 
@@ -39,7 +39,11 @@ export function YuzikAvatar({
       ]}
       testID="yuzik-avatar"
     >
-      <Text style={[styles.mark, styles[`${size}Mark`]]}>Y</Text>
+      <Image
+        resizeMode="cover"
+        source={require("../../../yuzik_ico.png")}
+        style={[styles.image, styles[`${size}Image`]]}
+      />
     </View>
   );
 }
@@ -66,22 +70,33 @@ const styles = StyleSheet.create({
     height: 56,
     borderRadius: 28,
   },
+  figma: {
+    width: 130,
+    height: 130,
+    borderRadius: 65,
+  },
   lg: {
-    width: 112,
-    height: 112,
-    borderRadius: 56,
+    width: 206,
+    height: 206,
+    borderRadius: 103,
   },
-  mark: {
-    color: webTheme.colors.text,
-    fontWeight: "800",
+  image: {
+    borderRadius: 999,
   },
-  smMark: {
-    fontSize: 16,
+  smImage: {
+    width: 32,
+    height: 32,
   },
-  mdMark: {
-    fontSize: 24,
+  mdImage: {
+    width: 50,
+    height: 50,
   },
-  lgMark: {
-    fontSize: 48,
+  figmaImage: {
+    width: 124,
+    height: 124,
+  },
+  lgImage: {
+    width: 198,
+    height: 198,
   },
 });

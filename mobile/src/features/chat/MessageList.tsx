@@ -121,46 +121,43 @@ function TypingIndicator() {
 }
 
 function EmptyState({ onSelectPrompt }: { onSelectPrompt?: (prompt: string) => void }) {
-  const { t } = useI18n();
-
   const promptCards = [
     {
-      text: t("chat.promptEssay"),
-      sub: t("chat.promptEssaySub"),
-      prompt: `${t("chat.promptEssay")} ${t("chat.promptEssaySub").toLowerCase()}`,
+      text: "Патлумач слова",
+      prompt: "Патлумач слова",
+      style: styles.promptChipWide,
     },
     {
-      text: t("chat.promptExplain"),
-      sub: t("chat.promptExplainSub"),
-      prompt: `${t("chat.promptExplain")} ${t("chat.promptExplainSub").toLowerCase()}`,
+      text: "Ствары выяву",
+      prompt: "Ствары выяву",
+      style: styles.promptChipNarrow,
     },
     {
-      text: t("chat.promptCreate"),
-      sub: t("chat.promptCreateSub"),
-      prompt: `${t("chat.promptCreate")} ${t("chat.promptCreateSub").toLowerCase()}`,
-    },
-    {
-      text: t("chat.promptTranslate"),
-      sub: t("chat.promptTranslateSub"),
-      prompt: `${t("chat.promptTranslate")} ${t("chat.promptTranslateSub").toLowerCase()}`,
+      text: "Практыка мовы",
+      prompt: "Практыка мовы",
+      style: styles.promptChipCentered,
     },
   ];
 
   return (
     <View style={styles.emptyState}>
-      <Text style={styles.emptyLogo}>Y</Text>
-      <Text style={styles.emptyTitle}>{t("chat.emptyTitle")}</Text>
-      <Text style={styles.emptySubtitle}>{t("chat.emptySubtitle")}</Text>
+      <YuzikAvatar size="figma" state="default" />
+      <View style={styles.emptyCopy}>
+        <Text style={styles.emptyTitle}>Вітаю, я Юзік</Text>
+        <Text style={styles.emptySubtitle}>
+          Я дапамагаю пісаць, гаварыць і ствараць па-беларуску
+        </Text>
+      </View>
       <View style={styles.promptGrid}>
         {promptCards.map((card) => (
           <Pressable
             key={card.text}
             onPress={() => onSelectPrompt?.(card.prompt)}
-            style={styles.promptCard}
+            style={[styles.promptCard, card.style]}
+            accessibilityLabel={card.text}
             testID="chat-empty-prompt"
           >
             <Text style={styles.promptText}>{card.text}</Text>
-            <Text style={styles.promptSub}>{card.sub}</Text>
           </Pressable>
         ))}
       </View>
@@ -201,7 +198,8 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     gap: 14,
     paddingHorizontal: 16,
-    paddingVertical: 18,
+    paddingTop: 0,
+    paddingBottom: 18,
   },
   messageRow: {
     alignSelf: "flex-start",
@@ -312,57 +310,61 @@ const styles = StyleSheet.create({
   emptyState: {
     flex: 1,
     alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 40,
-  },
-  emptyLogo: {
-    marginBottom: 12,
-    color: webTheme.colors.primary,
-    fontSize: 48,
-    fontWeight: "800",
+    justifyContent: "flex-start",
+    paddingTop: 146,
   },
   emptyTitle: {
-    marginBottom: 6,
     color: webTheme.colors.text,
-    fontSize: 24,
-    fontWeight: "800",
-  },
-  emptySubtitle: {
-    maxWidth: 320,
-    marginBottom: 24,
-    color: webTheme.colors.textMuted,
-    fontSize: 15,
-    lineHeight: 21,
+    fontSize: 17,
+    fontWeight: "700",
+    lineHeight: 25,
     textAlign: "center",
   },
+  emptySubtitle: {
+    width: 237,
+    color: webTheme.colors.textMuted,
+    fontSize: 15,
+    lineHeight: 19,
+    textAlign: "center",
+  },
+  emptyCopy: {
+    width: 237,
+    alignItems: "center",
+    gap: 8,
+    marginTop: 16,
+  },
   promptGrid: {
-    width: "100%",
-    maxWidth: 390,
+    width: 311,
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "center",
-    gap: 10,
+    columnGap: 12,
+    rowGap: 12,
+    marginTop: 16,
   },
   promptCard: {
-    width: "47%",
-    minHeight: 74,
+    height: 44,
     justifyContent: "center",
-    gap: 4,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: webTheme.radii.md,
+    alignItems: "center",
+    paddingHorizontal: 18,
+    borderRadius: 22,
     backgroundColor: webTheme.colors.surface,
     borderWidth: 1,
     borderColor: webTheme.colors.border,
   },
+  promptChipWide: {
+    width: 155,
+  },
+  promptChipNarrow: {
+    width: 143,
+  },
+  promptChipCentered: {
+    width: 209,
+  },
   promptText: {
     color: webTheme.colors.text,
     fontSize: 13,
-    fontWeight: "800",
-  },
-  promptSub: {
-    color: webTheme.colors.textMuted,
-    fontSize: 11,
-    lineHeight: 15,
+    fontWeight: "700",
+    textAlign: "center",
   },
 });

@@ -18,7 +18,7 @@ jest.mock("@/lib/i18n", () => ({
     t: (key: string) => {
       const map: Record<string, string> = {
         "tab.chat": "Chat",
-        "tab.teacher": "Teacher",
+        "tab.teacher": "Classes",
         "tab.voice": "Voice",
         "tab.settings": "Settings",
         "auth.unavailable": "Auth unavailable",

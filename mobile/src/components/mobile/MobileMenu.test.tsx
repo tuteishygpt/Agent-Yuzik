@@ -7,7 +7,7 @@ import { MobileMenu } from "./MobileMenu";
 
 describe("MobileMenu", () => {
   const items = [
-    { label: "Voice", route: "voice" },
+    { label: "Voice", route: "voice", description: "Talk live" },
     { label: "Chat", route: "chat" },
   ];
 
@@ -18,7 +18,9 @@ describe("MobileMenu", () => {
       <MobileMenu activeRoute="voice" items={items} onSelect={onSelect} />,
     );
 
+    expect(screen.getTextContent()).toContain("Меню");
     expect(screen.getTextContent()).toContain("Voice");
+    expect(screen.getTextContent()).toContain("Talk live");
     expect(screen.getTextContent()).toContain("Chat");
 
     const chatButton = screen.renderer.root.findByProps({

@@ -1,21 +1,25 @@
-import { useEffect, useRef } from "react";
-import { FlatList, KeyboardAvoidingView, Platform, StyleSheet, Text, View } from "react-native";
-
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  MobileActionButton,
-  MobileScreenShell,
-  MobileStatusPill,
-  YuzikAvatar,
-} from "@/components/mobile";
+  FlatList,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+
+import { MobileScreenShell } from "@/components/mobile";
 import { createChatApiClient } from "@/lib/api";
 import { getRuntimeEnv } from "@/lib/env";
 import { pickSingleAttachment } from "@/lib/file-picker";
-import { useI18n } from "@/lib/i18n";
 import { getLegacyMobileUserId } from "@/lib/legacy-user-id";
 import { getSupabaseSession } from "@/lib/supabase";
+import { createVoiceRecorderAdapter, type VoiceRecorderAdapter } from "@/lib/audio-recording";
 import { useMenu } from "@/navigation/MenuContext";
 import { webTheme } from "@/theme/webTheme";
 
+import { createVoiceAttachmentFromWavBytes } from "./chat-voice-attachment";
 import { Composer } from "./Composer";
 import { MessageList } from "./MessageList";
 import { useChatController } from "./useChatController";
@@ -28,16 +32,63 @@ function createDefaultApi() {
   });
 }
 
-const defaultChatApi = createDefaultApi();
+type ChatHeaderProps = {
+  onOpenMenu: () => void;
+  onClearHistory: () => void;
+};
+
+function TrashIcon() {
+  return (
+    <View style={styles.trashIcon} testID="chat-header-trash-icon">
+      <View style={styles.trashLid} />
+      <View style={styles.trashHandle} />
+      <View style={styles.trashCan} />
+      <View style={styles.trashLineLeft} />
+      <View style={styles.trashLineRight} />
+      <View style={styles.trashTopLine} />
+    </View>
+  );
+}
+
+export function ChatHeader({ onOpenMenu, onClearHistory }: ChatHeaderProps) {
+  return (
+    <View style={styles.header}>
+      <Pressable
+        accessibilityLabel="Open chat menu"
+        onPress={onOpenMenu}
+        style={styles.chatTab}
+      >
+        <View style={styles.chatTabIcon} testID="chat-header-menu-icon">
+          <View style={styles.chatTabLine} />
+          <View style={styles.chatTabLine} />
+          <View style={styles.chatTabLine} />
+        </View>
+        <Text style={styles.chatTabText} testID="chat-header-title">
+          Юзік
+        </Text>
+      </Pressable>
+      <Pressable
+        accessibilityLabel="Clear chat history"
+        onPress={onClearHistory}
+        style={styles.clearButton}
+      >
+        <TrashIcon />
+      </Pressable>
+    </View>
+  );
+}
 
 export default function ChatScreen() {
-  const { t } = useI18n();
   const { openMenu } = useMenu();
+  const defaultChatApi = useMemo(createDefaultApi, []);
   const controller = useChatController({
     api: defaultChatApi,
     pickAttachment: pickSingleAttachment,
   });
   const listRef = useRef<FlatList>(null);
+  const recorderRef = useRef<VoiceRecorderAdapter | null>(null);
+  const recordingRef = useRef(false);
+  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
 
   const handleSelectPrompt = (prompt: string) => {
     controller.setDraftText(prompt);
@@ -54,6 +105,65 @@ export default function ChatScreen() {
     return () => clearTimeout(timer);
   }, [controller.messages.length]);
 
+  const startVoiceRecording = async () => {
+    if (recordingRef.current || controller.isSending) {
+      return;
+    }
+
+    const recorder = recorderRef.current ?? createVoiceRecorderAdapter();
+    recorderRef.current = recorder;
+    recordingRef.current = true;
+
+    try {
+      await recorder.prepare();
+      await recorder.start();
+      setIsRecordingVoice(true);
+    } catch {
+      recordingRef.current = false;
+      setIsRecordingVoice(false);
+    }
+  };
+
+  const confirmVoiceRecording = async () => {
+    if (!recordingRef.current) {
+      return;
+    }
+
+    const recorder = recorderRef.current;
+    recordingRef.current = false;
+    setIsRecordingVoice(false);
+
+    if (!recorder) {
+      return;
+    }
+
+    try {
+      const result = await recorder.stop();
+      const attachment = await createVoiceAttachmentFromWavBytes({
+        wavBytes: result.wavBytes,
+      });
+      controller.setAttachment(attachment);
+    } catch {
+      // Keep chat usable if the platform returns no audio or recording fails.
+    }
+  };
+
+  const cancelVoiceRecording = async () => {
+    if (!recordingRef.current) {
+      return;
+    }
+
+    const recorder = recorderRef.current;
+    recordingRef.current = false;
+    setIsRecordingVoice(false);
+
+    try {
+      await recorder?.stop();
+    } catch {
+      // Cancel should leave the composer ready even if native stop fails.
+    }
+  };
+
   return (
     <MobileScreenShell contentStyle={styles.shellContent}>
       <KeyboardAvoidingView
@@ -61,30 +171,10 @@ export default function ChatScreen() {
         keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
         style={styles.flex}
       >
-        <View style={styles.header}>
-          <View style={styles.headerTitle}>
-            <YuzikAvatar size="md" state={controller.isSending ? "thinking" : "default"} />
-            <View style={styles.headerCopy}>
-              <Text style={styles.title}>Yuzik</Text>
-              <MobileStatusPill
-                label={
-                  controller.isLoadingHistory
-                    ? t("chat.loadingHistory")
-                    : controller.isSending
-                      ? t("voice.processing")
-                      : t("voice.idle")
-                }
-                tone={controller.error ? "danger" : controller.isSending ? "warning" : "accent"}
-              />
-            </View>
-          </View>
-          <MobileActionButton
-            accessibilityLabel="Clear chat history"
-            label="Ачысціць"
-            onPress={() => void controller.clearHistory()}
-            variant="ghost"
-          />
-        </View>
+        <ChatHeader
+          onClearHistory={() => void controller.clearHistory()}
+          onOpenMenu={openMenu}
+        />
 
         {controller.error ? <Text style={styles.error}>{controller.error}</Text> : null}
 
@@ -105,8 +195,13 @@ export default function ChatScreen() {
           onAttach={controller.pickAttachment}
           onChangeDraftText={controller.setDraftText}
           onClearAttachment={controller.clearAttachment}
+          onCancelVoiceRecording={cancelVoiceRecording}
+          onConfirmVoiceRecording={confirmVoiceRecording}
           onOpenMenu={openMenu}
+          onStartVoiceRecording={startVoiceRecording}
+          onStopVoiceRecording={confirmVoiceRecording}
           onSend={controller.sendMessage}
+          isRecordingVoice={isRecordingVoice}
         />
       </KeyboardAvoidingView>
     </MobileScreenShell>
@@ -122,30 +217,111 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
+    height: 70,
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     justifyContent: "space-between",
-    gap: 12,
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: webTheme.colors.border,
+    paddingTop: 35,
     backgroundColor: webTheme.colors.background,
   },
-  headerTitle: {
-    flex: 1,
+  chatTab: {
+    width: 124,
+    height: 27,
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 8,
   },
-  headerCopy: {
-    flex: 1,
+  chatTabIcon: {
+    width: 24,
+    height: 24,
+    alignItems: "center",
+    justifyContent: "center",
     gap: 6,
   },
-  title: {
-    color: webTheme.colors.text,
-    fontSize: 22,
-    fontWeight: "800",
+  chatTabLine: {
+    width: 16,
+    height: 1.5,
+    borderRadius: 1,
+    backgroundColor: "#CC3D37",
+  },
+  chatTabText: {
+    color: "#3B1F1F",
+    fontSize: 20,
+    fontWeight: "700",
+    lineHeight: 27,
+  },
+  clearButton: {
+    width: 24,
+    height: 24,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  trashIcon: {
+    width: 24,
+    height: 24,
+  },
+  trashLid: {
+    position: "absolute",
+    left: 3,
+    top: 7,
+    width: 18,
+    height: 1.5,
+    borderRadius: 1,
+    backgroundColor: "#3B1F1F",
+  },
+  trashHandle: {
+    position: "absolute",
+    left: 8,
+    top: 4,
+    width: 8,
+    height: 4,
+    borderTopWidth: 1.5,
+    borderLeftWidth: 1.5,
+    borderRightWidth: 1.5,
+    borderTopLeftRadius: 2,
+    borderTopRightRadius: 2,
+    borderColor: "#3B1F1F",
+  },
+  trashCan: {
+    position: "absolute",
+    left: 5,
+    top: 8,
+    width: 14,
+    height: 13,
+    borderLeftWidth: 1.5,
+    borderRightWidth: 1.5,
+    borderBottomWidth: 1.5,
+    borderBottomLeftRadius: 2,
+    borderBottomRightRadius: 2,
+    borderColor: "#3B1F1F",
+  },
+  trashLineLeft: {
+    position: "absolute",
+    left: 9,
+    top: 12,
+    width: 1.5,
+    height: 6,
+    borderRadius: 1,
+    backgroundColor: "#3B1F1F",
+  },
+  trashLineRight: {
+    position: "absolute",
+    right: 9,
+    top: 12,
+    width: 1.5,
+    height: 6,
+    borderRadius: 1,
+    backgroundColor: "#3B1F1F",
+  },
+  trashTopLine: {
+    position: "absolute",
+    left: 1,
+    top: 7,
+    width: 22,
+    height: 1.5,
+    borderRadius: 1,
+    backgroundColor: "#3B1F1F",
   },
   error: {
     color: webTheme.colors.danger,

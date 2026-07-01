@@ -7,6 +7,7 @@ import type { VoiceTranscriptEntry } from "./useVoiceSession";
 
 type TranscriptPanelProps = {
   transcript: VoiceTranscriptEntry[];
+  compact?: boolean;
 };
 
 function TranscriptTurn({ entry }: { entry: VoiceTranscriptEntry }) {
@@ -47,7 +48,7 @@ function TranscriptTurn({ entry }: { entry: VoiceTranscriptEntry }) {
   );
 }
 
-export function TranscriptPanel({ transcript }: TranscriptPanelProps) {
+export function TranscriptPanel({ compact = false, transcript }: TranscriptPanelProps) {
   const scrollRef = useRef<ScrollView>(null);
   const visibleTranscript = transcript.filter((entry) => entry.role !== "system");
   const scrollToLatest = () => {
@@ -59,15 +60,20 @@ export function TranscriptPanel({ transcript }: TranscriptPanelProps) {
   }, [visibleTranscript.length]);
 
   return (
-    <View style={styles.panel}>
+    <View style={[styles.panel, compact ? styles.panelCompact : null]}>
       <ScrollView
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[
+          styles.content,
+          compact ? styles.contentCompact : null,
+        ]}
         onContentSizeChange={scrollToLatest}
         ref={scrollRef}
-        style={styles.scroll}
+        style={[styles.scroll, compact ? styles.scrollCompact : null]}
       >
         {visibleTranscript.length === 0 ? (
-          <Text style={styles.empty}>Размова яшчэ не пачалася</Text>
+          <Text style={[styles.empty, compact ? styles.emptyCompact : null]}>
+            Размова яшчэ не пачалася
+          </Text>
         ) : (
           visibleTranscript.map((entry) => (
             <TranscriptTurn entry={entry} key={entry.id} />
@@ -82,18 +88,29 @@ const styles = StyleSheet.create({
   panel: {
     width: "100%",
     maxHeight: 340,
-    borderRadius: webTheme.radii.lg,
+    borderRadius: webTheme.radii.md,
     padding: 10,
     backgroundColor: webTheme.colors.surface,
     borderWidth: 1,
     borderColor: webTheme.colors.border,
   },
+  panelCompact: {
+    maxHeight: 190,
+    padding: 8,
+  },
   scroll: {
     minHeight: 150,
+  },
+  scrollCompact: {
+    minHeight: 84,
   },
   content: {
     gap: 8,
     paddingBottom: 4,
+  },
+  contentCompact: {
+    gap: 6,
+    paddingBottom: 0,
   },
   empty: {
     padding: 18,
@@ -105,6 +122,11 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
     textAlign: "center",
+  },
+  emptyCompact: {
+    padding: 10,
+    fontSize: 14,
+    lineHeight: 20,
   },
   entry: {
     maxWidth: "86%",

@@ -1,47 +1,50 @@
 import * as SecureStore from "expo-secure-store";
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+  type ReactNode,
+} from "react";
 
 export type Locale = "be" | "en";
 
 const translations = {
   be: {
-    // Tabs
     "tab.chat": "Чат",
-    "tab.teacher": "Настаўнік",
+    "tab.teacher": "Заняткі",
     "tab.voice": "Голас",
     "tab.settings": "Наладкі",
 
-    // Chat
-    "chat.placeholder": "Напішыце паведамленне...",
+    "chat.placeholder": "Напішыце Юзіку...",
     "chat.footer": "Юзік можа рабіць памылкі. Правярайце важную інфармацыю.",
     "chat.loadingHistory": "Загрузка гісторыі...",
-    "chat.emptyTitle": "Прывітанне, я Юзік",
-    "chat.emptySubtitle": "Чым магу дапамагчы?",
+    "chat.emptyTitle": "Вітаю, я Юзік",
+    "chat.emptySubtitle": "Я дапамагаю пісаць, гаварыць і ствараць па-беларуску",
     "chat.promptEssay": "Напісаць эсэ",
     "chat.promptEssaySub": "Пра гісторыю Беларусі",
-    "chat.promptExplain": "Растлумачыць",
-    "chat.promptExplainSub": "Як працуе AI?",
-    "chat.promptCreate": "Стварыць выяву",
-    "chat.promptCreateSub": "Футурыстычны Менск",
-    "chat.promptTranslate": "Перакласці",
-    "chat.promptTranslateSub": "Тэкст на ангельскую",
+    "chat.promptExplain": "Патлумач слова",
+    "chat.promptExplainSub": "Беларускае значэнне",
+    "chat.promptCreate": "Ствары выяву",
+    "chat.promptCreateSub": "Па апісанні",
+    "chat.promptTranslate": "Практыка мовы",
+    "chat.promptTranslateSub": "Размова па-беларуску",
     "chat.imageCached": "Выява захавана",
     "chat.audioCached": "Аўдыё захавана",
     "chat.play": "Прайграць",
     "chat.open": "Адкрыць",
     "chat.share": "Падзяліцца",
 
-    // Voice
-    "voice.title": "Галасавы Агент",
+    "voice.title": "Галасавы агент",
     "voice.listening": "Слухаю...",
     "voice.processing": "Думаю...",
     "voice.speaking": "Гавару...",
     "voice.idle": "Націсні для размовы",
     "voice.start": "Пачаць",
     "voice.stop": "Спыніць",
-    "voice.teacher": "Настаўнік",
+    "voice.teacher": "Заняткі",
 
-    // Settings
     "settings.eyebrow": "Наладкі",
     "settings.title": "Наладкі",
     "settings.subtitle": "Асяроддзе і дыягностыка зборкі.",
@@ -55,39 +58,35 @@ const translations = {
     "settings.guest": "Гасцявая сесія",
     "settings.email": "Email акаўнт",
 
-    // Auth
     "auth.unavailable": "Аўтэнтыфікацыя недаступная",
     "auth.preparing": "Падрыхтоўка сесіі",
     "auth.errorDefault": "Немагчыма падрыхтаваць сесію Supabase.",
   },
   en: {
-    // Tabs
     "tab.chat": "Chat",
-    "tab.teacher": "Teacher",
+    "tab.teacher": "Classes",
     "tab.voice": "Voice",
     "tab.settings": "Settings",
 
-    // Chat
-    "chat.placeholder": "Type a message...",
+    "chat.placeholder": "Write to Yuzik...",
     "chat.footer": "Yuzik can make mistakes. Verify important information.",
     "chat.loadingHistory": "Loading history...",
     "chat.emptyTitle": "Hello, I'm Yuzik",
-    "chat.emptySubtitle": "How can I help?",
+    "chat.emptySubtitle": "I help write, speak, and create in Belarusian",
     "chat.promptEssay": "Write an essay",
     "chat.promptEssaySub": "About the history of Belarus",
-    "chat.promptExplain": "Explain",
-    "chat.promptExplainSub": "How does AI work?",
+    "chat.promptExplain": "Explain a word",
+    "chat.promptExplainSub": "Belarusian meaning",
     "chat.promptCreate": "Create an image",
-    "chat.promptCreateSub": "Futuristic Minsk",
-    "chat.promptTranslate": "Translate",
-    "chat.promptTranslateSub": "Text to English",
+    "chat.promptCreateSub": "From a description",
+    "chat.promptTranslate": "Language practice",
+    "chat.promptTranslateSub": "Speak Belarusian",
     "chat.imageCached": "Image cached",
     "chat.audioCached": "Audio cached",
     "chat.play": "Play",
     "chat.open": "Open",
     "chat.share": "Share",
 
-    // Voice
     "voice.title": "Voice Agent",
     "voice.listening": "Listening...",
     "voice.processing": "Thinking...",
@@ -95,9 +94,8 @@ const translations = {
     "voice.idle": "Tap to talk",
     "voice.start": "Start",
     "voice.stop": "Stop",
-    "voice.teacher": "Teacher",
+    "voice.teacher": "Classes",
 
-    // Settings
     "settings.eyebrow": "Settings",
     "settings.title": "Settings",
     "settings.subtitle": "Environment and build diagnostics.",
@@ -111,7 +109,6 @@ const translations = {
     "settings.guest": "Guest session",
     "settings.email": "Email account",
 
-    // Auth
     "auth.unavailable": "Auth unavailable",
     "auth.preparing": "Preparing session",
     "auth.errorDefault": "Unable to prepare a Supabase session.",

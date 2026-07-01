@@ -13,10 +13,50 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import type { ChatAttachment } from "@/lib/file-picker";
 import { useI18n } from "@/lib/i18n";
-import { BottomMenuButton } from "@/navigation/BottomMenuButton";
 import { webTheme } from "@/theme/webTheme";
 
 import { AttachmentTray } from "./AttachmentTray";
+
+function VoiceIcon() {
+  return (
+    <View style={styles.voiceIcon} testID="composer-voice-icon">
+      <View style={styles.voiceGlyphTop} />
+      <View style={styles.voiceGlyphBody} />
+      <View style={styles.voiceGlyphStem} />
+      <View style={styles.voiceGlyphBase} />
+    </View>
+  );
+}
+
+function SendIcon() {
+  return (
+    <View style={styles.sendGlyph} testID="composer-send-icon">
+      <View style={styles.sendGlyphOuterTop} />
+      <View style={styles.sendGlyphOuterBottom} />
+      <View style={styles.sendGlyphInnerTop} />
+      <View style={styles.sendGlyphInnerBottom} />
+      <View style={styles.sendGlyphMiddle} />
+    </View>
+  );
+}
+
+function RecordingWave() {
+  return (
+    <View style={styles.recordingWave} testID="voice-recording-wave">
+      {Array.from({ length: 36 }).map((_, index) => (
+        <View
+          // eslint-disable-next-line react/no-array-index-key
+          key={index}
+          style={[
+            styles.recordingDot,
+            index % 5 === 0 ? styles.recordingDotTall : null,
+            index % 7 === 0 ? styles.recordingDotShort : null,
+          ]}
+        />
+      ))}
+    </View>
+  );
+}
 
 type ComposerProps = {
   draftText: string;
@@ -27,6 +67,11 @@ type ComposerProps = {
   attachment: ChatAttachment | null;
   isSending: boolean;
   onOpenMenu?: () => void;
+  onStartVoiceRecording?: () => Promise<void> | void;
+  onStopVoiceRecording?: () => Promise<void> | void;
+  onConfirmVoiceRecording?: () => Promise<void> | void;
+  onCancelVoiceRecording?: () => Promise<void> | void;
+  isRecordingVoice?: boolean;
 };
 
 export function Composer({
@@ -38,6 +83,11 @@ export function Composer({
   attachment,
   isSending,
   onOpenMenu,
+  onStartVoiceRecording,
+  onStopVoiceRecording,
+  onConfirmVoiceRecording,
+  onCancelVoiceRecording,
+  isRecordingVoice = false,
 }: ComposerProps) {
   const { t } = useI18n();
   const insets = useSafeAreaInsets();
@@ -62,7 +112,10 @@ export function Composer({
     }
   };
 
-  const sendDisabled = isSending || !draftText.trim();
+  const canSend = Boolean(draftText.trim() || attachment);
+  const sendDisabled = isSending || !canSend;
+  const showVoiceAction = !canSend && Boolean(onStartVoiceRecording && onStopVoiceRecording);
+  const confirmVoiceRecording = onConfirmVoiceRecording ?? onStopVoiceRecording;
 
   return (
     <View
@@ -73,86 +126,125 @@ export function Composer({
     >
       <AttachmentTray attachment={attachment} onClear={onClearAttachment} />
       <View style={styles.bottomRow}>
-        {onOpenMenu ? <BottomMenuButton onPress={onOpenMenu} /> : null}
         <View style={styles.inputContainer} testID="chat-composer-input-shell">
-          <Pressable
-            accessibilityLabel="Attach file"
-            onPress={onAttach}
-            style={styles.attachButton}
-          >
-            <Text style={styles.iconText}>+</Text>
-          </Pressable>
-          <TextInput
-            blurOnSubmit={false}
-            enablesReturnKeyAutomatically
-            multiline
-            onChangeText={onChangeDraftText}
-            onKeyPress={handleKeyPress}
-            onSubmitEditing={handleSubmitEditing}
-            placeholder={t("chat.placeholder")}
-            placeholderTextColor={webTheme.colors.textDim}
-            ref={inputRef}
-            returnKeyType="send"
-            style={styles.input}
-            value={draftText}
-          />
-          <Pressable
-            accessibilityLabel="Send message"
-            disabled={sendDisabled}
-            onPress={() => {
-              void onSend();
-              inputRef.current?.focus();
-            }}
-            style={[styles.sendButton, sendDisabled && styles.sendButtonDisabled]}
-          >
-            <Text style={styles.sendIcon}>{">"}</Text>
-          </Pressable>
+          {isRecordingVoice ? (
+            <>
+              <RecordingWave />
+              <Pressable
+                accessibilityLabel="Send voice message"
+                disabled={isSending}
+                onPress={() => {
+                  void confirmVoiceRecording?.();
+                }}
+                style={[styles.recordingAction, styles.recordingConfirm]}
+              >
+                <Text style={styles.recordingConfirmIcon}>✓</Text>
+              </Pressable>
+              <Pressable
+                accessibilityLabel="Cancel voice message"
+                disabled={isSending}
+                onPress={() => {
+                  void onCancelVoiceRecording?.();
+                }}
+                style={styles.recordingAction}
+              >
+                <Text style={styles.recordingCancelIcon}>×</Text>
+              </Pressable>
+            </>
+          ) : (
+            <>
+              <Pressable
+                accessibilityLabel="Attach file"
+                disabled={isSending}
+                onPress={() => {
+                  void onAttach();
+                }}
+                style={styles.inlineAttachButton}
+              >
+                <Text style={styles.attachIcon}>+</Text>
+              </Pressable>
+              <TextInput
+                blurOnSubmit={false}
+                enablesReturnKeyAutomatically
+                multiline
+                onChangeText={onChangeDraftText}
+                onKeyPress={handleKeyPress}
+                onSubmitEditing={handleSubmitEditing}
+                placeholder={t("chat.placeholder")}
+                placeholderTextColor={webTheme.colors.textDim}
+                ref={inputRef}
+                returnKeyType="send"
+                style={styles.input}
+                value={draftText}
+              />
+              <Pressable
+                accessibilityLabel={showVoiceAction ? "Start voice message" : "Send message"}
+                disabled={showVoiceAction ? isSending : sendDisabled}
+                onPress={
+                  showVoiceAction
+                    ? () => {
+                        void onStartVoiceRecording?.();
+                      }
+                    : () => {
+                        void onSend();
+                        inputRef.current?.focus();
+                      }
+                }
+                style={[
+                  styles.sendButton,
+                  showVoiceAction ? styles.voiceButton : null,
+                  !showVoiceAction && sendDisabled ? styles.sendButtonDisabled : null,
+                ]}
+              >
+                {showVoiceAction ? <VoiceIcon /> : <SendIcon />}
+              </Pressable>
+            </>
+          )}
         </View>
       </View>
-      <Text style={styles.footer}>{t("chat.footer")}</Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    borderTopColor: webTheme.colors.border,
-    borderTopWidth: 1,
     backgroundColor: webTheme.colors.background,
-    paddingHorizontal: 12,
-    paddingTop: 10,
+    paddingHorizontal: 16,
+    paddingTop: 8,
   },
   bottomRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
   },
   inputContainer: {
     flex: 1,
     flexShrink: 1,
-    minHeight: 54,
+    minHeight: 52,
     flexDirection: "row",
-    alignItems: "flex-end",
-    gap: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    borderRadius: webTheme.radii.lg,
-    backgroundColor: webTheme.colors.surface,
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 4,
+    paddingVertical: 6,
+    borderRadius: 26,
+    backgroundColor: "#FFFCFC",
     borderWidth: 1,
-    borderColor: webTheme.colors.border,
+    borderColor: "#ED6760",
   },
-  attachButton: {
+  inlineAttachButton: {
     width: 38,
     height: 38,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: webTheme.radii.md,
-    backgroundColor: webTheme.colors.surfaceStrong,
+    borderRadius: 19,
+    borderWidth: 1,
+    borderColor: "#f5c3bf",
+    backgroundColor: "#FFFCFC",
   },
-  iconText: {
-    color: webTheme.colors.text,
-    fontSize: 22,
-    fontWeight: "600",
+  attachIcon: {
+    color: "#8d5c58",
+    fontSize: 28,
+    fontWeight: "300",
+    lineHeight: 30,
   },
   input: {
     flex: 1,
@@ -163,25 +255,157 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   sendButton: {
-    width: 40,
-    height: 40,
+    width: 38,
+    height: 38,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: webTheme.radii.md,
-    backgroundColor: webTheme.colors.primary,
+    borderRadius: 19,
+    backgroundColor: "#CC3D37",
   },
   sendButtonDisabled: {
     opacity: 0.4,
   },
-  sendIcon: {
-    color: webTheme.colors.surface,
-    fontSize: 18,
-    fontWeight: "800",
+  voiceButton: {
+    backgroundColor: webTheme.colors.primary,
   },
-  footer: {
-    marginTop: 8,
-    color: webTheme.colors.textMuted,
-    fontSize: 12,
-    textAlign: "center",
+  sendGlyph: {
+    width: 20,
+    height: 20,
+  },
+  sendGlyphOuterTop: {
+    position: "absolute",
+    left: 1,
+    top: 5,
+    width: 19,
+    height: 1.5,
+    borderRadius: 1,
+    backgroundColor: "#FDFDFD",
+    transform: [{ rotate: "24deg" }],
+  },
+  sendGlyphOuterBottom: {
+    position: "absolute",
+    left: 1,
+    bottom: 5,
+    width: 19,
+    height: 1.5,
+    borderRadius: 1,
+    backgroundColor: "#FDFDFD",
+    transform: [{ rotate: "-24deg" }],
+  },
+  sendGlyphInnerTop: {
+    position: "absolute",
+    left: 1,
+    top: 5,
+    width: 5,
+    height: 1.5,
+    borderRadius: 1,
+    backgroundColor: "#FDFDFD",
+    transform: [{ rotate: "76deg" }],
+  },
+  sendGlyphInnerBottom: {
+    position: "absolute",
+    left: 1,
+    bottom: 5,
+    width: 5,
+    height: 1.5,
+    borderRadius: 1,
+    backgroundColor: "#FDFDFD",
+    transform: [{ rotate: "-76deg" }],
+  },
+  sendGlyphMiddle: {
+    position: "absolute",
+    left: 4,
+    top: 9,
+    width: 16,
+    height: 1.5,
+    borderRadius: 1,
+    backgroundColor: "#FDFDFD",
+  },
+  voiceIcon: {
+    width: 20,
+    height: 22,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  voiceGlyphTop: {
+    position: "absolute",
+    top: 1,
+    width: 9,
+    height: 14,
+    borderRadius: 5,
+    borderWidth: 2,
+    borderColor: webTheme.colors.surface,
+  },
+  voiceGlyphBody: {
+    position: "absolute",
+    top: 12,
+    width: 17,
+    height: 8,
+    borderLeftWidth: 2,
+    borderRightWidth: 2,
+    borderBottomWidth: 2,
+    borderBottomLeftRadius: 9,
+    borderBottomRightRadius: 9,
+    borderColor: webTheme.colors.surface,
+  },
+  voiceGlyphStem: {
+    position: "absolute",
+    top: 19,
+    width: 2,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: webTheme.colors.surface,
+  },
+  voiceGlyphBase: {
+    position: "absolute",
+    bottom: -1,
+    width: 12,
+    height: 2,
+    borderRadius: 2,
+    backgroundColor: webTheme.colors.surface,
+  },
+  recordingWave: {
+    flex: 1,
+    height: 24,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    paddingLeft: 8,
+  },
+  recordingDot: {
+    width: 3,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: webTheme.colors.borderStrong,
+  },
+  recordingDotTall: {
+    height: 6,
+  },
+  recordingDotShort: {
+    height: 3,
+  },
+  recordingAction: {
+    width: 38,
+    height: 38,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 19,
+    borderWidth: 1,
+    borderColor: webTheme.colors.border,
+    backgroundColor: webTheme.colors.surface,
+  },
+  recordingConfirm: {
+    borderColor: webTheme.colors.border,
+  },
+  recordingConfirmIcon: {
+    color: webTheme.colors.text,
+    fontSize: 20,
+    lineHeight: 22,
+  },
+  recordingCancelIcon: {
+    color: webTheme.colors.text,
+    fontSize: 28,
+    fontWeight: "300",
+    lineHeight: 30,
   },
 });

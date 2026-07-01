@@ -1,4 +1,5 @@
 import React from "react";
+import { Text } from "react-native";
 import TestRenderer, { act } from "react-test-renderer";
 
 import { MessageList } from "./MessageList";
@@ -67,7 +68,7 @@ describe("MessageList", () => {
     expect(play).toHaveBeenCalledTimes(1);
   });
 
-  it("marks empty state prompt actions for the redesigned prompt grid", async () => {
+  it("renders the Figma start screen prompt chips", async () => {
     const onSelectPrompt = jest.fn();
     let renderer!: TestRenderer.ReactTestRenderer;
 
@@ -77,8 +78,28 @@ describe("MessageList", () => {
       );
     });
 
-    expect(
-      renderer.root.findAllByProps({ testID: "chat-empty-prompt" }).length,
-    ).toBeGreaterThan(0);
+    const chipLabels = renderer.root
+      .findAllByType(Text)
+      .map((node) => String(node.props.children ?? ""))
+      .filter((label) =>
+        ["Патлумач слова", "Ствары выяву", "Практыка мовы"].includes(label),
+      );
+
+    expect(chipLabels).toEqual([
+      "Патлумач слова",
+      "Ствары выяву",
+      "Практыка мовы",
+    ]);
+    expect(readText(renderer)).toContain("Вітаю, я Юзік");
+    expect(readText(renderer)).toContain(
+      "Я дапамагаю пісаць, гаварыць і ствараць па-беларуску",
+    );
   });
 });
+
+function readText(renderer: TestRenderer.ReactTestRenderer): string {
+  return renderer.root
+    .findAllByType(Text)
+    .map((node) => String(node.props.children ?? ""))
+    .join(" ");
+}

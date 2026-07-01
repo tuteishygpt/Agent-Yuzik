@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import type { TeacherLesson } from "@/features/teacher/teacher-types";
 import { webTheme } from "@/theme/webTheme";
@@ -26,15 +26,25 @@ export function LessonPicker({
   if (isActive && selectedLesson) {
     return (
       <View style={[styles.panel, styles.activePanel]}>
-        <View style={styles.activeCopy}>
-          <Text numberOfLines={1} style={styles.activeTitle}>
-            {selectedLesson.title}
-          </Text>
-          <Text numberOfLines={1} style={styles.activeMeta}>
-            {selectedLesson.level} - {selectedLesson.stepsCount} steps
-          </Text>
+        <View style={styles.activeHeader}>
+          <View style={styles.activeCopy}>
+            <Text numberOfLines={1} style={styles.activeTitle}>
+              {selectedLesson.title}
+            </Text>
+            <Text numberOfLines={1} style={styles.activeMeta}>
+              {selectedLesson.level} - {selectedLesson.stepsCount} крокаў
+            </Text>
+          </View>
+          <Text style={styles.activeBadge}>Актыўна</Text>
         </View>
-        <Text style={styles.activeBadge}>Актыўна</Text>
+        {stepPrompt ? (
+          <View style={styles.nextStepBox}>
+            <Text style={styles.nextStepLabel}>Наступны крок</Text>
+            <Text numberOfLines={3} style={styles.nextStepText}>
+              {stepPrompt}
+            </Text>
+          </View>
+        ) : null}
       </View>
     );
   }
@@ -42,7 +52,7 @@ export function LessonPicker({
   return (
     <View style={styles.panel}>
       <View style={styles.panelHeader}>
-        <Text style={styles.eyebrow}>Занятак</Text>
+        <Text style={styles.eyebrow}>Заняткі</Text>
         <Text style={[styles.status, isActive ? styles.statusActive : null]}>
           {isActive ? "Актыўна" : selectedLesson ? "Гатова" : "Абярыце"}
         </Text>
@@ -66,7 +76,7 @@ export function LessonPicker({
               </Text>
               <Text numberOfLines={1} style={styles.lessonMeta}>
                 {selectedLesson
-                  ? `${selectedLesson.level} - ${selectedLesson.stepsCount} steps`
+                  ? `${selectedLesson.level} - ${selectedLesson.stepsCount} крокаў`
                   : "Націсніце, каб абраць"}
               </Text>
               {selectedLesson && stepPrompt ? (
@@ -79,7 +89,11 @@ export function LessonPicker({
           </Pressable>
 
           {open ? (
-            <View style={styles.optionList}>
+            <ScrollView
+              nestedScrollEnabled
+              style={styles.optionScroller}
+              contentContainerStyle={styles.optionList}
+            >
               {lessons.map((lesson) => {
                 const isSelected = lesson.id === selectedLessonId;
 
@@ -102,7 +116,7 @@ export function LessonPicker({
                         {lesson.title}
                       </Text>
                       <Text style={styles.lessonMeta}>
-                        {lesson.level} - {lesson.stepsCount} steps
+                        {lesson.level} - {lesson.stepsCount} крокаў
                       </Text>
                       <Text numberOfLines={2} style={styles.lessonGoal}>
                         {lesson.goal}
@@ -112,7 +126,7 @@ export function LessonPicker({
                   </Pressable>
                 );
               })}
-            </View>
+            </ScrollView>
           ) : null}
         </>
       )}
@@ -125,13 +139,15 @@ const styles = StyleSheet.create({
     width: "100%",
     gap: 10,
     padding: 12,
-    borderRadius: webTheme.radii.lg,
+    borderRadius: webTheme.radii.md,
     backgroundColor: webTheme.colors.surface,
     borderWidth: 1,
     borderColor: webTheme.colors.border,
   },
   activePanel: {
     minHeight: 56,
+  },
+  activeHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -144,7 +160,7 @@ const styles = StyleSheet.create({
   activeTitle: {
     color: webTheme.colors.text,
     fontSize: 16,
-    fontWeight: "800",
+    fontWeight: "700",
   },
   activeMeta: {
     color: webTheme.colors.textMuted,
@@ -154,8 +170,27 @@ const styles = StyleSheet.create({
   activeBadge: {
     color: webTheme.colors.teacher,
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "700",
     textTransform: "uppercase",
+  },
+  nextStepBox: {
+    gap: 4,
+    padding: 10,
+    borderRadius: webTheme.radii.md,
+    backgroundColor: webTheme.colors.surfaceStrong,
+    borderWidth: 1,
+    borderColor: webTheme.colors.border,
+  },
+  nextStepLabel: {
+    color: webTheme.colors.teacher,
+    fontSize: 11,
+    fontWeight: "700",
+    textTransform: "uppercase",
+  },
+  nextStepText: {
+    color: webTheme.colors.text,
+    fontSize: 14,
+    lineHeight: 20,
   },
   panelHeader: {
     flexDirection: "row",
@@ -166,13 +201,13 @@ const styles = StyleSheet.create({
   eyebrow: {
     color: webTheme.colors.textMuted,
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "700",
     textTransform: "uppercase",
   },
   status: {
     color: webTheme.colors.textMuted,
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "700",
     textTransform: "uppercase",
   },
   statusActive: {
@@ -204,7 +239,7 @@ const styles = StyleSheet.create({
   lessonTitle: {
     color: webTheme.colors.text,
     fontSize: 16,
-    fontWeight: "800",
+    fontWeight: "700",
   },
   lessonMeta: {
     color: webTheme.colors.textMuted,
@@ -224,10 +259,14 @@ const styles = StyleSheet.create({
   chevron: {
     color: webTheme.colors.textMuted,
     fontSize: 16,
-    fontWeight: "800",
+    fontWeight: "700",
+  },
+  optionScroller: {
+    maxHeight: 360,
   },
   optionList: {
     gap: 8,
+    paddingBottom: 2,
   },
   option: {
     flexDirection: "row",
@@ -246,7 +285,7 @@ const styles = StyleSheet.create({
   selectedBadge: {
     color: webTheme.colors.teacher,
     fontSize: 11,
-    fontWeight: "800",
+    fontWeight: "700",
     textTransform: "uppercase",
   },
 });

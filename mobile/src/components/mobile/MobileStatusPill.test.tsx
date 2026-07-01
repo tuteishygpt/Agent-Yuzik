@@ -1,4 +1,5 @@
 import React from "react";
+import { Animated } from "react-native";
 
 import { render } from "@/test/render";
 
@@ -12,5 +13,20 @@ describe("MobileStatusPill", () => {
     expect(
       screen.renderer.root.findByProps({ testID: "mobile-status-dot" }),
     ).toBeTruthy();
+  });
+
+  it("renders the animated dot with Animated.View", () => {
+    const screen = render(
+      <MobileStatusPill
+        animatedDotStyle={{ transform: [{ scale: new Animated.Value(1) }] }}
+        label="Thinking"
+      />,
+    );
+
+    const dot = screen.renderer.root.findByProps({
+      testID: "mobile-status-dot",
+    });
+
+    expect(dot.type).toBe(Animated.View);
   });
 });

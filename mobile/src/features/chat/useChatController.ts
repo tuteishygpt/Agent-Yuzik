@@ -24,6 +24,7 @@ export type ChatController = {
   draftText: string;
   setDraftText: Dispatch<SetStateAction<string>>;
   attachment: ChatAttachment | null;
+  setAttachment: Dispatch<SetStateAction<ChatAttachment | null>>;
   isLoadingHistory: boolean;
   isSending: boolean;
   error: string | null;
@@ -325,6 +326,7 @@ export function useChatController({
     draftText,
     setDraftText,
     attachment,
+    setAttachment,
     isLoadingHistory,
     isSending,
     error,

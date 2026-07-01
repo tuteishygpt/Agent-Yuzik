@@ -9,10 +9,10 @@ import { useAuth } from "@/providers/AuthProvider";
 import { webTextStyles, webTheme } from "@/theme/webTheme";
 
 const MENU_ITEMS = [
-  { route: "voice", key: "tab.voice" },
-  { route: "teacher", key: "tab.teacher" },
-  { route: "chat", key: "tab.chat" },
-  { route: "settings", key: "tab.settings" },
+  { route: "voice", key: "tab.voice", description: "Жывая размова з Юзікам" },
+  { route: "teacher", key: "tab.teacher", description: "Практыка па кроках" },
+  { route: "chat", key: "tab.chat", description: "Пісьмовы дыялог і файлы" },
+  { route: "settings", key: "tab.settings", description: "Мова, голас і дыягностыка" },
 ] as const;
 
 type MenuRoute = (typeof MENU_ITEMS)[number]["route"];
@@ -49,6 +49,7 @@ export default function TabsLayout() {
   const menuItems: MobileMenuItem<MenuRoute>[] = MENU_ITEMS.map((item) => ({
     route: item.route,
     label: t(item.key as any),
+    description: item.description,
   }));
 
   return (
@@ -69,6 +70,7 @@ export default function TabsLayout() {
                   setMenuOpen(false);
                   router.replace(`/(tabs)/${route}` as any);
                 }}
+                title="Навігацыя"
               />
             </View>
           </Pressable>
@@ -102,12 +104,11 @@ const styles = StyleSheet.create({
   overlay: {
     flex: 1,
     backgroundColor: "rgba(31, 29, 27, 0.28)",
+    justifyContent: "flex-end",
   },
   menuWrap: {
-    position: "absolute",
-    left: 16,
-    right: 16,
-    bottom: 96,
+    paddingHorizontal: 16,
+    paddingBottom: 104,
   },
   centered: {
     flex: 1,

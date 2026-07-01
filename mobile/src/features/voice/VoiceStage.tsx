@@ -13,6 +13,7 @@ type VoiceStageProps = {
   title: string;
   eyebrow?: string;
   connectionLabel?: string;
+  compact?: boolean;
   uiState: VoiceUiState;
   visualizerPulse: Animated.Value;
   animatedStyles: {
@@ -73,6 +74,7 @@ export function VoiceStage({
   title,
   eyebrow,
   connectionLabel,
+  compact = false,
   uiState,
   visualizerPulse,
   animatedStyles,
@@ -85,7 +87,7 @@ export function VoiceStage({
   const avatarState = avatarStateForPhase(uiState.phase);
 
   return (
-    <View style={styles.stage}>
+    <View style={[styles.stage, compact ? styles.stageCompact : null]}>
       <View style={styles.topRow}>
         <MobileStatusPill
           animatedDotStyle={animatedStyles.dot}
@@ -94,7 +96,7 @@ export function VoiceStage({
         />
       </View>
 
-      <View style={styles.hero}>
+      <View style={[styles.hero, compact ? styles.heroCompact : null]}>
         {eyebrow ? <Text style={styles.eyebrow}>{eyebrow}</Text> : null}
         <Text style={styles.title}>{title}</Text>
         {notice ? <Text style={styles.notice}>{notice}</Text> : null}
@@ -105,18 +107,19 @@ export function VoiceStage({
 
       <Pressable
         onPress={onPrimaryPress}
-        style={styles.pressable}
+        style={[styles.pressable, compact ? styles.pressableCompact : null]}
         testID="voice-stage-pressable"
       >
         <Animated.View
           style={[
             styles.halo,
+            compact ? styles.haloCompact : null,
             { backgroundColor: uiState.haloColor },
             animatedStyles.halo,
           ]}
         />
         <Animated.View style={[styles.avatarFrame, animatedStyles.mic]}>
-          <YuzikAvatar size="lg" state={avatarState} />
+          <YuzikAvatar size={compact ? "figma" : "lg"} state={avatarState} />
         </Animated.View>
       </Pressable>
 
@@ -130,7 +133,7 @@ export function VoiceStage({
       </Text>
 
       <VoiceVisualizer pulse={visualizerPulse} uiState={uiState} />
-      <TranscriptPanel transcript={transcript} />
+      <TranscriptPanel compact={compact} transcript={transcript} />
     </View>
   );
 }
@@ -139,16 +142,23 @@ const styles = StyleSheet.create({
   stage: {
     width: "100%",
     alignItems: "center",
-    gap: 16,
+    gap: 14,
+  },
+  stageCompact: {
+    gap: 9,
   },
   topRow: {
     width: "100%",
-    alignItems: "flex-end",
+    minHeight: 27,
+    alignItems: "flex-start",
   },
   hero: {
     width: "100%",
     alignItems: "center",
     gap: 7,
+  },
+  heroCompact: {
+    gap: 4,
   },
   eyebrow: {
     color: webTheme.colors.textMuted,
@@ -158,9 +168,9 @@ const styles = StyleSheet.create({
   },
   title: {
     color: webTheme.colors.text,
-    fontSize: 24,
-    fontWeight: "800",
-    lineHeight: 30,
+    fontSize: 17,
+    fontWeight: "700",
+    lineHeight: 25,
     textAlign: "center",
   },
   notice: {
@@ -177,16 +187,24 @@ const styles = StyleSheet.create({
   },
   pressable: {
     width: "100%",
-    height: 154,
+    height: 206,
     alignItems: "center",
     justifyContent: "center",
   },
+  pressableCompact: {
+    height: 150,
+  },
   halo: {
     position: "absolute",
-    width: 142,
-    height: 142,
-    borderRadius: 71,
+    width: 220,
+    height: 220,
+    borderRadius: 110,
     opacity: 0.16,
+  },
+  haloCompact: {
+    width: 168,
+    height: 168,
+    borderRadius: 84,
   },
   avatarFrame: {
     alignItems: "center",

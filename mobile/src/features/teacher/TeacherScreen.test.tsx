@@ -127,7 +127,7 @@ jest.mock("@/lib/i18n", () => ({
   useI18n: () => ({
     t: (key: string) =>
       ({
-        "voice.teacher": "Настаўнік",
+        "voice.teacher": "Заняткі",
         "voice.start": "Пачаць",
         "voice.stop": "Спыніць",
       })[key] ?? key,
@@ -240,7 +240,7 @@ describe("TeacherScreen", () => {
     });
 
     const text = readText(renderer);
-    expect(text).toContain("Настаўнік");
+    expect(text).toContain("Заняткі");
     expect(text).toContain("Greetings");
     expect(text).toContain("Падключана");
     expect(text).toContain("Пачаць");
@@ -361,7 +361,8 @@ describe("TeacherScreen", () => {
     text = readText(renderer);
     expect(text).toContain("Travel basics");
     expect(text).toContain("Актыўна");
-    expect(text).not.toContain("Ask for a ticket.");
+    expect(text).toContain("Наступны крок");
+    expect(text).toContain("Ask for a ticket.");
   });
 
   it("stops the teacher lesson and disconnects when the active teacher session is stopped", async () => {

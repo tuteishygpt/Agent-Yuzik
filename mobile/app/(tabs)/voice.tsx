@@ -149,9 +149,9 @@ const styles = StyleSheet.create({
   },
   content: {
     alignItems: "center",
-    gap: 18,
-    paddingHorizontal: 14,
+    gap: 14,
+    paddingHorizontal: 16,
     paddingBottom: 28,
-    paddingTop: 10,
+    paddingTop: 35,
   },
 });

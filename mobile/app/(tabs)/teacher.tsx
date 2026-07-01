@@ -177,8 +177,9 @@ export default function TeacherScreen() {
               stepPrompt={teacherMode.currentPrompt}
             />
           }
+          compact
           error={voiceSession.error}
-          eyebrow="Yuzik"
+          eyebrow="Юзік"
           notice={voiceSession.retryNotice ?? selectionNotice}
           onPrimaryPress={() => {
             if (voiceSession.isListening) {
@@ -213,9 +214,9 @@ const styles = StyleSheet.create({
   },
   content: {
     alignItems: "center",
-    gap: 18,
-    paddingHorizontal: 14,
+    gap: 14,
+    paddingHorizontal: 16,
     paddingBottom: 28,
-    paddingTop: 10,
+    paddingTop: 35,
   },
 });

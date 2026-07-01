@@ -13,10 +13,12 @@ export function AttachmentTray({ attachment, onClear }: AttachmentTrayProps) {
     return null;
   }
 
+  const isAudio = attachment.mimeType?.startsWith("audio/") ?? false;
+
   return (
     <View style={styles.container}>
       <View style={styles.meta}>
-        <Text style={styles.label}>Укладанне</Text>
+        <Text style={styles.label}>{isAudio ? "Галасавое паведамленне" : "Укладанне"}</Text>
         <Text numberOfLines={1} style={styles.name}>
           {attachment.name}
         </Text>
@@ -52,13 +54,13 @@ const styles = StyleSheet.create({
   label: {
     color: webTheme.colors.textMuted,
     fontSize: 11,
-    fontWeight: "800",
+    fontWeight: "700",
     textTransform: "uppercase",
   },
   name: {
     color: webTheme.colors.text,
     fontSize: 14,
-    fontWeight: "800",
+    fontWeight: "700",
   },
   mime: {
     color: webTheme.colors.textMuted,
@@ -76,6 +78,6 @@ const styles = StyleSheet.create({
   clearText: {
     color: webTheme.colors.text,
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "700",
   },
 });

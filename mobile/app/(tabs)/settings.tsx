@@ -98,23 +98,23 @@ const styles = StyleSheet.create({
   content: {
     gap: 20,
     minHeight: "100%",
-    padding: 20,
+    paddingHorizontal: 16,
+    paddingTop: 35,
     paddingBottom: 112,
   },
   header: {
     gap: 6,
-    paddingTop: 18,
   },
   eyebrow: {
     color: webTheme.colors.textMuted,
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "700",
     textTransform: "uppercase",
   },
   title: {
     color: webTheme.colors.text,
-    fontSize: 30,
-    fontWeight: "800",
+    fontSize: 24,
+    fontWeight: "700",
   },
   subtitle: {
     color: webTheme.colors.textMuted,
@@ -127,7 +127,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     color: webTheme.colors.textMuted,
     fontSize: 13,
-    fontWeight: "800",
+    fontWeight: "700",
     textTransform: "uppercase",
   },
   langRow: {
@@ -152,7 +152,7 @@ const styles = StyleSheet.create({
   langLabel: {
     color: webTheme.colors.text,
     fontSize: 15,
-    fontWeight: "800",
+    fontWeight: "700",
   },
   langLabelActive: {
     color: webTheme.colors.primary,
@@ -163,7 +163,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 16,
     padding: 14,
-    borderRadius: webTheme.radii.lg,
+    borderRadius: webTheme.radii.md,
     backgroundColor: webTheme.colors.surface,
     borderWidth: 1,
     borderColor: webTheme.colors.border,
@@ -175,7 +175,7 @@ const styles = StyleSheet.create({
   settingLabel: {
     color: webTheme.colors.text,
     fontSize: 15,
-    fontWeight: "800",
+    fontWeight: "700",
   },
   settingDescription: {
     color: webTheme.colors.textMuted,
@@ -183,10 +183,8 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   bottomMenu: {
-    borderTopWidth: 1,
-    borderTopColor: webTheme.colors.border,
     backgroundColor: webTheme.colors.background,
     paddingHorizontal: 16,
-    paddingTop: 10,
+    paddingTop: 8,
   },
 });

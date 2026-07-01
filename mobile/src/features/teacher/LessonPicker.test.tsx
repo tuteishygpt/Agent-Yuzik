@@ -168,7 +168,7 @@ describe("LessonPicker", () => {
     expect(expandedTextContent).toContain("Travel basics");
   });
 
-  it("collapses to a one-row teacher lesson panel while the lesson is active", () => {
+  it("keeps the next lesson step visible while the lesson is active", () => {
     const onSelectLesson = jest.fn();
     let renderer!: TestRenderer.ReactTestRenderer;
 
@@ -191,7 +191,8 @@ describe("LessonPicker", () => {
 
     expect(textContent).toContain("Greetings");
     expect(textContent).toContain("Актыўна");
-    expect(textContent).not.toContain("Say hello.");
+    expect(textContent).toContain("Наступны крок");
+    expect(textContent).toContain("Say hello.");
     expect(textContent).not.toContain("Practice simple greetings");
     expect(textContent).not.toContain("Travel basics");
   });
