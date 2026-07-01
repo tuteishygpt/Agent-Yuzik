@@ -1,4 +1,5 @@
 import * as SecureStore from "expo-secure-store";
+import { Platform } from "react-native";
 
 export const SUPABASE_SESSION_STORAGE_KEY = "yuzik.supabase.session";
 export const INSTALL_ID_STORAGE_KEY = "yuzik.install_id";
@@ -124,11 +125,33 @@ export function createSecureSessionStorage(): SessionStorageAdapter {
   };
 }
 
+export function createWebSessionStorage(): SessionStorageAdapter {
+  return {
+    async getItem(key) {
+      return globalThis.localStorage?.getItem(key) ?? null;
+    },
+    async setItem(key, value) {
+      globalThis.localStorage?.setItem(key, value);
+    },
+    async removeItem(key) {
+      globalThis.localStorage?.removeItem(key);
+    },
+  };
+}
+
+export function createSessionStorage(
+  platformOS: string = Platform.OS,
+): SessionStorageAdapter {
+  return platformOS === "web"
+    ? createWebSessionStorage()
+    : createSecureSessionStorage();
+}
+
 let sharedStorage: SessionStorageAdapter | null = null;
 
 export function getSharedSessionStorage(): SessionStorageAdapter {
   if (!sharedStorage) {
-    sharedStorage = createSecureSessionStorage();
+    sharedStorage = createSessionStorage();
   }
   return sharedStorage;
 }

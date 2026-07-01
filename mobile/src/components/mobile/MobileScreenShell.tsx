@@ -10,12 +10,18 @@ import { SafeAreaView as ContextSafeAreaView } from "react-native-safe-area-cont
 
 import { webTheme } from "@/theme/webTheme";
 
+import { MobileScreenHeader } from "./MobileScreenHeader";
+
 type MobileScreenShellProps = {
   children: ReactNode;
   scroll?: boolean;
   bottomInset?: number;
   style?: StyleProp<ViewStyle>;
   contentStyle?: StyleProp<ViewStyle>;
+  title?: string;
+  onOpenMenu?: () => void;
+  menuAccessibilityLabel?: string;
+  headerTestID?: string;
 };
 
 export function MobileScreenShell({
@@ -24,8 +30,13 @@ export function MobileScreenShell({
   bottomInset = 0,
   style,
   contentStyle,
+  title,
+  onOpenMenu,
+  menuAccessibilityLabel,
+  headerTestID,
 }: MobileScreenShellProps) {
   const SafeAreaView = ContextSafeAreaView ?? View;
+  const showHeader = title && onOpenMenu;
   const content = (
     <View
       style={[
@@ -40,6 +51,16 @@ export function MobileScreenShell({
 
   return (
     <SafeAreaView style={[styles.shell, style]} testID="mobile-screen-shell">
+      {showHeader ? (
+        <View style={styles.headerWrap}>
+          <MobileScreenHeader
+            accessibilityLabel={menuAccessibilityLabel}
+            onOpenMenu={onOpenMenu}
+            testID={headerTestID}
+            title={title}
+          />
+        </View>
+      ) : null}
       {scroll ? (
         <ScrollView
           contentContainerStyle={styles.scrollContent}
@@ -58,6 +79,10 @@ const styles = StyleSheet.create({
   shell: {
     flex: 1,
     backgroundColor: webTheme.colors.background,
+  },
+  headerWrap: {
+    paddingHorizontal: webTheme.spacing.lg,
+    paddingTop: 35,
   },
   content: {
     flex: 1,

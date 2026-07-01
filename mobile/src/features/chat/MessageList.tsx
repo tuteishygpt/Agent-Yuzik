@@ -1,6 +1,5 @@
-import { forwardRef, useEffect, useRef } from "react";
+import { forwardRef } from "react";
 import {
-  Animated,
   FlatList,
   Image,
   Keyboard,
@@ -19,6 +18,7 @@ import type { ChatMessage } from "./useChatController";
 type MessageListProps = {
   messages: ChatMessage[];
   isSending?: boolean;
+  showStartScreen?: boolean;
 };
 
 function MessageCard({ message }: { message: ChatMessage }) {
@@ -73,48 +73,16 @@ function MessageCard({ message }: { message: ChatMessage }) {
           <Text style={styles.artifactError}>{message.artifactError}</Text>
         ) : null}
       </View>
-      {isUser ? (
-        <View style={styles.avatarUser}>
-          <Text style={styles.avatarInitial}>U</Text>
-        </View>
-      ) : null}
     </View>
   );
 }
 
 function TypingIndicator() {
-  const opacity = useRef(new Animated.Value(0.4)).current;
-
-  useEffect(() => {
-    const animation = Animated.loop(
-      Animated.sequence([
-        Animated.timing(opacity, {
-          toValue: 1,
-          duration: 420,
-          useNativeDriver: false,
-        }),
-        Animated.timing(opacity, {
-          toValue: 0.4,
-          duration: 420,
-          useNativeDriver: false,
-        }),
-      ]),
-    );
-
-    animation.start();
-
-    return () => {
-      animation.stop();
-    };
-  }, [opacity]);
-
   return (
     <View style={styles.messageRow} testID="chat-typing-indicator">
       <YuzikAvatar size="sm" state="thinking" />
       <View style={[styles.bubble, styles.botBubble, styles.typingBubble]}>
-        <Animated.View style={[styles.typingDot, { opacity }]} />
-        <Animated.View style={[styles.typingDot, { opacity }]} />
-        <Animated.View style={[styles.typingDot, { opacity }]} />
+        <Text style={styles.typingText}>Думаю...</Text>
       </View>
     </View>
   );
@@ -172,12 +140,24 @@ type MessageListFullProps = MessageListProps & {
 
 export const MessageList = forwardRef<FlatList, MessageListFullProps>(
   function MessageList(
-    { messages, isSending = false, onSelectPrompt, onContentSizeChange },
+    {
+      messages,
+      isSending = false,
+      showStartScreen = true,
+      onSelectPrompt,
+      onContentSizeChange,
+    },
     ref,
   ) {
     return (
       <FlatList
-        ListEmptyComponent={<EmptyState onSelectPrompt={onSelectPrompt} />}
+        ListEmptyComponent={
+          showStartScreen ? (
+            <EmptyState onSelectPrompt={onSelectPrompt} />
+          ) : (
+            <View style={styles.blankState} />
+          )
+        }
         ListFooterComponent={isSending ? <TypingIndicator /> : null}
         contentContainerStyle={styles.listContent}
         data={messages}
@@ -198,7 +178,7 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     gap: 14,
     paddingHorizontal: 16,
-    paddingTop: 0,
+    paddingTop: 20,
     paddingBottom: 18,
   },
   messageRow: {
@@ -206,24 +186,12 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-end",
     gap: 10,
-    maxWidth: "88%",
+    maxWidth: "92%",
   },
   messageRowUser: {
     alignSelf: "flex-end",
-    flexDirection: "row-reverse",
-  },
-  avatarUser: {
-    width: 36,
-    height: 36,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 18,
-    backgroundColor: webTheme.colors.text,
-  },
-  avatarInitial: {
-    color: webTheme.colors.surface,
-    fontSize: 13,
-    fontWeight: "800",
+    justifyContent: "flex-end",
+    maxWidth: "78%",
   },
   bubble: {
     maxWidth: "100%",
@@ -233,8 +201,9 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   userBubble: {
-    backgroundColor: webTheme.colors.userMsgBg,
-    borderBottomRightRadius: 4,
+    backgroundColor: webTheme.colors.primarySoft,
+    borderWidth: 1,
+    borderColor: webTheme.colors.borderStrong,
   },
   botBubble: {
     backgroundColor: webTheme.colors.botMsgBg,
@@ -248,7 +217,7 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   userContent: {
-    color: webTheme.colors.surface,
+    color: webTheme.colors.text,
   },
   artifact: {
     marginTop: 8,
@@ -257,7 +226,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   userArtifact: {
-    color: webTheme.colors.surface,
+    color: webTheme.colors.textMuted,
   },
   artifactActions: {
     gap: 8,
@@ -295,23 +264,25 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   typingBubble: {
-    minWidth: 70,
-    minHeight: 42,
+    minWidth: 78,
+    minHeight: 38,
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
   },
-  typingDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: webTheme.colors.textMuted,
+  typingText: {
+    color: webTheme.colors.text,
+    fontSize: 13,
+    fontStyle: "italic",
+    lineHeight: 18,
+  },
+  blankState: {
+    flex: 1,
   },
   emptyState: {
     flex: 1,
     alignItems: "center",
     justifyContent: "flex-start",
-    paddingTop: 146,
+    paddingTop: 116,
   },
   emptyTitle: {
     color: webTheme.colors.text,

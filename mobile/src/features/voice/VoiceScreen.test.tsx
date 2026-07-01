@@ -1,4 +1,5 @@
 import React from "react";
+import { Text } from "react-native";
 import TestRenderer, { act } from "react-test-renderer";
 
 import VoiceScreen from "../../../app/(tabs)/voice";
@@ -29,7 +30,7 @@ const mockVoiceSession = {
   voiceConfig: null,
   transcript: [],
   retryNotice: null,
-  error: null,
+  error: null as string | null,
   isRecording: false,
   isListening: false,
   isPlaying: false,
@@ -79,6 +80,19 @@ jest.mock("@/providers/VoiceSettingsProvider", () => ({
   }),
 }));
 
+jest.mock("@/lib/i18n", () => ({
+  useI18n: () => ({
+    t: (key: string) => {
+      const map: Record<string, string> = {
+        "voice.title": "Размова",
+        "voice.start": "Пачаць",
+        "voice.stop": "Спыніць",
+      };
+      return map[key] ?? key;
+    },
+  }),
+}));
+
 jest.mock("expo-router", () => ({
   useFocusEffect: (callback: () => void | (() => void)) => {
     if (mockIsFocused) {
@@ -101,6 +115,7 @@ describe("VoiceScreen", () => {
     mockVoiceSession.isListening = false;
     mockVoiceSession.isRecording = false;
     mockVoiceSession.isPlaying = false;
+    mockVoiceSession.connect.mockClear();
     mockVoiceSession.stopListening.mockClear();
     mockVoiceSession.interrupt.mockClear();
     mockVoiceSession.disconnect.mockClear();
@@ -121,6 +136,53 @@ describe("VoiceScreen", () => {
         preferNativeTenVad: false,
       },
     });
+
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
+  it("uses the Figma voice header menu and keeps the footer action-only", async () => {
+    let renderer!: TestRenderer.ReactTestRenderer;
+
+    await act(async () => {
+      renderer = TestRenderer.create(<VoiceScreen />);
+    });
+
+    expect(
+      renderer.root.findByProps({ testID: "voice-screen-header" }),
+    ).toBeTruthy();
+    expect(
+      renderer.root.findByProps({ accessibilityLabel: "Open voice menu" }),
+    ).toBeTruthy();
+    expect(renderer.root.findAllByProps({ accessibilityLabel: "Open menu" })).toHaveLength(0);
+
+    await act(async () => {
+      renderer.root
+        .findAllByProps({ accessibilityLabel: "Open voice menu" })
+        .find((node) => typeof node.props.onPress === "function")
+        ?.props.onPress();
+    });
+
+    expect(mockOpenMenu).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
+  it("keeps the voice title in the header without duplicating it in the body", async () => {
+    let renderer!: TestRenderer.ReactTestRenderer;
+
+    await act(async () => {
+      renderer = TestRenderer.create(<VoiceScreen />);
+    });
+
+    const renderedTitles = renderer.root
+      .findAllByType(Text)
+      .filter((node) => node.props.children === "Размова");
+
+    expect(renderedTitles).toHaveLength(1);
 
     await act(async () => {
       renderer.unmount();
@@ -210,6 +272,24 @@ describe("VoiceScreen", () => {
       renderer.unmount();
     });
     jest.useRealTimers();
+  });
+
+  it("does not immediately auto-retry after a connection error", async () => {
+    mockVoiceSession.status = "error";
+    mockVoiceSession.connectionStatus = "error";
+    mockVoiceSession.error = "Voice socket connection failed.";
+    let renderer!: TestRenderer.ReactTestRenderer;
+
+    await act(async () => {
+      renderer = TestRenderer.create(<VoiceScreen />);
+      await Promise.resolve();
+    });
+
+    expect(mockVoiceSession.connect).not.toHaveBeenCalled();
+
+    await act(async () => {
+      renderer.unmount();
+    });
   });
 
   it("can reconnect the voice socket after returning to the voice screen", async () => {

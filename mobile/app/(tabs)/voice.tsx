@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useRef } from "react";
 import { useFocusEffect } from "expo-router";
-import { ScrollView, StyleSheet } from "react-native";
 
-import { MobileScreenShell } from "@/components/mobile";
 import { VoiceControls } from "@/features/voice/VoiceControls";
+import { VoiceScreenFrame } from "@/features/voice/VoiceScreenFrame";
 import { VoiceStage } from "@/features/voice/VoiceStage";
 import { resolveVoiceUiState } from "@/features/voice/voice-ui-state";
 import { useVoiceAnimations } from "@/features/voice/useVoiceAnimations";
@@ -37,9 +36,7 @@ export default function VoiceScreen() {
     useVoiceAnimations(uiState);
 
   const isAuthenticated = auth.status === "ready" && !!auth.session;
-  const shouldAutoConnect =
-    isAuthenticated &&
-    (voiceSession.status === "idle" || voiceSession.status === "error");
+  const shouldAutoConnect = isAuthenticated && voiceSession.status === "idle";
   const retryCountRef = useRef(0);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shouldAutoConnectRef = useRef(shouldAutoConnect);
@@ -109,49 +106,39 @@ export default function VoiceScreen() {
   }, [shouldAutoConnect]);
 
   return (
-    <MobileScreenShell contentStyle={styles.shellContent}>
-      <ScrollView contentContainerStyle={styles.content}>
-        <VoiceStage
-          animatedStyles={animatedStyles}
-          error={voiceSession.error}
-          notice={voiceSession.retryNotice}
-          onPrimaryPress={() => {
-            if (voiceSession.isListening) {
-              voiceSession.stopListening();
-              void voiceSession.interrupt();
-            } else {
-              void voiceSession.startListening();
-            }
-          }}
-          title={t("voice.title")}
-          transcript={voiceSession.transcript}
-          uiState={uiState}
-          visualizerPulse={visualizerPulse}
+    <VoiceScreenFrame
+      headerTestID="voice-screen-header"
+      menuAccessibilityLabel="Open voice menu"
+      onOpenMenu={openMenu}
+      title={t("voice.title")}
+      bottomControls={
+        <VoiceControls
+          isListening={voiceSession.isListening}
+          onInterrupt={voiceSession.interrupt}
+          onStartListening={voiceSession.startListening}
+          onStopListening={voiceSession.stopListening}
+          status={voiceSession.status}
         />
-      </ScrollView>
-
-      <VoiceControls
-        isListening={voiceSession.isListening}
-        onInterrupt={voiceSession.interrupt}
-        onOpenMenu={openMenu}
-        onStartListening={voiceSession.startListening}
-        onStopListening={voiceSession.stopListening}
-        status={voiceSession.status}
+      }
+    >
+      <VoiceStage
+        animatedStyles={animatedStyles}
+        compact
+        error={voiceSession.error}
+        notice={voiceSession.retryNotice}
+        onPrimaryPress={() => {
+          if (voiceSession.isListening) {
+            voiceSession.stopListening();
+            void voiceSession.interrupt();
+          } else {
+            void voiceSession.startListening();
+          }
+        }}
+        showStatusPill={false}
+        transcript={voiceSession.transcript}
+        uiState={uiState}
+        visualizerPulse={visualizerPulse}
       />
-    </MobileScreenShell>
+    </VoiceScreenFrame>
   );
 }
-
-const styles = StyleSheet.create({
-  shellContent: {
-    paddingHorizontal: 0,
-    paddingTop: 0,
-  },
-  content: {
-    alignItems: "center",
-    gap: 14,
-    paddingHorizontal: 16,
-    paddingBottom: 28,
-    paddingTop: 35,
-  },
-});

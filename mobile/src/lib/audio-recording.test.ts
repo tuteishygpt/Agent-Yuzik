@@ -17,6 +17,9 @@ import { PermissionsAndroid, Platform } from "react-native";
 import { createVoiceRecorderAdapter } from "./audio-recording";
 
 describe("audio recording adapter (native PCM stream)", () => {
+  const originalNavigator = global.navigator;
+  const originalAudioContext = global.AudioContext;
+
   beforeEach(() => {
     jest.clearAllMocks();
     Object.defineProperty(Platform, "OS", {
@@ -29,6 +32,25 @@ describe("audio recording adapter (native PCM stream)", () => {
     PermissionsAndroid.request = mockRequestPermission;
     mockRequestPermission.mockResolvedValue(PermissionsAndroid.RESULTS.GRANTED);
     mockStream.stop.mockResolvedValue("");
+    Object.defineProperty(global, "navigator", {
+      configurable: true,
+      value: originalNavigator,
+    });
+    Object.defineProperty(global, "AudioContext", {
+      configurable: true,
+      value: originalAudioContext,
+    });
+  });
+
+  afterAll(() => {
+    Object.defineProperty(global, "navigator", {
+      configurable: true,
+      value: originalNavigator,
+    });
+    Object.defineProperty(global, "AudioContext", {
+      configurable: true,
+      value: originalAudioContext,
+    });
   });
 
   it("initializes the stream with correct PCM config", async () => {
@@ -77,6 +99,142 @@ describe("audio recording adapter (native PCM stream)", () => {
 
     expect(mockStream.init).not.toHaveBeenCalled();
     expect(mockStream.start).not.toHaveBeenCalled();
+  });
+
+  it("uses browser audio capture on web instead of the native live stream", async () => {
+    Object.defineProperty(Platform, "OS", {
+      configurable: true,
+      value: "web",
+    });
+
+    const track = { stop: jest.fn() };
+    const stream = {
+      getTracks: jest.fn(() => [track]),
+    };
+    const source = {
+      connect: jest.fn(),
+      disconnect: jest.fn(),
+    };
+    const processor = {
+      connect: jest.fn(),
+      disconnect: jest.fn(),
+      onaudioprocess: null as null | ((event: {
+        inputBuffer: { getChannelData: (channel: number) => Float32Array };
+      }) => void),
+    };
+    const audioContext = {
+      sampleRate: 16000,
+      destination: {},
+      close: jest.fn().mockResolvedValue(undefined),
+      resume: jest.fn().mockResolvedValue(undefined),
+      createMediaStreamSource: jest.fn(() => source),
+      createScriptProcessor: jest.fn(() => processor),
+    };
+    const AudioContextCtor = jest.fn(() => audioContext);
+    const getUserMedia = jest.fn().mockResolvedValue(stream);
+
+    Object.defineProperty(global, "navigator", {
+      configurable: true,
+      value: {
+        mediaDevices: {
+          getUserMedia,
+        },
+      },
+    });
+    Object.defineProperty(global, "AudioContext", {
+      configurable: true,
+      value: AudioContextCtor,
+    });
+
+    const adapter = createVoiceRecorderAdapter();
+    const onMetering = jest.fn();
+
+    await adapter.prepare();
+    await adapter.start(onMetering);
+
+    expect(getUserMedia).toHaveBeenCalledWith({
+      audio: {
+        autoGainControl: true,
+        channelCount: 1,
+        echoCancellation: true,
+        noiseSuppression: true,
+        sampleRate: 16000,
+      },
+    });
+    expect(mockStream.init).not.toHaveBeenCalled();
+    expect(audioContext.createMediaStreamSource).toHaveBeenCalledWith(stream);
+    expect(audioContext.createScriptProcessor).toHaveBeenCalledWith(4096, 1, 1);
+    expect(audioContext.resume).toHaveBeenCalledTimes(1);
+
+    processor.onaudioprocess?.({
+      inputBuffer: {
+        getChannelData: () => new Float32Array([0, 0.5, -0.5, 1]),
+      },
+    });
+
+    expect(onMetering).toHaveBeenCalled();
+
+    const result = await adapter.stop();
+
+    expect(result.wavBytes).not.toBeNull();
+    expect(result.wavBytes![0]).toBe(0x52);
+    expect(track.stop).toHaveBeenCalledTimes(1);
+    expect(audioContext.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("resamples browser PCM to the backend 16 kHz WAV format", async () => {
+    Object.defineProperty(Platform, "OS", {
+      configurable: true,
+      value: "web",
+    });
+
+    const processor = {
+      connect: jest.fn(),
+      disconnect: jest.fn(),
+      onaudioprocess: null as null | ((event: {
+        inputBuffer: { getChannelData: (channel: number) => Float32Array };
+      }) => void),
+    };
+    const audioContext = {
+      sampleRate: 48000,
+      destination: {},
+      close: jest.fn().mockResolvedValue(undefined),
+      resume: jest.fn().mockResolvedValue(undefined),
+      createMediaStreamSource: jest.fn(() => ({
+        connect: jest.fn(),
+        disconnect: jest.fn(),
+      })),
+      createScriptProcessor: jest.fn(() => processor),
+    };
+
+    Object.defineProperty(global, "navigator", {
+      configurable: true,
+      value: {
+        mediaDevices: {
+          getUserMedia: jest.fn().mockResolvedValue({
+            getTracks: jest.fn(() => [{ stop: jest.fn() }]),
+          }),
+        },
+      },
+    });
+    Object.defineProperty(global, "AudioContext", {
+      configurable: true,
+      value: jest.fn(() => audioContext),
+    });
+
+    const adapter = createVoiceRecorderAdapter();
+    await adapter.start();
+
+    processor.onaudioprocess?.({
+      inputBuffer: {
+        getChannelData: () => new Float32Array([0, 0.25, 0.5, 0.75, 1, 0.5]),
+      },
+    });
+
+    const result = await adapter.stop();
+
+    expect(result.wavBytes).not.toBeNull();
+    expect(result.wavBytes!.byteLength).toBe(44 + 4);
   });
 
   it("stop assembles WAV from PCM chunks", async () => {

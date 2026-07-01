@@ -27,12 +27,12 @@ export function BottomMenuButton({ onPress, style }: BottomMenuButtonProps) {
 
 const styles = StyleSheet.create({
   button: {
-    width: 56,
-    height: 56,
+    width: webTheme.sizes.ctaHeight,
+    height: webTheme.sizes.ctaHeight,
     alignItems: "center",
     justifyContent: "center",
     gap: 4,
-    borderRadius: webTheme.radii.lg,
+    borderRadius: webTheme.radii.cta,
     backgroundColor: webTheme.colors.surface,
     borderColor: webTheme.colors.border,
     borderWidth: 1,

@@ -2,7 +2,7 @@ import * as Crypto from "expo-crypto";
 
 import {
   INSTALL_ID_STORAGE_KEY,
-  createSecureSessionStorage,
+  createSessionStorage,
   type SessionStorageAdapter,
 } from "./session-storage";
 
@@ -18,7 +18,7 @@ async function generateInstallId(): Promise<string> {
 export async function getOrCreateInstallId(
   options: GetOrCreateInstallIdOptions = {},
 ): Promise<string> {
-  const storage = options.storage ?? createSecureSessionStorage();
+  const storage = options.storage ?? createSessionStorage();
   const existingInstallId = await storage.getItem(INSTALL_ID_STORAGE_KEY);
 
   if (existingInstallId?.trim()) {

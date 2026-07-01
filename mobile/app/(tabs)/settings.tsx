@@ -1,9 +1,7 @@
 import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { MobileScreenShell } from "@/components/mobile";
 import { useI18n, type Locale } from "@/lib/i18n";
-import { BottomMenuButton } from "@/navigation/BottomMenuButton";
 import { useMenu } from "@/navigation/MenuContext";
 import { useVoiceSettings } from "@/providers/VoiceSettingsProvider";
 import { webTheme } from "@/theme/webTheme";
@@ -17,17 +15,14 @@ export default function SettingsScreen() {
   const { t, locale, setLocale } = useI18n();
   const { openMenu } = useMenu();
   const { preferNativeTenVad, setPreferNativeTenVad } = useVoiceSettings();
-  const insets = useSafeAreaInsets();
 
   return (
-    <MobileScreenShell contentStyle={styles.shellContent}>
+    <MobileScreenShell
+      contentStyle={styles.shellContent}
+      onOpenMenu={openMenu}
+      title={t("settings.title")}
+    >
       <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.header}>
-          <Text style={styles.eyebrow}>{t("settings.eyebrow")}</Text>
-          <Text style={styles.title}>{t("settings.title")}</Text>
-          <Text style={styles.subtitle}>{t("settings.subtitle")}</Text>
-        </View>
-
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>{t("settings.language")}</Text>
           <View style={styles.langRow}>
@@ -78,14 +73,6 @@ export default function SettingsScreen() {
         </View>
       </ScrollView>
 
-      <View
-        style={[
-          styles.bottomMenu,
-          { paddingBottom: Math.max(insets.bottom, 12) + 8 },
-        ]}
-      >
-        <BottomMenuButton onPress={openMenu} />
-      </View>
     </MobileScreenShell>
   );
 }
@@ -99,27 +86,8 @@ const styles = StyleSheet.create({
     gap: 20,
     minHeight: "100%",
     paddingHorizontal: 16,
-    paddingTop: 35,
+    paddingTop: 50,
     paddingBottom: 112,
-  },
-  header: {
-    gap: 6,
-  },
-  eyebrow: {
-    color: webTheme.colors.textMuted,
-    fontSize: 12,
-    fontWeight: "700",
-    textTransform: "uppercase",
-  },
-  title: {
-    color: webTheme.colors.text,
-    fontSize: 24,
-    fontWeight: "700",
-  },
-  subtitle: {
-    color: webTheme.colors.textMuted,
-    fontSize: 15,
-    lineHeight: 22,
   },
   section: {
     gap: 10,
@@ -181,10 +149,5 @@ const styles = StyleSheet.create({
     color: webTheme.colors.textMuted,
     fontSize: 13,
     lineHeight: 18,
-  },
-  bottomMenu: {
-    backgroundColor: webTheme.colors.background,
-    paddingHorizontal: 16,
-    paddingTop: 8,
   },
 });

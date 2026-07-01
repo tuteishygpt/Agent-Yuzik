@@ -700,6 +700,76 @@ describe("useVoiceSession", () => {
     );
   });
 
+  it("connects the voice socket before starting VAD listening", async () => {
+    const socket = createSocketClient();
+    const recorder = createRecorder();
+    let latestSession: ReturnType<typeof useVoiceSession> | null = null;
+
+    function Probe() {
+      latestSession = useVoiceSession({
+        backendUrl: "https://api.yuzik.example",
+        getAccessToken: async () => "token-123",
+        teacherMode: mockTeacherMode as never,
+        socketClientFactory: () => socket,
+        recording: recorder as never,
+      });
+
+      return (
+        <Text>{latestSession.error ?? latestSession.connectionStatus}</Text>
+      );
+    }
+
+    await act(async () => {
+      TestRenderer.create(<Probe />);
+    });
+
+    await act(async () => {
+      await latestSession?.startListening();
+    });
+
+    expect(socket.connect).toHaveBeenCalledTimes(1);
+    expect(recorder.start).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not start VAD listening when voice socket connect fails", async () => {
+    const socket = createSocketClient();
+    (socket.connect as jest.Mock).mockRejectedValue(
+      new Error("Voice socket connection failed."),
+    );
+    const recorder = createRecorder();
+    let latestSession: ReturnType<typeof useVoiceSession> | null = null;
+
+    function Probe() {
+      latestSession = useVoiceSession({
+        backendUrl: "https://api.yuzik.example",
+        getAccessToken: async () => "token-123",
+        teacherMode: mockTeacherMode as never,
+        socketClientFactory: () => socket,
+        recording: recorder as never,
+      });
+
+      return (
+        <Text>{latestSession.error ?? latestSession.connectionStatus}</Text>
+      );
+    }
+
+    let renderer!: TestRenderer.ReactTestRenderer;
+
+    await act(async () => {
+      renderer = TestRenderer.create(<Probe />);
+    });
+
+    await act(async () => {
+      await latestSession?.startListening();
+    });
+
+    expect(socket.connect).toHaveBeenCalledTimes(1);
+    expect(recorder.start).not.toHaveBeenCalled();
+    expect(readRenderedText(renderer)).toContain(
+      "Voice socket connection failed.",
+    );
+  });
+
   it("shows a recoverable error when starting a teacher lesson without a connected voice socket", async () => {
     const socket = createSocketClient();
     (socket.sendTeacherStartLesson as jest.Mock).mockImplementation(() => {

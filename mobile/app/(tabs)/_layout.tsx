@@ -17,6 +17,11 @@ const MENU_ITEMS = [
 
 type MenuRoute = (typeof MENU_ITEMS)[number]["route"];
 
+const MOBILE_MENU_ANCHOR = {
+  left: 40,
+  top: 39,
+} as const;
+
 export default function TabsLayout() {
   const auth = useAuth();
   const { t } = useI18n();
@@ -61,8 +66,12 @@ export default function TabsLayout() {
           transparent
           visible={menuOpen}
         >
-          <Pressable style={styles.overlay} onPress={() => setMenuOpen(false)}>
-            <View style={styles.menuWrap}>
+          <Pressable
+            style={styles.overlay}
+            testID="mobile-menu-overlay"
+            onPress={() => setMenuOpen(false)}
+          >
+            <View style={styles.menuWrap} testID="mobile-menu-anchor">
               <MobileMenu
                 activeRoute={currentRoute}
                 items={menuItems}
@@ -103,12 +112,12 @@ const styles = StyleSheet.create({
   },
   overlay: {
     flex: 1,
-    backgroundColor: "rgba(31, 29, 27, 0.28)",
-    justifyContent: "flex-end",
+    backgroundColor: webTheme.colors.overlay,
   },
   menuWrap: {
-    paddingHorizontal: 16,
-    paddingBottom: 104,
+    position: "absolute",
+    left: MOBILE_MENU_ANCHOR.left,
+    top: MOBILE_MENU_ANCHOR.top,
   },
   centered: {
     flex: 1,

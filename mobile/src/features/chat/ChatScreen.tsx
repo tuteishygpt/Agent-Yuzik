@@ -9,7 +9,7 @@ import {
   View,
 } from "react-native";
 
-import { MobileScreenShell } from "@/components/mobile";
+import { MobileScreenHeader, MobileScreenShell } from "@/components/mobile";
 import { createChatApiClient } from "@/lib/api";
 import { getRuntimeEnv } from "@/lib/env";
 import { pickSingleAttachment } from "@/lib/file-picker";
@@ -53,6 +53,28 @@ function TrashIcon() {
 export function ChatHeader({ onOpenMenu, onClearHistory }: ChatHeaderProps) {
   return (
     <View style={styles.header}>
+      <MobileScreenHeader
+        accessibilityLabel="Open chat menu"
+        onOpenMenu={onOpenMenu}
+        rightAccessory={
+          <Pressable
+            accessibilityLabel="Clear chat history"
+            onPress={onClearHistory}
+            style={styles.clearButton}
+          >
+            <TrashIcon />
+          </Pressable>
+        }
+        testID="chat-screen-header"
+        title="Чат"
+      />
+    </View>
+  );
+}
+
+function LegacyChatHeader({ onOpenMenu, onClearHistory }: ChatHeaderProps) {
+  return (
+    <View style={styles.header}>
       <Pressable
         accessibilityLabel="Open chat menu"
         onPress={onOpenMenu}
@@ -78,6 +100,37 @@ export function ChatHeader({ onOpenMenu, onClearHistory }: ChatHeaderProps) {
   );
 }
 
+type ClearHistoryDialogProps = {
+  onCancel: () => void;
+  onConfirm: () => void;
+};
+
+function ClearHistoryDialog({ onCancel, onConfirm }: ClearHistoryDialogProps) {
+  return (
+    <View style={styles.confirmOverlay} testID="chat-clear-confirm-overlay">
+      <View style={styles.confirmDialog}>
+        <Text style={styles.confirmTitle}>
+          Ці дакладна жадаеце выдаліць дыялог?
+        </Text>
+        <Pressable
+          accessibilityLabel="Confirm clear chat history"
+          onPress={onConfirm}
+          style={styles.confirmDeleteButton}
+        >
+          <Text style={styles.confirmDeleteText}>Выдаліць чат</Text>
+        </Pressable>
+        <Pressable
+          accessibilityLabel="Cancel clear chat history"
+          onPress={onCancel}
+          style={styles.confirmCancelButton}
+        >
+          <Text style={styles.confirmCancelText}>Вярнуцца да размовы</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
 export default function ChatScreen() {
   const { openMenu } = useMenu();
   const defaultChatApi = useMemo(createDefaultApi, []);
@@ -89,6 +142,7 @@ export default function ChatScreen() {
   const recorderRef = useRef<VoiceRecorderAdapter | null>(null);
   const recordingRef = useRef(false);
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
 
   const handleSelectPrompt = (prompt: string) => {
     controller.setDraftText(prompt);
@@ -164,6 +218,11 @@ export default function ChatScreen() {
     }
   };
 
+  const confirmClearHistory = async () => {
+    setShowClearConfirm(false);
+    await controller.clearHistory();
+  };
+
   return (
     <MobileScreenShell contentStyle={styles.shellContent}>
       <KeyboardAvoidingView
@@ -172,7 +231,7 @@ export default function ChatScreen() {
         style={styles.flex}
       >
         <ChatHeader
-          onClearHistory={() => void controller.clearHistory()}
+          onClearHistory={() => setShowClearConfirm(true)}
           onOpenMenu={openMenu}
         />
 
@@ -185,6 +244,7 @@ export default function ChatScreen() {
             onContentSizeChange={scrollToEnd}
             onSelectPrompt={handleSelectPrompt}
             ref={listRef}
+            showStartScreen={!controller.draftText.trim()}
           />
         </View>
 
@@ -203,6 +263,14 @@ export default function ChatScreen() {
           onSend={controller.sendMessage}
           isRecordingVoice={isRecordingVoice}
         />
+        {showClearConfirm ? (
+          <ClearHistoryDialog
+            onCancel={() => setShowClearConfirm(false)}
+            onConfirm={() => {
+              void confirmClearHistory();
+            }}
+          />
+        ) : null}
       </KeyboardAvoidingView>
     </MobileScreenShell>
   );
@@ -243,10 +311,10 @@ const styles = StyleSheet.create({
     width: 16,
     height: 1.5,
     borderRadius: 1,
-    backgroundColor: "#CC3D37",
+    backgroundColor: webTheme.colors.primary,
   },
   chatTabText: {
-    color: "#3B1F1F",
+    color: webTheme.colors.text,
     fontSize: 20,
     fontWeight: "700",
     lineHeight: 27,
@@ -268,7 +336,7 @@ const styles = StyleSheet.create({
     width: 18,
     height: 1.5,
     borderRadius: 1,
-    backgroundColor: "#3B1F1F",
+    backgroundColor: webTheme.colors.text,
   },
   trashHandle: {
     position: "absolute",
@@ -281,7 +349,7 @@ const styles = StyleSheet.create({
     borderRightWidth: 1.5,
     borderTopLeftRadius: 2,
     borderTopRightRadius: 2,
-    borderColor: "#3B1F1F",
+    borderColor: webTheme.colors.text,
   },
   trashCan: {
     position: "absolute",
@@ -294,7 +362,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1.5,
     borderBottomLeftRadius: 2,
     borderBottomRightRadius: 2,
-    borderColor: "#3B1F1F",
+    borderColor: webTheme.colors.text,
   },
   trashLineLeft: {
     position: "absolute",
@@ -303,7 +371,7 @@ const styles = StyleSheet.create({
     width: 1.5,
     height: 6,
     borderRadius: 1,
-    backgroundColor: "#3B1F1F",
+    backgroundColor: webTheme.colors.text,
   },
   trashLineRight: {
     position: "absolute",
@@ -312,7 +380,7 @@ const styles = StyleSheet.create({
     width: 1.5,
     height: 6,
     borderRadius: 1,
-    backgroundColor: "#3B1F1F",
+    backgroundColor: webTheme.colors.text,
   },
   trashTopLine: {
     position: "absolute",
@@ -321,7 +389,7 @@ const styles = StyleSheet.create({
     width: 22,
     height: 1.5,
     borderRadius: 1,
-    backgroundColor: "#3B1F1F",
+    backgroundColor: webTheme.colors.text,
   },
   error: {
     color: webTheme.colors.danger,
@@ -332,5 +400,60 @@ const styles = StyleSheet.create({
   },
   messages: {
     flex: 1,
+  },
+  confirmOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 48,
+    backgroundColor: "rgba(54, 36, 36, 0.72)",
+  },
+  confirmDialog: {
+    width: "100%",
+    maxWidth: 236,
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 18,
+    borderRadius: 16,
+    backgroundColor: webTheme.colors.surface,
+    borderWidth: 1,
+    borderColor: webTheme.colors.border,
+  },
+  confirmTitle: {
+    maxWidth: 176,
+    color: webTheme.colors.text,
+    fontSize: 14,
+    fontWeight: "800",
+    lineHeight: 18,
+    textAlign: "center",
+  },
+  confirmDeleteButton: {
+    width: "100%",
+    minHeight: 42,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 21,
+    backgroundColor: webTheme.colors.primary,
+  },
+  confirmDeleteText: {
+    color: webTheme.colors.surface,
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  confirmCancelButton: {
+    width: "100%",
+    minHeight: 42,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 21,
+    backgroundColor: webTheme.colors.surface,
+    borderWidth: 1,
+    borderColor: webTheme.colors.border,
+  },
+  confirmCancelText: {
+    color: webTheme.colors.primary,
+    fontSize: 13,
+    fontWeight: "700",
   },
 });

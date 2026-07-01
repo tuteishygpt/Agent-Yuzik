@@ -746,6 +746,13 @@ export function useVoiceSession(
     const promise = (async () => {
       voiceActivityGenerationRef.current += 1;
 
+      if (!socket.isConnected()) {
+        await socket.connect();
+        if (!socket.isConnected()) {
+          return;
+        }
+      }
+
       try {
         await startVadRecording();
       } catch (error) {

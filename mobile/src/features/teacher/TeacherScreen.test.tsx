@@ -315,12 +315,21 @@ describe("TeacherScreen", () => {
 
     expect(mockStartTeacherLesson).not.toHaveBeenCalled();
 
-    const chooseButton = renderer.root.findAll(
-      (node) => node.props.accessibilityRole === "button",
-    )[0];
+    const chooseButton = renderer.root
+      .findAllByType(Text)
+      .map((node) => ({
+        pressable: nearestPressable(node),
+        text: String(node.props.children ?? ""),
+      }))
+      .find(
+        (item) =>
+          item.text.includes("Абярыце занятак") && item.pressable,
+      )?.pressable;
+
+    expect(chooseButton).toBeTruthy();
 
     await act(async () => {
-      chooseButton.props.onPress();
+      chooseButton?.props.onPress();
     });
 
     const travelText = renderer.root

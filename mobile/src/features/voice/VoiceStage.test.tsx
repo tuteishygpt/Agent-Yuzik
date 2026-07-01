@@ -20,6 +20,13 @@ const connectedUiState: VoiceUiState = {
   shouldPulseConnection: false,
 };
 
+const listeningUiState: VoiceUiState = {
+  ...connectedUiState,
+  phase: "listening",
+  statusLabel: "Слухаю...",
+  shouldAnimateHalo: true,
+};
+
 describe("VoiceStage", () => {
   it("starts listening when idle stage is pressed", () => {
     const onStart = jest.fn();
@@ -59,5 +66,47 @@ describe("VoiceStage", () => {
       screen.renderer.root.findByProps({ testID: "yuzik-avatar" }),
     ).toBeTruthy();
     expect(screen.getTextContent()).toContain("Hello");
+  });
+
+  it("can render the compact Figma stage without a duplicate body title", () => {
+    const screen = render(
+      <VoiceStage
+        animatedStyles={{}}
+        compact
+        transcript={[]}
+        uiState={connectedUiState}
+        visualizerPulse={new Animated.Value(0)}
+        onPrimaryPress={jest.fn()}
+      />,
+    );
+
+    expect(screen.getTextContent()).not.toContain("Voice");
+    expect(
+      screen.renderer.root.findByProps({ testID: "yuzik-avatar" }).props.style,
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          width: 130,
+          height: 130,
+          borderRadius: 65,
+        }),
+      ]),
+    );
+  });
+
+  it("shows a listening transcript prompt instead of the not-started empty state", () => {
+    const screen = render(
+      <VoiceStage
+        animatedStyles={{}}
+        compact
+        transcript={[]}
+        uiState={listeningUiState}
+        visualizerPulse={new Animated.Value(0)}
+        onPrimaryPress={jest.fn()}
+      />,
+    );
+
+    expect(screen.getTextContent()).toContain("Гаварыце...");
+    expect(screen.getTextContent()).not.toContain("Размова яшчэ не пачалася");
   });
 });

@@ -7,6 +7,7 @@ import CallbackScreen from "../../app/auth/callback";
 import { AuthProvider, useAuth } from "./AuthProvider";
 import {
   SUPABASE_SESSION_STORAGE_KEY,
+  createSessionStorage,
   createSecureSessionStorage,
 } from "@/lib/session-storage";
 
@@ -295,6 +296,49 @@ describe("secure session storage", () => {
     await storage.removeItem(SUPABASE_SESSION_STORAGE_KEY);
 
     expect(await storage.getItem(SUPABASE_SESSION_STORAGE_KEY)).toBeNull();
+  });
+
+  it("uses localStorage for web session storage", async () => {
+    const originalLocalStorage = globalThis.localStorage;
+    const webStorageValues = new Map<string, string>();
+
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: {
+        getItem: (key: string) => webStorageValues.get(key) ?? null,
+        setItem: (key: string, value: string) => {
+          webStorageValues.set(key, value);
+        },
+        removeItem: (key: string) => {
+          webStorageValues.delete(key);
+        },
+      },
+    });
+
+    try {
+      const storage = createSessionStorage("web");
+      const serializedSession = JSON.stringify({
+        access_token: "access-web",
+        refresh_token: "refresh-web",
+        user: { id: "web-user" },
+      });
+
+      await storage.setItem(SUPABASE_SESSION_STORAGE_KEY, serializedSession);
+
+      expect(await storage.getItem(SUPABASE_SESSION_STORAGE_KEY)).toBe(
+        serializedSession,
+      );
+      expect(mockSetItemAsync).not.toHaveBeenCalled();
+
+      await storage.removeItem(SUPABASE_SESSION_STORAGE_KEY);
+
+      expect(await storage.getItem(SUPABASE_SESSION_STORAGE_KEY)).toBeNull();
+    } finally {
+      Object.defineProperty(globalThis, "localStorage", {
+        configurable: true,
+        value: originalLocalStorage,
+      });
+    }
   });
 });
 

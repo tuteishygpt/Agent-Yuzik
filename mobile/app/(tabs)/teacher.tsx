@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useFocusEffect } from "expo-router";
-import { ScrollView, StyleSheet } from "react-native";
 
-import { MobileScreenShell } from "@/components/mobile";
 import LessonPicker from "@/features/teacher/LessonPicker";
 import { useTeacherMode } from "@/features/teacher/useTeacherMode";
 import { VoiceControls } from "@/features/voice/VoiceControls";
+import { VoiceScreenFrame } from "@/features/voice/VoiceScreenFrame";
 import { VoiceStage } from "@/features/voice/VoiceStage";
 import { resolveVoiceUiState } from "@/features/voice/voice-ui-state";
 import { useVoiceAnimations } from "@/features/voice/useVoiceAnimations";
@@ -159,64 +158,52 @@ export default function TeacherScreen() {
   }, [voiceSession.status]);
 
   return (
-    <MobileScreenShell contentStyle={styles.shellContent}>
-      <ScrollView contentContainerStyle={styles.content}>
-        <VoiceStage
-          animatedStyles={animatedStyles}
-          childrenBeforeStage={
-            <LessonPicker
-              isActive={teacherMode.isActive}
-              lessons={teacherMode.lessons}
-              onSelectLesson={(lessonId) => {
-                manualStopRef.current = false;
-                setStartNotice(null);
-                startedLessonRef.current = null;
-                teacherMode.selectLesson(lessonId);
-              }}
-              selectedLessonId={teacherMode.selectedLesson?.id ?? null}
-              stepPrompt={teacherMode.currentPrompt}
-            />
-          }
-          compact
-          error={voiceSession.error}
-          eyebrow="Юзік"
-          notice={voiceSession.retryNotice ?? selectionNotice}
-          onPrimaryPress={() => {
-            if (voiceSession.isListening) {
-              stopTeacherSession();
-            } else {
-              startTeacherSession();
-            }
-          }}
-          title={t("voice.teacher")}
-          transcript={voiceSession.transcript}
-          uiState={uiState}
-          visualizerPulse={visualizerPulse}
+    <VoiceScreenFrame
+      menuAccessibilityLabel="Open teacher menu"
+      onOpenMenu={openMenu}
+      title={t("voice.teacher")}
+      bottomControls={
+        <VoiceControls
+          isListening={voiceSession.isListening}
+          onInterrupt={() => undefined}
+          onStartListening={startTeacherSession}
+          onStopListening={stopTeacherSession}
+          status={voiceSession.status}
         />
-      </ScrollView>
-
-      <VoiceControls
-        isListening={voiceSession.isListening}
-        onInterrupt={() => undefined}
-        onOpenMenu={openMenu}
-        onStartListening={startTeacherSession}
-        onStopListening={stopTeacherSession}
-        status={voiceSession.status}
+      }
+    >
+      <VoiceStage
+        animatedStyles={animatedStyles}
+        childrenBeforeStage={
+          <LessonPicker
+            isActive={teacherMode.isActive}
+            lessons={teacherMode.lessons}
+            onSelectLesson={(lessonId) => {
+              manualStopRef.current = false;
+              setStartNotice(null);
+              startedLessonRef.current = null;
+              teacherMode.selectLesson(lessonId);
+            }}
+            selectedLessonId={teacherMode.selectedLesson?.id ?? null}
+            stepPrompt={teacherMode.currentPrompt}
+          />
+        }
+        compact
+        error={voiceSession.error}
+        eyebrow="Юзік"
+        notice={voiceSession.retryNotice ?? selectionNotice}
+        onPrimaryPress={() => {
+          if (voiceSession.isListening) {
+            stopTeacherSession();
+          } else {
+            startTeacherSession();
+          }
+        }}
+        title={t("voice.teacher")}
+        transcript={voiceSession.transcript}
+        uiState={uiState}
+        visualizerPulse={visualizerPulse}
       />
-    </MobileScreenShell>
+    </VoiceScreenFrame>
   );
 }
-
-const styles = StyleSheet.create({
-  shellContent: {
-    paddingHorizontal: 0,
-    paddingTop: 0,
-  },
-  content: {
-    alignItems: "center",
-    gap: 14,
-    paddingHorizontal: 16,
-    paddingBottom: 28,
-    paddingTop: 35,
-  },
-});

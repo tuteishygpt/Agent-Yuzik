@@ -1,7 +1,8 @@
 import React from "react";
-import { ScrollView } from "react-native";
+import { ScrollView, StyleSheet } from "react-native";
 
 import { render } from "@/test/render";
+import { webTheme } from "@/theme/webTheme";
 
 import { TranscriptPanel } from "./TranscriptPanel";
 
@@ -41,5 +42,37 @@ describe("TranscriptPanel", () => {
     const scrollView = screen.renderer.root.findByType(ScrollView);
 
     expect(scrollView.props.onContentSizeChange).toEqual(expect.any(Function));
+  });
+
+  it("renders the compact empty state as a visible transcript input", () => {
+    const screen = render(<TranscriptPanel compact transcript={[]} />);
+
+    const panelStyle = StyleSheet.flatten(
+      screen.renderer.root.findByProps({ testID: "transcript-panel" }).props
+        .style,
+    );
+    const emptyStyle = StyleSheet.flatten(
+      screen.renderer.root.findByProps({ testID: "transcript-empty" }).props
+        .style,
+    );
+
+    expect(panelStyle.minHeight).toBe(52);
+    expect(panelStyle.borderWidth).toBe(1);
+    expect(panelStyle.backgroundColor).toBe(webTheme.colors.surface);
+    expect(emptyStyle.borderWidth).toBe(0);
+    expect(emptyStyle.padding).toBe(0);
+  });
+
+  it("uses a listening prompt when the microphone is active but no transcript exists yet", () => {
+    const screen = render(
+      <TranscriptPanel
+        compact
+        emptyText="Гаварыце..."
+        transcript={[]}
+      />,
+    );
+
+    expect(screen.getTextContent()).toContain("Гаварыце...");
+    expect(screen.getTextContent()).not.toContain("Размова яшчэ не пачалася");
   });
 });

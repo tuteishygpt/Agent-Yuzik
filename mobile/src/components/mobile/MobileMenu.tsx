@@ -19,14 +19,10 @@ export function MobileMenu<Route extends string = string>({
   items,
   activeRoute,
   onSelect,
-  title = "Меню",
+  title: _title,
 }: MobileMenuProps<Route>) {
   return (
-    <View style={styles.menu}>
-      <View style={styles.header}>
-        <View style={styles.handle} />
-        <Text style={styles.title}>{title}</Text>
-      </View>
+    <View style={styles.menu} testID="mobile-menu">
       {items.map((item) => {
         const isActive = item.route === activeRoute;
 
@@ -36,21 +32,16 @@ export function MobileMenu<Route extends string = string>({
             accessibilityRole="button"
             key={item.route}
             onPress={() => onSelect(item.route)}
-            style={[styles.row, isActive ? styles.rowActive : null]}
+            style={({ pressed }) => [
+              styles.row,
+              isActive || pressed ? styles.rowHighlighted : null,
+            ]}
           >
-            <View
-              style={[styles.indicator, isActive ? styles.indicatorActive : null]}
-              testID={isActive ? "mobile-menu-active-indicator" : undefined}
-            />
+            <View style={styles.iconSlot} />
             <View style={styles.copy}>
-              <Text style={[styles.label, isActive ? styles.labelActive : null]}>
+              <Text style={styles.label} numberOfLines={1}>
                 {item.label}
               </Text>
-              {item.description ? (
-                <Text numberOfLines={1} style={styles.description}>
-                  {item.description}
-                </Text>
-              ) : null}
             </View>
           </Pressable>
         );
@@ -61,65 +52,41 @@ export function MobileMenu<Route extends string = string>({
 
 const styles = StyleSheet.create({
   menu: {
+    width: webTheme.sizes.menuWidth,
     gap: 6,
-    padding: 10,
-    borderRadius: webTheme.radii.lg,
-    backgroundColor: webTheme.colors.surface,
+    padding: webTheme.spacing.lg,
+    borderRadius: webTheme.radii.basic,
+    backgroundColor: webTheme.colors.surfaceStrong,
     borderWidth: 1,
     borderColor: webTheme.colors.border,
   },
-  header: {
-    alignItems: "center",
-    gap: 8,
-    paddingBottom: 4,
-  },
-  handle: {
-    width: 38,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: webTheme.colors.borderStrong,
-  },
-  title: {
-    color: webTheme.colors.text,
-    fontSize: 15,
-    fontWeight: "700",
-  },
   row: {
-    minHeight: 50,
+    height: webTheme.sizes.menuRowHeight,
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    paddingHorizontal: 12,
+    gap: webTheme.spacing.sm,
+    paddingLeft: 7,
+    paddingRight: 20,
     paddingVertical: 8,
-    borderRadius: webTheme.radii.md,
+    borderRadius: webTheme.radii.sm,
   },
-  rowActive: {
-    backgroundColor: webTheme.colors.surfaceStrong,
+  rowHighlighted: {
+    backgroundColor: webTheme.colors.primarySoft,
   },
-  indicator: {
-    width: 4,
-    height: 26,
-    borderRadius: 2,
-    backgroundColor: webTheme.colors.border,
-  },
-  indicatorActive: {
-    backgroundColor: webTheme.colors.primary,
+  iconSlot: {
+    width: webTheme.sizes.icon,
+    height: webTheme.sizes.icon,
+    borderRadius: webTheme.radii.sm,
+    borderWidth: 1,
+    borderColor: webTheme.colors.textMuted,
   },
   copy: {
     flex: 1,
+    minWidth: 0,
   },
   label: {
     color: webTheme.colors.text,
-    fontSize: 15,
-    fontWeight: "700",
-  },
-  labelActive: {
-    color: webTheme.colors.primary,
-  },
-  description: {
-    marginTop: 2,
-    color: webTheme.colors.textMuted,
-    fontSize: 12,
-    lineHeight: 16,
+    fontSize: 16,
+    fontWeight: "400",
   },
 });

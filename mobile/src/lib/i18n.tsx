@@ -1,4 +1,3 @@
-import * as SecureStore from "expo-secure-store";
 import {
   createContext,
   useCallback,
@@ -8,13 +7,15 @@ import {
   type ReactNode,
 } from "react";
 
+import { createSessionStorage } from "./session-storage";
+
 export type Locale = "be" | "en";
 
 const translations = {
   be: {
     "tab.chat": "Чат",
     "tab.teacher": "Заняткі",
-    "tab.voice": "Голас",
+    "tab.voice": "Размова",
     "tab.settings": "Наладкі",
 
     "chat.placeholder": "Напішыце Юзіку...",
@@ -36,7 +37,7 @@ const translations = {
     "chat.open": "Адкрыць",
     "chat.share": "Падзяліцца",
 
-    "voice.title": "Галасавы агент",
+    "voice.title": "Размова",
     "voice.listening": "Слухаю...",
     "voice.processing": "Думаю...",
     "voice.speaking": "Гавару...",
@@ -65,7 +66,7 @@ const translations = {
   en: {
     "tab.chat": "Chat",
     "tab.teacher": "Classes",
-    "tab.voice": "Voice",
+    "tab.voice": "Conversation",
     "tab.settings": "Settings",
 
     "chat.placeholder": "Write to Yuzik...",
@@ -87,7 +88,7 @@ const translations = {
     "chat.open": "Open",
     "chat.share": "Share",
 
-    "voice.title": "Voice Agent",
+    "voice.title": "Conversation",
     "voice.listening": "Listening...",
     "voice.processing": "Thinking...",
     "voice.speaking": "Speaking...",
@@ -118,6 +119,7 @@ const translations = {
 export type TranslationKey = keyof typeof translations.be;
 
 const STORAGE_KEY = "yuzik_locale";
+const localeStorage = createSessionStorage();
 
 type I18nContextValue = {
   locale: Locale;
@@ -135,7 +137,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   const [locale, setLocaleState] = useState<Locale>("be");
 
   useEffect(() => {
-    SecureStore.getItemAsync(STORAGE_KEY).then((saved) => {
+    localeStorage.getItem(STORAGE_KEY).then((saved) => {
       if (saved === "en" || saved === "be") {
         setLocaleState(saved);
       }
@@ -144,7 +146,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 
   const setLocale = useCallback((l: Locale) => {
     setLocaleState(l);
-    SecureStore.setItemAsync(STORAGE_KEY, l);
+    void localeStorage.setItem(STORAGE_KEY, l);
   }, []);
 
   const t = useCallback(

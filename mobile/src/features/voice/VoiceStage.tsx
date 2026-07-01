@@ -10,7 +10,7 @@ import type { VoiceUiState } from "./voice-ui-state";
 import { VoiceVisualizer } from "./VoiceVisualizer";
 
 type VoiceStageProps = {
-  title: string;
+  title?: string;
   eyebrow?: string;
   connectionLabel?: string;
   compact?: boolean;
@@ -26,6 +26,7 @@ type VoiceStageProps = {
   error?: string | null;
   onPrimaryPress: () => void;
   childrenBeforeStage?: ReactNode;
+  showStatusPill?: boolean;
 };
 
 function avatarStateForPhase(phase: VoiceUiState["phase"]): YuzikAvatarState {
@@ -70,6 +71,14 @@ function statusToneForPhase(
   return "neutral";
 }
 
+function emptyTranscriptTextForPhase(phase: VoiceUiState["phase"]): string {
+  if (phase === "listening" || phase === "recording") {
+    return "Гаварыце...";
+  }
+
+  return "Размова яшчэ не пачалася";
+}
+
 export function VoiceStage({
   title,
   eyebrow,
@@ -83,22 +92,25 @@ export function VoiceStage({
   error,
   onPrimaryPress,
   childrenBeforeStage,
+  showStatusPill = true,
 }: VoiceStageProps) {
   const avatarState = avatarStateForPhase(uiState.phase);
 
   return (
     <View style={[styles.stage, compact ? styles.stageCompact : null]}>
-      <View style={styles.topRow}>
-        <MobileStatusPill
-          animatedDotStyle={animatedStyles.dot}
-          label={connectionLabel ?? uiState.connectionLabel}
-          tone={statusToneForPhase(uiState.phase)}
-        />
-      </View>
+      {showStatusPill ? (
+        <View style={styles.topRow}>
+          <MobileStatusPill
+            animatedDotStyle={animatedStyles.dot}
+            label={connectionLabel ?? uiState.connectionLabel}
+            tone={statusToneForPhase(uiState.phase)}
+          />
+        </View>
+      ) : null}
 
       <View style={[styles.hero, compact ? styles.heroCompact : null]}>
         {eyebrow ? <Text style={styles.eyebrow}>{eyebrow}</Text> : null}
-        <Text style={styles.title}>{title}</Text>
+        {title ? <Text style={styles.title}>{title}</Text> : null}
         {notice ? <Text style={styles.notice}>{notice}</Text> : null}
         {error ? <Text style={styles.error}>{error}</Text> : null}
       </View>
@@ -133,7 +145,11 @@ export function VoiceStage({
       </Text>
 
       <VoiceVisualizer pulse={visualizerPulse} uiState={uiState} />
-      <TranscriptPanel compact={compact} transcript={transcript} />
+      <TranscriptPanel
+        compact={compact}
+        emptyText={emptyTranscriptTextForPhase(uiState.phase)}
+        transcript={transcript}
+      />
     </View>
   );
 }

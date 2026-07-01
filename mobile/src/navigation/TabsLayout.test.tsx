@@ -1,5 +1,6 @@
 import React from "react";
-import { Text } from "react-native";
+import { Modal, StyleSheet, Text } from "react-native";
+import { act } from "react-test-renderer";
 
 import { render } from "@/test/render";
 
@@ -32,11 +33,23 @@ jest.mock("@/lib/i18n", () => ({
 
 jest.mock("expo-router", () => {
   const React = require("react");
-  const { Text } = require("react-native");
+  const { Pressable, Text } = require("react-native");
+
+  function MockMenuButton() {
+    const { useMenu } = require("@/navigation/MenuContext");
+    const { openMenu } = useMenu();
+
+    return (
+      <Pressable accessibilityLabel="Mock open menu" onPress={openMenu}>
+        <Text>mock-open-menu</Text>
+      </Pressable>
+    );
+  }
 
   function Tabs({ children }: { children: React.ReactNode }) {
     return (
       <>
+        <MockMenuButton />
         <Text>tabs-ready</Text>
         {children}
       </>
@@ -123,6 +136,40 @@ describe("TabsLayout protected routes", () => {
     const screen = render(<TabsLayout />);
 
     expect(screen.getTextContent()).toContain("tab:teacher:undefined");
+  });
+
+  it("anchors the shared mobile menu to the Figma screen frame instead of the active tab content", () => {
+    mockUseAuth.mockReturnValue({
+      status: "ready",
+      session: {
+        access_token: "access-token",
+        user: {
+          id: "user-id",
+        },
+      },
+      error: null,
+    });
+
+    const screen = render(<TabsLayout />);
+
+    const openMenu = screen.renderer.root.findByProps({
+      accessibilityLabel: "Mock open menu",
+    });
+    act(() => {
+      openMenu.props.onPress();
+    });
+
+    const modal = screen.renderer.root.findByType(Modal);
+    const overlay = modal.findByProps({ testID: "mobile-menu-overlay" });
+    const menuAnchor = modal.findByProps({ testID: "mobile-menu-anchor" });
+    const overlayStyle = StyleSheet.flatten(overlay.props.style);
+    const menuAnchorStyle = StyleSheet.flatten(menuAnchor.props.style);
+
+    expect(overlayStyle.justifyContent).toBeUndefined();
+    expect(menuAnchorStyle.position).toBe("absolute");
+    expect(menuAnchorStyle.left).toBe(40);
+    expect(menuAnchorStyle.top).toBe(39);
+    expect(menuAnchorStyle.paddingBottom).toBeUndefined();
   });
 
   it("renders an auth error instead of protected routes", () => {

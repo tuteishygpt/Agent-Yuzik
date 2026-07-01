@@ -3,6 +3,7 @@ import { StyleSheet, View } from "react-native";
 import { act } from "react-test-renderer";
 
 import { render } from "@/test/render";
+import { webTheme } from "@/theme/webTheme";
 
 import { Composer } from "./Composer";
 
@@ -98,9 +99,9 @@ describe("Composer", () => {
     });
     const inputContainerStyle = StyleSheet.flatten(inputShell.props.style);
 
-    expect(inputContainerStyle.minHeight).toBe(52);
-    expect(inputContainerStyle.borderRadius).toBe(26);
-    expect(inputContainerStyle.borderColor).toBe("#ed6760");
+    expect(inputContainerStyle.minHeight).toBe(webTheme.sizes.inputHeight);
+    expect(inputContainerStyle.borderRadius).toBe(webTheme.radii.textBar);
+    expect(inputContainerStyle.borderColor).toBe(webTheme.colors.border);
     expect(screen.getTextContent()).not.toContain("Yuzik can make mistakes.");
   });
 

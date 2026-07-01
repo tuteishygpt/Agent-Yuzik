@@ -8,6 +8,7 @@ import type { VoiceTranscriptEntry } from "./useVoiceSession";
 type TranscriptPanelProps = {
   transcript: VoiceTranscriptEntry[];
   compact?: boolean;
+  emptyText?: string;
 };
 
 function TranscriptTurn({ entry }: { entry: VoiceTranscriptEntry }) {
@@ -48,7 +49,11 @@ function TranscriptTurn({ entry }: { entry: VoiceTranscriptEntry }) {
   );
 }
 
-export function TranscriptPanel({ compact = false, transcript }: TranscriptPanelProps) {
+export function TranscriptPanel({
+  compact = false,
+  emptyText = "Размова яшчэ не пачалася",
+  transcript,
+}: TranscriptPanelProps) {
   const scrollRef = useRef<ScrollView>(null);
   const visibleTranscript = transcript.filter((entry) => entry.role !== "system");
   const scrollToLatest = () => {
@@ -60,7 +65,10 @@ export function TranscriptPanel({ compact = false, transcript }: TranscriptPanel
   }, [visibleTranscript.length]);
 
   return (
-    <View style={[styles.panel, compact ? styles.panelCompact : null]}>
+    <View
+      style={[styles.panel, compact ? styles.panelCompact : null]}
+      testID="transcript-panel"
+    >
       <ScrollView
         contentContainerStyle={[
           styles.content,
@@ -70,8 +78,19 @@ export function TranscriptPanel({ compact = false, transcript }: TranscriptPanel
         ref={scrollRef}
         style={[styles.scroll, compact ? styles.scrollCompact : null]}
       >
-        {visibleTranscript.length === 0 ? (
-          <Text style={[styles.empty, compact ? styles.emptyCompact : null]}>
+        {visibleTranscript.length === 0 &&
+        emptyText !== "Размова яшчэ не пачалася" ? (
+          <Text
+            style={[styles.empty, compact ? styles.emptyCompact : null]}
+            testID="transcript-empty"
+          >
+            {emptyText}
+          </Text>
+        ) : visibleTranscript.length === 0 ? (
+          <Text
+            style={[styles.empty, compact ? styles.emptyCompact : null]}
+            testID="transcript-empty"
+          >
             Размова яшчэ не пачалася
           </Text>
         ) : (
@@ -95,14 +114,21 @@ const styles = StyleSheet.create({
     borderColor: webTheme.colors.border,
   },
   panelCompact: {
-    maxHeight: 190,
-    padding: 8,
+    maxHeight: 116,
+    minHeight: webTheme.sizes.inputHeight,
+    justifyContent: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 0,
+    borderRadius: webTheme.radii.textBar,
+    backgroundColor: webTheme.colors.surface,
+    borderColor: webTheme.colors.borderStrong,
+    borderWidth: 1,
   },
   scroll: {
     minHeight: 150,
   },
   scrollCompact: {
-    minHeight: 84,
+    minHeight: webTheme.sizes.inputHeight - 2,
   },
   content: {
     gap: 8,
@@ -110,6 +136,8 @@ const styles = StyleSheet.create({
   },
   contentCompact: {
     gap: 6,
+    flexGrow: 1,
+    justifyContent: "center",
     paddingBottom: 0,
   },
   empty: {
@@ -124,7 +152,8 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   emptyCompact: {
-    padding: 10,
+    padding: 0,
+    borderWidth: 0,
     fontSize: 14,
     lineHeight: 20,
   },
