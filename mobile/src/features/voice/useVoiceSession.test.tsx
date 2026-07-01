@@ -1,5 +1,5 @@
 import React from "react";
-import { Text } from "react-native";
+import { Platform, Text } from "react-native";
 import TestRenderer, { act } from "react-test-renderer";
 
 import { useVoiceSession } from "./useVoiceSession";
@@ -1318,5 +1318,64 @@ describe("useVoiceSession", () => {
     expect(recorder.start).toHaveBeenCalledTimes(2);
 
     jest.useRealTimers();
+  });
+
+  it("detects quieter browser speech with web VAD defaults", async () => {
+    const originalPlatform = Platform.OS;
+    Object.defineProperty(Platform, "OS", {
+      configurable: true,
+      value: "web",
+    });
+
+    const socket = createSocketClient();
+    const recorder = createRecorder();
+    let latestSession: ReturnType<typeof useVoiceSession> | null = null;
+
+    function Probe() {
+      latestSession = useVoiceSession({
+        backendUrl: "https://api.yuzik.example",
+        getAccessToken: async () => "token-123",
+        teacherMode: mockTeacherMode as never,
+        socketClientFactory: () => socket,
+        recording: recorder as never,
+      });
+
+      return <Text>{latestSession.status}</Text>;
+    }
+
+    try {
+      await act(async () => {
+        TestRenderer.create(<Probe />);
+      });
+
+      await act(async () => {
+        await latestSession?.connect();
+        await latestSession?.startListening();
+      });
+
+      const onMetering = recorder.start.mock.calls[0][0] as (
+        db: number,
+        pcm16?: Uint8Array,
+      ) => void;
+
+      await act(async () => {
+        [-64, -63, -62].forEach((db) => onMetering(db, new Uint8Array(320)));
+        [-52, -51, -50].forEach((db) => onMetering(db, new Uint8Array(320)));
+        [-62, -63, -64, -65, -66, -67].forEach((db) =>
+          onMetering(db, new Uint8Array(320)),
+        );
+        await Promise.resolve();
+      });
+
+      expect(recorder.stop).toHaveBeenCalledTimes(1);
+      expect(socket.sendAudio).toHaveBeenCalledWith({
+        wavBytes: new Uint8Array([1, 2, 3]),
+      });
+    } finally {
+      Object.defineProperty(Platform, "OS", {
+        configurable: true,
+        value: originalPlatform,
+      });
+    }
   });
 });

@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from "react";
+import { Platform } from "react-native";
 
 import type {
   VoiceConfigMessage,
@@ -86,6 +87,12 @@ const RESUME_AFTER_RESPONSE_MS = 900;
 const NON_STREAMING_AUDIO_IDLE_FALLBACK_MS = 900;
 const CLIENT_PLAYBACK_MIN_BUFFER_MS = 1200;
 const PENDING_VOICE_TRANSCRIPT_TEXT = "Галасавое паведамленне";
+const WEB_VAD_CONFIG: Partial<VadConfig> = {
+  positiveSpeechThreshold: -55,
+  negativeSpeechThreshold: -60,
+  minSpeechFrames: 2,
+  redemptionFrames: 5,
+};
 
 const initialState: VoiceSessionState = {
   connectionStatus: "idle",
@@ -129,6 +136,14 @@ const disabledTeacherMode: TeacherModeController = {
   createStartLessonPayload: () => null,
   createStopLessonPayload: () => null,
 };
+
+function resolveVadConfig(config?: Partial<VadConfig>): VadConfig {
+  return {
+    ...DEFAULT_VAD_CONFIG,
+    ...(Platform.OS === "web" ? WEB_VAD_CONFIG : null),
+    ...config,
+  };
+}
 
 function createTranscriptEntry(
   role: VoiceTranscriptEntry["role"],
@@ -186,8 +201,8 @@ export function useVoiceSession(
 
   const recording = useVoiceRecording(options.recording);
   const playback = useVoicePlayback(options.playback);
-  const vad = useVoiceVad(options.vadConfig);
-  const vadConfig = { ...DEFAULT_VAD_CONFIG, ...options.vadConfig };
+  const vadConfig = resolveVadConfig(options.vadConfig);
+  const vad = useVoiceVad(vadConfig);
 
   function update(updater: (current: VoiceSessionState) => VoiceSessionState) {
     const next = updater(stateRef.current);
