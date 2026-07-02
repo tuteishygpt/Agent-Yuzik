@@ -34,6 +34,10 @@ export default function VoiceScreen() {
   });
   const { styles: animatedStyles, visualizerPulse } =
     useVoiceAnimations(uiState);
+  const notice =
+    [voiceSession.retryNotice, voiceSession.diagnostics]
+      .filter((value): value is string => Boolean(value))
+      .join("\n") || null;
 
   const isAuthenticated = auth.status === "ready" && !!auth.session;
   const shouldAutoConnect = isAuthenticated && voiceSession.status === "idle";
@@ -125,7 +129,7 @@ export default function VoiceScreen() {
         animatedStyles={animatedStyles}
         compact
         error={voiceSession.error}
-        notice={voiceSession.retryNotice}
+        notice={notice}
         onPrimaryPress={() => {
           if (voiceSession.isListening) {
             voiceSession.stopListening();

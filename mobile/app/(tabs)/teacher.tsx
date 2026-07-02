@@ -125,6 +125,11 @@ export default function TeacherScreen() {
       ? "Абярыце занятак са спісу."
       : null);
 
+  const notice =
+    [voiceSession.retryNotice ?? selectionNotice, voiceSession.diagnostics]
+      .filter((value): value is string => Boolean(value))
+      .join("\n") || null;
+
   useEffect(() => {
     void (async () => {
       try {
@@ -191,7 +196,7 @@ export default function TeacherScreen() {
         compact
         error={voiceSession.error}
         eyebrow="Юзік"
-        notice={voiceSession.retryNotice ?? selectionNotice}
+        notice={notice}
         onPrimaryPress={() => {
           if (voiceSession.isListening) {
             stopTeacherSession();

@@ -19,10 +19,15 @@ export type PcmBuffer = {
   hasPending: () => boolean;
 };
 
+type PcmBufferOptions = {
+  emptyGraceMs?: number;
+};
+
 const MAX_BUFFER_BYTES = 512 * 1024; // 512KB auto-flush threshold
 
 export function createPcmBuffer(
   onFlush: (wavBytes: Uint8Array) => Promise<void>,
+  options: PcmBufferOptions = {},
 ): PcmBuffer {
   let chunks: Uint8Array[] = [];
   let resolvers: PcmResolver[] = [];
@@ -82,7 +87,10 @@ export function createPcmBuffer(
         flush();
       } else {
         clearTimer();
-        timer = setTimeout(flush, DEFAULT_LOCAL_PCM_EMPTY_GRACE_MS);
+        timer = setTimeout(
+          flush,
+          options.emptyGraceMs ?? DEFAULT_LOCAL_PCM_EMPTY_GRACE_MS,
+        );
       }
 
       return new Promise<void>((resolve, reject) => {

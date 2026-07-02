@@ -36,13 +36,7 @@ export function useVoiceVad(config?: Partial<VadConfig>): VoiceVadControls {
     vadRef.current?.resume();
   }, []);
 
-  const frameCountRef = useRef(0);
-
   const feedMeteringFrame = useCallback((db: number, pcm16?: Uint8Array) => {
-    frameCountRef.current++;
-    if (frameCountRef.current <= 20 || frameCountRef.current % 50 === 0) {
-      console.log(`[VAD] frame #${frameCountRef.current} db=${db}`);
-    }
     vadRef.current?.processFrame(db, pcm16);
   }, []);
 

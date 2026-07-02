@@ -8,7 +8,10 @@ import type {
 } from "@/lib/voice-socket";
 import { useTeacherMode } from "@/features/teacher/useTeacherMode";
 import type { TeacherModeController } from "@/features/teacher/teacher-types";
-import type { VoicePlaybackAdapter } from "@/lib/audio-playback";
+import type {
+  VoicePlaybackAdapter,
+  VoicePlaybackDebugEvent,
+} from "@/lib/audio-playback";
 import type { VoiceRecorderAdapter } from "@/lib/audio-recording";
 import {
   DEFAULT_LOCAL_PCM_EMPTY_GRACE_MS,
@@ -42,6 +45,7 @@ export type VoiceSessionState = {
   transcript: VoiceTranscriptEntry[];
   retryNotice: string | null;
   error: string | null;
+  diagnostics: string | null;
   isRecording: boolean;
   isListening: boolean;
   isPlaying: boolean;
@@ -84,8 +88,12 @@ export type VoiceSession = VoiceSessionState & {
 };
 
 const RESUME_AFTER_RESPONSE_MS = 900;
+const IOS_WEB_HTML_RESUME_AFTER_RESPONSE_MS = 7000;
 const NON_STREAMING_AUDIO_IDLE_FALLBACK_MS = 900;
 const CLIENT_PLAYBACK_MIN_BUFFER_MS = 1200;
+const MICROPHONE_FRAME_TIMEOUT_MS = 2000;
+const NO_MICROPHONE_AUDIO_ERROR =
+  "No microphone audio was received. Check browser microphone permissions and selected input device.";
 const PENDING_VOICE_TRANSCRIPT_TEXT = "Галасавое паведамленне";
 const WEB_VAD_CONFIG: Partial<VadConfig> = {
   positiveSpeechThreshold: -55,
@@ -94,12 +102,195 @@ const WEB_VAD_CONFIG: Partial<VadConfig> = {
   redemptionFrames: 5,
 };
 
+export type VoiceDiagnostics = {
+  frames: number;
+  lastDb: number;
+  peakDb: number;
+  speechStartCount: number;
+  speechEndCount: number;
+  sendAudioCount: number;
+  totalAudioBytes: number;
+  receivedAudioCount: number;
+  receivedAudioBytes: number;
+  playbackStartCount: number;
+  playbackErrorCount: number;
+  lastPlaybackDebug: string | null;
+  lastEvent: string;
+};
+
+export type VoiceDiagnosticEvent =
+  | { type: "meter"; db: number }
+  | { type: "speech_start" }
+  | { type: "speech_end" }
+  | { type: "send_audio"; bytes: number }
+  | { type: "receive_audio"; bytes: number }
+  | { type: "playback_start" }
+  | { type: "playback_error" }
+  | { type: "playback_debug"; message: string }
+  | { type: "no_microphone_frames" }
+  | { type: "start_listening" }
+  | { type: "stop_listening" };
+
+export function createInitialVoiceDiagnostics(): VoiceDiagnostics {
+  return {
+    frames: 0,
+    lastDb: -160,
+    peakDb: -160,
+    speechStartCount: 0,
+    speechEndCount: 0,
+    sendAudioCount: 0,
+    totalAudioBytes: 0,
+    receivedAudioCount: 0,
+    receivedAudioBytes: 0,
+    playbackStartCount: 0,
+    playbackErrorCount: 0,
+    lastPlaybackDebug: null,
+    lastEvent: "idle",
+  };
+}
+
+function formatDiagnosticDb(db: number): string {
+  return Number.isFinite(db) ? db.toFixed(1) : "n/a";
+}
+
+function formatPlaybackDebugEvent(event: VoicePlaybackDebugEvent): string {
+  if (event.type === "web_html_start") {
+    return `html,start,bytes=${event.bytes}`;
+  }
+
+  if (event.type === "web_html_end") {
+    return "html,end";
+  }
+
+  if (event.type === "web_pcm_end") {
+    return [
+      `end`,
+      `st=${event.contextState}`,
+      `t=${event.currentTime.toFixed(2)}`,
+      `left=${event.remainingSources}`,
+    ].join(",");
+  }
+
+  return [
+    `pcm`,
+    `st=${event.contextStateBefore}>${event.contextStateAfter}`,
+    `ctx=${Math.round(event.contextSampleRate)}`,
+    `src=${Math.round(event.frameSampleRate)}`,
+    `n=${event.samples}`,
+    `db=${formatDiagnosticDb(event.rmsDb)}`,
+    `pk=${event.peak.toFixed(3)}`,
+    `now=${event.currentTime.toFixed(2)}`,
+    `at=${event.startAt.toFixed(2)}`,
+    `q=${event.queueEndAt.toFixed(2)}`,
+    `mb=${event.minBufferMs}`,
+  ].join(",");
+}
+
+export function updateVoiceDiagnostics(
+  current: VoiceDiagnostics,
+  event: VoiceDiagnosticEvent,
+): VoiceDiagnostics {
+  switch (event.type) {
+    case "meter":
+      return {
+        ...current,
+        frames: current.frames + 1,
+        lastDb: event.db,
+        peakDb: Math.max(current.peakDb, event.db),
+        lastEvent: "meter",
+      };
+    case "speech_start":
+      return {
+        ...current,
+        speechStartCount: current.speechStartCount + 1,
+        lastEvent: "speechStart",
+      };
+    case "speech_end":
+      return {
+        ...current,
+        speechEndCount: current.speechEndCount + 1,
+        lastEvent: "speechEnd",
+      };
+    case "send_audio":
+      return {
+        ...current,
+        sendAudioCount: current.sendAudioCount + 1,
+        totalAudioBytes: current.totalAudioBytes + event.bytes,
+        lastEvent: "sendAudio",
+      };
+    case "receive_audio":
+      return {
+        ...current,
+        receivedAudioCount: current.receivedAudioCount + 1,
+        receivedAudioBytes: current.receivedAudioBytes + event.bytes,
+        lastEvent: "audioRecv",
+      };
+    case "playback_start":
+      return {
+        ...current,
+        playbackStartCount: current.playbackStartCount + 1,
+        lastEvent: "playStart",
+      };
+    case "playback_error":
+      return {
+        ...current,
+        playbackErrorCount: current.playbackErrorCount + 1,
+        lastEvent: "playError",
+      };
+    case "playback_debug":
+      return {
+        ...current,
+        lastPlaybackDebug: event.message,
+        lastEvent: "playDbg",
+      };
+    case "no_microphone_frames":
+      return {
+        ...current,
+        lastEvent: "noFrames",
+      };
+    case "start_listening":
+      return {
+        ...current,
+        lastEvent: "start",
+      };
+    case "stop_listening":
+      return {
+        ...current,
+        lastEvent: "stop",
+      };
+  }
+}
+
+export function formatVoiceDiagnostics(diagnostics: VoiceDiagnostics): string {
+  const parts = [
+    `diag frames=${diagnostics.frames}`,
+    `db=${formatDiagnosticDb(diagnostics.lastDb)}`,
+    `peak=${formatDiagnosticDb(diagnostics.peakDb)}`,
+    `speechStart=${diagnostics.speechStartCount}`,
+    `speechEnd=${diagnostics.speechEndCount}`,
+    `sendAudio=${diagnostics.sendAudioCount}`,
+    `sentBytes=${diagnostics.totalAudioBytes}`,
+    `audioRecv=${diagnostics.receivedAudioCount}`,
+    `recvBytes=${diagnostics.receivedAudioBytes}`,
+    `playStart=${diagnostics.playbackStartCount}`,
+    `playError=${diagnostics.playbackErrorCount}`,
+    `last=${diagnostics.lastEvent}`,
+  ];
+
+  if (diagnostics.lastPlaybackDebug) {
+    parts.push(`pb=${diagnostics.lastPlaybackDebug}`);
+  }
+
+  return parts.join(" ");
+}
+
 const initialState: VoiceSessionState = {
   connectionStatus: "idle",
   voiceConfig: null,
   transcript: [],
   retryNotice: null,
   error: null,
+  diagnostics: null,
   isRecording: false,
   isListening: false,
   isPlaying: false,
@@ -191,9 +382,18 @@ export function useVoiceSession(
   const listeningStartInFlightRef = useRef<Promise<void> | null>(null);
   const voiceActivityGenerationRef = useRef(0);
   const vadRestartingRef = useRef(false);
+  const htmlPlaybackActiveRef = useRef(false);
   const playbackSequenceRef = useRef(0);
   const playbackQueueEndAtRef = useRef(0);
+  const playbackInputReadyRef = useRef<Promise<unknown>>(Promise.resolve());
   const pendingUserTranscriptIdRef = useRef<string | null>(null);
+  const microphoneFrameTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const microphoneFrameCountRef = useRef(0);
+  const voiceDiagnosticsRef = useRef<VoiceDiagnostics>(
+    createInitialVoiceDiagnostics(),
+  );
   const backgroundLevelRef = useRef<BackgroundLevelStats>({
     samples: 0,
     meanDb: -160,
@@ -212,6 +412,44 @@ export function useVoiceSession(
 
   function appendTranscript(entry: VoiceTranscriptEntry) {
     update((s) => ({ ...s, transcript: [...s.transcript, entry] }));
+  }
+
+  function publishVoiceDiagnostic(event: VoiceDiagnosticEvent) {
+    const next = updateVoiceDiagnostics(voiceDiagnosticsRef.current, event);
+    voiceDiagnosticsRef.current = next;
+    const diagnostics = formatVoiceDiagnostics(next);
+    console.log(`[VoiceDiag] ${diagnostics}`);
+    update((s) => ({ ...s, diagnostics }));
+  }
+
+  function handlePlaybackDebug(event: VoicePlaybackDebugEvent) {
+    publishVoiceDiagnostic({
+      type: "playback_debug",
+      message: formatPlaybackDebugEvent(event),
+    });
+
+    if (event.type === "web_html_start") {
+      htmlPlaybackActiveRef.current = true;
+      clearResumeListeningTimer();
+      return;
+    }
+
+    if (event.type === "web_html_end") {
+      htmlPlaybackActiveRef.current = false;
+      if (stateRef.current.isListening) {
+        scheduleResumeListening(IOS_WEB_HTML_RESUME_AFTER_RESPONSE_MS);
+      }
+    }
+  }
+
+  function resetVoiceDiagnostics(event: VoiceDiagnosticEvent) {
+    voiceDiagnosticsRef.current = updateVoiceDiagnostics(
+      createInitialVoiceDiagnostics(),
+      event,
+    );
+    const diagnostics = formatVoiceDiagnostics(voiceDiagnosticsRef.current);
+    console.log(`[VoiceDiag] ${diagnostics}`);
+    update((s) => ({ ...s, diagnostics }));
   }
 
   function appendPendingUserTranscript() {
@@ -305,7 +543,10 @@ export function useVoiceSession(
   }
 
   function feedVadMeteringFrame(db: number, pcm16?: Uint8Array) {
+    microphoneFrameCountRef.current += 1;
+    clearMicrophoneFrameWatchdog();
     latestVadDbRef.current = db;
+    publishVoiceDiagnostic({ type: "meter", db });
 
     const segment = speechSegmentRef.current;
     if (segment.active) {
@@ -316,6 +557,40 @@ export function useVoiceSession(
     }
 
     vad.feedMeteringFrame(db, pcm16);
+  }
+
+  function clearMicrophoneFrameWatchdog() {
+    if (microphoneFrameTimerRef.current) {
+      clearTimeout(microphoneFrameTimerRef.current);
+      microphoneFrameTimerRef.current = null;
+    }
+  }
+
+  function scheduleMicrophoneFrameWatchdog() {
+    clearMicrophoneFrameWatchdog();
+    microphoneFrameTimerRef.current = setTimeout(() => {
+      microphoneFrameTimerRef.current = null;
+
+      if (
+        !stateRef.current.isListening ||
+        !vadRecordingActiveRef.current ||
+        microphoneFrameCountRef.current > 0
+      ) {
+        return;
+      }
+
+      voiceActivityGenerationRef.current += 1;
+      publishVoiceDiagnostic({ type: "no_microphone_frames" });
+      stopVadSession();
+      void stopVadRecording();
+      update((s) => ({
+        ...s,
+        connectionStatus: "error",
+        error: NO_MICROPHONE_AUDIO_ERROR,
+        isListening: false,
+        isRecording: false,
+      }));
+    }, MICROPHONE_FRAME_TIMEOUT_MS);
   }
 
   function shouldSubmitSpeechSegment(segment: VadSegmentStats) {
@@ -330,8 +605,8 @@ export function useVoiceSession(
   }
 
   function handleSpeechStart() {
-    console.log("[VoiceSession] VAD: speech start");
     resetSpeechSegment(true);
+    publishVoiceDiagnostic({ type: "speech_start" });
     update((s) => ({ ...s, isRecording: true }));
   }
 
@@ -340,6 +615,7 @@ export function useVoiceSession(
     vad.stop();
     const completedSegment = { ...speechSegmentRef.current };
     resetSpeechSegment(false);
+    publishVoiceDiagnostic({ type: "speech_end" });
     update((s) => ({ ...s, isRecording: false }));
 
     if (stateRef.current.isPlaying) {
@@ -364,6 +640,10 @@ export function useVoiceSession(
           try {
             update((s) => ({ ...s, connectionStatus: "processing" }));
             socket.sendAudio({ wavBytes: result.wavBytes });
+            publishVoiceDiagnostic({
+              type: "send_audio",
+              bytes: result.wavBytes.byteLength,
+            });
           } catch (error) {
             const msg = toErrorMessage(error);
             update((s) => ({
@@ -445,8 +725,9 @@ export function useVoiceSession(
 
   function suspendVadRecording() {
     stopVadSession();
+    clearMicrophoneFrameWatchdog();
     update((s) => ({ ...s, isRecording: false }));
-    void stopVadRecording();
+    return stopVadRecording();
   }
 
   function clearResumeListeningTimer() {
@@ -457,6 +738,10 @@ export function useVoiceSession(
   }
 
   function scheduleResumeListening(delayMs: number, sequence?: number) {
+    if (htmlPlaybackActiveRef.current) {
+      return;
+    }
+
     clearResumeListeningTimer();
     resumeListeningTimerRef.current = setTimeout(() => {
       if (
@@ -488,6 +773,12 @@ export function useVoiceSession(
   }
 
   useEffect(() => clearResumeListeningTimer, []);
+  useEffect(
+    () => () => {
+      clearMicrophoneFrameWatchdog();
+    },
+    [],
+  );
 
   function getPlaybackMinBufferMs(configuredMs: number | undefined): number {
     return configuredMs !== undefined && configuredMs >= 0
@@ -552,22 +843,35 @@ export function useVoiceSession(
 
   function handleMessage(message: VoiceSocketMessage) {
     if (message.type === "audio") {
+      publishVoiceDiagnostic({
+        type: "receive_audio",
+        bytes: message.bytes.byteLength,
+      });
       if (vadRestartingRef.current) return;
       clearResumeListeningTimer();
       if (!stateRef.current.isPlaying) {
-        suspendVadRecording();
+        playbackInputReadyRef.current = suspendVadRecording();
         update((s) => ({ ...s, isPlaying: true }));
       }
       scheduleResumeAfterAudioChunk(message.bytes);
       void playback
-        .play(message.bytes, {
-          sampleRate: stateRef.current.voiceConfig?.sample_rate,
-          playbackMinBufferMs: getPlaybackMinBufferMs(
-            stateRef.current.voiceConfig?.playback_min_buffer_ms,
-          ),
+        .play(
+          message.bytes,
+          {
+            sampleRate: stateRef.current.voiceConfig?.sample_rate,
+            playbackMinBufferMs: getPlaybackMinBufferMs(
+              stateRef.current.voiceConfig?.playback_min_buffer_ms,
+            ),
+            onDebug: handlePlaybackDebug,
+          },
+          playbackInputReadyRef.current,
+        )
+        .then(() => {
+          publishVoiceDiagnostic({ type: "playback_start" });
         })
         .catch((error: unknown) => {
           const msg = toErrorMessage(error);
+          publishVoiceDiagnostic({ type: "playback_error" });
           update((s) => ({
             ...s,
             connectionStatus: "error",
@@ -650,6 +954,7 @@ export function useVoiceSession(
 
     if (message.type === "interruption_handshake") {
       clearResumeListeningTimer();
+      clearMicrophoneFrameWatchdog();
       playback.stop();
       update((s) => ({
         ...s,
@@ -685,8 +990,10 @@ export function useVoiceSession(
   ) {
     const shouldStopLocalVoice = status === "error";
     if (shouldStopLocalVoice) {
+      htmlPlaybackActiveRef.current = false;
       voiceActivityGenerationRef.current += 1;
       clearResumeListeningTimer();
+      clearMicrophoneFrameWatchdog();
       stopVadSession();
       void stopVadRecording();
       playback.stop();
@@ -745,6 +1052,10 @@ export function useVoiceSession(
       const result = await recording.stop();
       if (result.wavBytes) {
         socket.sendAudio({ wavBytes: result.wavBytes });
+        publishVoiceDiagnostic({
+          type: "send_audio",
+          bytes: result.wavBytes.byteLength,
+        });
       }
     } catch {}
   }
@@ -760,32 +1071,61 @@ export function useVoiceSession(
 
     const promise = (async () => {
       voiceActivityGenerationRef.current += 1;
+      resetVoiceDiagnostics({ type: "start_listening" });
+      if (Platform.OS === "web") {
+        playback.prepare();
+      }
+      const shouldPrimeBrowserRecorder =
+        Platform.OS === "web" && !socket.isConnected();
+      let browserRecorderPrimed = false;
 
-      if (!socket.isConnected()) {
-        await socket.connect();
-        if (!socket.isConnected()) {
+      if (shouldPrimeBrowserRecorder) {
+        try {
+          microphoneFrameCountRef.current = 0;
+          await startVadRecording();
+          browserRecorderPrimed = true;
+        } catch (error) {
+          const msg = toErrorMessage(error);
+          update((s) => ({
+            ...s,
+            connectionStatus: "error",
+            error: msg,
+            isListening: false,
+          }));
           return;
         }
       }
 
-      try {
-        await startVadRecording();
-      } catch (error) {
-        const msg = toErrorMessage(error);
-        update((s) => ({
-          ...s,
-          connectionStatus: "error",
-          error: msg,
-          isListening: false,
-        }));
-        return;
+      if (!socket.isConnected()) {
+        await socket.connect();
+        if (!socket.isConnected()) {
+          if (browserRecorderPrimed) {
+            await stopVadRecording();
+          }
+          return;
+        }
+      }
+
+      if (!browserRecorderPrimed) {
+        try {
+          microphoneFrameCountRef.current = 0;
+          await startVadRecording();
+        } catch (error) {
+          const msg = toErrorMessage(error);
+          update((s) => ({
+            ...s,
+            connectionStatus: "error",
+            error: msg,
+            isListening: false,
+          }));
+          return;
+        }
       }
 
       update((s) => ({ ...s, isListening: true }));
-      console.log(
-        "[VoiceSession] startListening: recording started, VAD starting",
-      );
-
+      if (Platform.OS === "web" && microphoneFrameCountRef.current === 0) {
+        scheduleMicrophoneFrameWatchdog();
+      }
       startVadSession();
     })().finally(() => {
       listeningStartInFlightRef.current = null;
@@ -795,16 +1135,21 @@ export function useVoiceSession(
   }
 
   function stopListening() {
+    htmlPlaybackActiveRef.current = false;
     voiceActivityGenerationRef.current += 1;
     clearResumeListeningTimer();
+    clearMicrophoneFrameWatchdog();
     stopVadSession();
     void stopVadRecording();
+    publishVoiceDiagnostic({ type: "stop_listening" });
     update((s) => ({ ...s, isListening: false, isRecording: false }));
   }
 
   async function interrupt() {
+    htmlPlaybackActiveRef.current = false;
     voiceActivityGenerationRef.current += 1;
     clearResumeListeningTimer();
+    clearMicrophoneFrameWatchdog();
     playback.stop();
     try {
       socket.sendInterrupt();
@@ -868,8 +1213,10 @@ export function useVoiceSession(
   }
 
   function disconnect() {
+    htmlPlaybackActiveRef.current = false;
     voiceActivityGenerationRef.current += 1;
     clearResumeListeningTimer();
+    clearMicrophoneFrameWatchdog();
     stopVadSession();
     void stopVadRecording();
     playback.stop();

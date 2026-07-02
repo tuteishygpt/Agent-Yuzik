@@ -22,6 +22,8 @@ const STOP_TIMEOUT_MS = 100;
 const METERING_THROTTLE_MS = 50;
 const MICROPHONE_PERMISSION_ERROR =
   "Microphone permission is required to start voice recording.";
+const MICROPHONE_INSECURE_CONTEXT_ERROR =
+  "Browser microphone access requires HTTPS or localhost. Open this page over HTTPS, or use http://localhost on the same device.";
 const MICROPHONE_UNSUPPORTED_ERROR =
   "Microphone recording is not supported in this browser.";
 
@@ -165,6 +167,38 @@ function getWebAudioContextConstructor(): typeof AudioContext | undefined {
   return audioGlobal.AudioContext ?? audioGlobal.webkitAudioContext;
 }
 
+function getErrorDiagnostics(error: unknown) {
+  if (error && typeof error === "object") {
+    const candidate = error as { name?: unknown; message?: unknown };
+    return {
+      name:
+        typeof candidate.name === "string"
+          ? candidate.name
+          : error instanceof Error
+            ? error.name
+            : typeof error,
+      message:
+        typeof candidate.message === "string"
+          ? candidate.message
+          : error instanceof Error
+            ? error.message
+            : String(error),
+    };
+  }
+
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+    };
+  }
+
+  return {
+    name: typeof error,
+    message: String(error),
+  };
+}
+
 function createWebVoiceRecorderAdapter(): VoiceRecorderAdapter {
   type RecorderState = "idle" | "prepared" | "recording";
   type WebAudioContext = AudioContext & {
@@ -191,8 +225,23 @@ function createWebVoiceRecorderAdapter(): VoiceRecorderAdapter {
 
     const AudioContextCtor = getWebAudioContextConstructor();
     const mediaDevices = globalThis.navigator?.mediaDevices;
-    if (!AudioContextCtor || !mediaDevices?.getUserMedia) {
+    if (!AudioContextCtor) {
       throw new Error(MICROPHONE_UNSUPPORTED_ERROR);
+    }
+    if (!mediaDevices?.getUserMedia) {
+      throw new Error(
+        globalThis.isSecureContext === false
+          ? MICROPHONE_INSECURE_CONTEXT_ERROR
+          : MICROPHONE_UNSUPPORTED_ERROR,
+      );
+    }
+
+    context = new AudioContextCtor({
+      sampleRate: SAMPLE_RATE,
+    }) as WebAudioContext;
+    const resumePromise = context.resume?.();
+    if (resumePromise) {
+      void resumePromise.catch(() => undefined);
     }
 
     try {
@@ -205,17 +254,21 @@ function createWebVoiceRecorderAdapter(): VoiceRecorderAdapter {
           sampleRate: SAMPLE_RATE,
         },
       });
-    } catch {
+    } catch (error) {
+      console.warn("[VoiceRecorder] getUserMedia failed", {
+        ...getErrorDiagnostics(error),
+        isSecureContext: globalThis.isSecureContext,
+      });
+      const closingContext = context;
+      context = null;
+      void closingContext.close?.();
       throw new Error(MICROPHONE_PERMISSION_ERROR);
     }
 
-    context = new AudioContextCtor({
-      sampleRate: SAMPLE_RATE,
-    }) as WebAudioContext;
     state = "prepared";
   }
 
-  function releaseWebAudioGraph() {
+  async function releaseWebAudioGraph() {
     processor?.disconnect();
     source?.disconnect();
     processor = null;
@@ -226,7 +279,7 @@ function createWebVoiceRecorderAdapter(): VoiceRecorderAdapter {
 
     const closingContext = context;
     context = null;
-    void closingContext?.close?.();
+    await closingContext?.close?.().catch(() => undefined);
   }
 
   function appendPcmChunk(chunk: Uint8Array) {
@@ -273,7 +326,6 @@ function createWebVoiceRecorderAdapter(): VoiceRecorderAdapter {
       };
       source.connect(processor);
       processor.connect(context.destination);
-      await context.resume?.();
       state = "recording";
     },
     async stop() {
@@ -281,7 +333,7 @@ function createWebVoiceRecorderAdapter(): VoiceRecorderAdapter {
         return { uri: null, wavBytes: null };
       }
 
-      releaseWebAudioGraph();
+      await releaseWebAudioGraph();
       state = "idle";
 
       if (totalPcmBytes === 0) {

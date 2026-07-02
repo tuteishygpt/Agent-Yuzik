@@ -3,12 +3,15 @@ import { useEffect, useRef } from "react";
 import {
   createVoicePlaybackAdapter,
   type VoicePlaybackAdapter,
+  type VoicePlaybackBytesOptions,
 } from "@/lib/audio-playback";
 
 export type VoicePlaybackControls = {
+  prepare: () => void;
   play: (
     bytes: Uint8Array,
-    options?: { sampleRate?: number; playbackMinBufferMs?: number },
+    options?: VoicePlaybackBytesOptions,
+    waitFor?: Promise<unknown>,
   ) => Promise<void>;
   stop: () => void;
   release: () => void;
@@ -31,7 +34,11 @@ export function useVoicePlayback(
   }, []);
 
   return {
-    play: (bytes, options) => getPlayback().playBytes(bytes, options),
+    prepare: () => getPlayback().prepare(),
+    play: async (bytes, options, waitFor) => {
+      await waitFor;
+      await getPlayback().playBytes(bytes, options);
+    },
     stop: () => playbackRef.current?.stop(),
     release: () => playbackRef.current?.release(),
   };
