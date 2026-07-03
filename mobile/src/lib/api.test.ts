@@ -436,6 +436,92 @@ describe("artifact fetcher", () => {
     expect(artifact.localUri).toBe("file:///cache/yuzik-artifact-url123.png");
   });
 
+  it("uses a browser blob url for preview artifacts when web file cache is unavailable", async () => {
+    const { Platform } = require("react-native") as typeof import("react-native");
+    const originalPlatform = Platform.OS;
+    const originalCreateObjectUrl = URL.createObjectURL;
+    const createObjectURL = jest.fn(() => "blob:yuzik-image");
+    const fetchImpl = jest.fn().mockResolvedValue({
+      ok: true,
+      blob: jest.fn().mockResolvedValue(new Blob(["image"], { type: "image/png" })),
+    });
+    const downloadAsync = jest.fn();
+    const getInfoAsync = jest.fn();
+    const makeDirectoryAsync = jest.fn();
+
+    Object.defineProperty(Platform, "OS", {
+      configurable: true,
+      value: "web",
+    });
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: createObjectURL,
+    });
+
+    try {
+      const { createArtifactFetcher } = require("./artifact-fetch") as typeof import("./artifact-fetch");
+      const fetcher = createArtifactFetcher({
+        api: {
+          createArtifactRequest: async (artifactId: string) => ({
+            url: `https://api.yuzik.example/api/files/${artifactId}`,
+            headers: {
+              Authorization: "Bearer token-123",
+            },
+          }),
+        },
+        fetchImpl,
+        fileSystem: {
+          cacheDirectory: null,
+          downloadAsync,
+          getInfoAsync,
+          makeDirectoryAsync,
+        },
+        sharing: {
+          isAvailableAsync: async () => false,
+          shareAsync: jest.fn(),
+        },
+        openUrl: jest.fn(),
+      });
+
+      const artifact = await fetcher.resolveArtifact({
+        artifactId: "image-1",
+        mimeType: "image/png",
+        filename: "image-1.png",
+      });
+      const cachedArtifact = await fetcher.resolveArtifact({
+        artifactId: "image-1",
+        mimeType: "image/png",
+        filename: "image-1.png",
+      });
+
+      expect(artifact.localUri).toBe("blob:yuzik-image");
+      expect(cachedArtifact.localUri).toBe("blob:yuzik-image");
+      expect(artifact.presentation).toBe("preview");
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      expect(fetchImpl).toHaveBeenCalledWith(
+        "https://api.yuzik.example/api/files/image-1",
+        {
+          headers: {
+            Authorization: "Bearer token-123",
+          },
+        },
+      );
+      expect(createObjectURL).toHaveBeenCalledWith(expect.any(Blob));
+      expect(downloadAsync).not.toHaveBeenCalled();
+      expect(getInfoAsync).not.toHaveBeenCalled();
+      expect(makeDirectoryAsync).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(Platform, "OS", {
+        configurable: true,
+        value: originalPlatform,
+      });
+      Object.defineProperty(URL, "createObjectURL", {
+        configurable: true,
+        value: originalCreateObjectUrl,
+      });
+    }
+  });
+
   it("uses the cache key for local storage while preserving the remote artifact id", async () => {
     const downloadAsync = jest.fn().mockResolvedValue({
       uri: "file:///cache/yuzik-artifact-response-1.wav",

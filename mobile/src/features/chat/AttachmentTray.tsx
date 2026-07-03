@@ -26,7 +26,12 @@ export function AttachmentTray({ attachment, onClear }: AttachmentTrayProps) {
           {attachment.mimeType ?? "невядомы тып"}
         </Text>
       </View>
-      <Pressable onPress={onClear} style={styles.clearButton}>
+      <Pressable
+        accessibilityLabel="Remove attachment"
+        accessibilityRole="button"
+        onPress={onClear}
+        style={styles.clearButton}
+      >
         <Text style={styles.clearText}>Выдаліць</Text>
       </Pressable>
     </View>
@@ -68,6 +73,10 @@ const styles = StyleSheet.create({
   },
   clearButton: {
     alignSelf: "center",
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: "center",
+    justifyContent: "center",
     borderRadius: webTheme.radii.md,
     backgroundColor: webTheme.colors.surfaceStrong,
     borderWidth: 1,

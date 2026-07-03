@@ -108,7 +108,7 @@ type ClearHistoryDialogProps = {
 function ClearHistoryDialog({ onCancel, onConfirm }: ClearHistoryDialogProps) {
   return (
     <View style={styles.confirmOverlay} testID="chat-clear-confirm-overlay">
-      <View style={styles.confirmDialog}>
+      <View style={styles.confirmDialog} testID="chat-clear-confirm-dialog">
         <Text style={styles.confirmTitle}>
           Ці дакладна жадаеце выдаліць дыялог?
         </Text>
@@ -228,7 +228,7 @@ export default function ChatScreen() {
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
-        style={styles.flex}
+        style={[styles.flex, styles.mobileFrame]}
       >
         <ChatHeader
           onClearHistory={() => setShowClearConfirm(true)}
@@ -284,13 +284,19 @@ const styles = StyleSheet.create({
   flex: {
     flex: 1,
   },
+  mobileFrame: {
+    width: "100%",
+    maxWidth: 430,
+    alignSelf: "center",
+  },
   header: {
-    height: 70,
+    height: 76,
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingTop: 35,
+    paddingTop: 24,
+    paddingBottom: 8,
     backgroundColor: webTheme.colors.background,
   },
   chatTab: {
@@ -320,10 +326,11 @@ const styles = StyleSheet.create({
     lineHeight: 27,
   },
   clearButton: {
-    width: 24,
-    height: 24,
+    width: 44,
+    height: 44,
     alignItems: "center",
     justifyContent: "center",
+    borderRadius: 22,
   },
   trashIcon: {
     width: 24,
@@ -405,17 +412,17 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 48,
+    paddingHorizontal: 24,
     backgroundColor: "rgba(54, 36, 36, 0.72)",
   },
   confirmDialog: {
     width: "100%",
-    maxWidth: 236,
+    maxWidth: 312,
     alignItems: "center",
     gap: 12,
-    paddingHorizontal: 14,
+    paddingHorizontal: 16,
     paddingVertical: 18,
-    borderRadius: 16,
+    borderRadius: webTheme.radii.md,
     backgroundColor: webTheme.colors.surface,
     borderWidth: 1,
     borderColor: webTheme.colors.border,
@@ -430,10 +437,10 @@ const styles = StyleSheet.create({
   },
   confirmDeleteButton: {
     width: "100%",
-    minHeight: 42,
+    minHeight: 44,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 21,
+    borderRadius: webTheme.radii.md,
     backgroundColor: webTheme.colors.primary,
   },
   confirmDeleteText: {
@@ -443,10 +450,10 @@ const styles = StyleSheet.create({
   },
   confirmCancelButton: {
     width: "100%",
-    minHeight: 42,
+    minHeight: 44,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 21,
+    borderRadius: webTheme.radii.md,
     backgroundColor: webTheme.colors.surface,
     borderWidth: 1,
     borderColor: webTheme.colors.border,

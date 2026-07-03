@@ -1,10 +1,80 @@
-import { StyleSheet, Text, View } from "react-native";
+import { KeyboardAvoidingView, StyleSheet, Text, View } from "react-native";
 import { act } from "react-test-renderer";
 
 import { render } from "@/test/render";
 import { webTheme } from "@/theme/webTheme";
 
-import { ChatHeader } from "./ChatScreen";
+import ChatScreen, { ChatHeader } from "./ChatScreen";
+
+const mockOpenMenu = jest.fn();
+const mockClearHistory = jest.fn().mockResolvedValue(undefined);
+
+jest.mock("@/lib/api", () => ({
+  createChatApiClient: jest.fn(() => ({
+    clearHistory: jest.fn(),
+    getHistory: jest.fn(),
+    sendMessage: jest.fn(),
+  })),
+}));
+
+jest.mock("@/lib/env", () => ({
+  getRuntimeEnv: () => ({ backendUrl: "http://localhost:8000" }),
+}));
+
+jest.mock("@/lib/file-picker", () => ({
+  pickSingleAttachment: jest.fn(),
+}));
+
+jest.mock("@/lib/legacy-user-id", () => ({
+  getLegacyMobileUserId: jest.fn(),
+}));
+
+jest.mock("@/lib/supabase", () => ({
+  getSupabaseSession: jest.fn(),
+}));
+
+jest.mock("@/lib/audio-recording", () => ({
+  createVoiceRecorderAdapter: jest.fn(),
+}));
+
+jest.mock("expo-audio", () => ({
+  useAudioPlayer: jest.fn(() => ({
+    pause: jest.fn(),
+    play: jest.fn(),
+  })),
+  useAudioPlayerStatus: jest.fn(() => ({
+    duration: 0,
+    playing: false,
+  })),
+}));
+
+jest.mock("@/navigation/MenuContext", () => ({
+  useMenu: () => ({ openMenu: mockOpenMenu }),
+}));
+
+jest.mock("react-native-safe-area-context", () => {
+  const { View } = jest.requireActual("react-native");
+  return {
+    SafeAreaView: View,
+    useSafeAreaInsets: () => ({ bottom: 0, left: 0, right: 0, top: 0 }),
+  };
+});
+
+jest.mock("./useChatController", () => ({
+  useChatController: () => ({
+    attachment: null,
+    clearAttachment: jest.fn(),
+    clearHistory: mockClearHistory,
+    draftText: "",
+    error: null,
+    isSending: false,
+    messages: [],
+    pickAttachment: jest.fn(),
+    sendMessage: jest.fn(),
+    setAttachment: jest.fn(),
+    setDraftText: jest.fn(),
+  }),
+}));
 
 describe("ChatHeader", () => {
   it("matches the Figma header menu label and trash affordances", () => {
@@ -56,5 +126,71 @@ describe("ChatHeader", () => {
         .some((node) => node.props.children === "x"),
     ).toBe(false);
     expect(trashLines.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it("keeps header icon actions large enough for mobile touch targets", () => {
+    const screen = render(
+      <ChatHeader onClearHistory={jest.fn()} onOpenMenu={jest.fn()} />,
+    );
+
+    const clearButton = screen.renderer.root.findByProps({
+      accessibilityLabel: "Clear chat history",
+    });
+    const clearButtonStyle = StyleSheet.flatten(clearButton.props.style);
+
+    expect(clearButtonStyle.width).toBeGreaterThanOrEqual(44);
+    expect(clearButtonStyle.height).toBeGreaterThanOrEqual(44);
+  });
+
+  it("shows a mobile-sized clear history confirmation state", () => {
+    const screen = render(<ChatScreen />);
+
+    act(() => {
+      screen.renderer.root
+        .findByProps({ accessibilityLabel: "Clear chat history" })
+        .props.onPress();
+    });
+
+    const overlay = screen.renderer.root.findByProps({
+      testID: "chat-clear-confirm-overlay",
+    });
+    const dialog = screen.renderer.root.findByProps({
+      testID: "chat-clear-confirm-dialog",
+    });
+    const deleteButton = screen.renderer.root.findByProps({
+      accessibilityLabel: "Confirm clear chat history",
+    });
+    const cancelButton = screen.renderer.root.findByProps({
+      accessibilityLabel: "Cancel clear chat history",
+    });
+
+    const overlayStyle = StyleSheet.flatten(overlay.props.style);
+    const dialogStyle = StyleSheet.flatten(dialog.props.style);
+    const deleteStyle = StyleSheet.flatten(deleteButton.props.style);
+    const cancelStyle = StyleSheet.flatten(cancelButton.props.style);
+
+    expect(overlayStyle.paddingHorizontal).toBeLessThanOrEqual(24);
+    expect(dialogStyle.maxWidth).toBeGreaterThanOrEqual(280);
+    expect(dialogStyle.borderRadius).toBeLessThanOrEqual(webTheme.radii.md);
+    expect(deleteStyle.minHeight).toBeGreaterThanOrEqual(44);
+    expect(cancelStyle.minHeight).toBeGreaterThanOrEqual(44);
+
+    act(() => {
+      screen.renderer.unmount();
+    });
+  });
+
+  it("constrains the chat surface to mobile width on wide web screens", () => {
+    const screen = render(<ChatScreen />);
+    const frame = screen.renderer.root.findByType(KeyboardAvoidingView);
+    const frameStyle = StyleSheet.flatten(frame.props.style);
+
+    expect(frameStyle.width).toBe("100%");
+    expect(frameStyle.maxWidth).toBeLessThanOrEqual(430);
+    expect(frameStyle.alignSelf).toBe("center");
+
+    act(() => {
+      screen.renderer.unmount();
+    });
   });
 });

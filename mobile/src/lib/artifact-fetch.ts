@@ -1,4 +1,4 @@
-import { Linking } from "react-native";
+import { Linking, Platform } from "react-native";
 
 import type { ArtifactRequest, ChatApiClient } from "@/lib/api";
 
@@ -45,6 +45,7 @@ export type ArtifactFetcher = {
 
 type ArtifactFetcherOptions = {
   api: Pick<ChatApiClient, "createArtifactRequest">;
+  fetchImpl?: typeof fetch;
   fileSystem?: FileSystemLike;
   sharing?: SharingLike;
   openUrl?: (url: string) => Promise<void>;
@@ -130,6 +131,7 @@ async function getDefaultSharing(): Promise<SharingLike> {
 
 export function createArtifactFetcher({
   api,
+  fetchImpl = fetch,
   fileSystem,
   sharing,
   openUrl = async (url: string) => {
@@ -165,6 +167,38 @@ export function createArtifactFetcher({
     sourceUrl?: string | null,
   ): Promise<string> {
     const fs = await resolveFileSystem();
+    if (Platform.OS === "web" && !fs.cacheDirectory) {
+      const webCacheKey = `web:${cacheKey || artifactId}`;
+      const cached = artifactCache.get(webCacheKey);
+      if (cached) {
+        return cached;
+      }
+
+      const request: ArtifactRequest = sourceUrl
+        ? { url: sourceUrl, headers: {} }
+        : await api.createArtifactRequest(artifactId);
+      const response = await fetchImpl(request.url, {
+        headers: request.headers,
+      });
+
+      if (!response.ok) {
+        throw new Error(`Artifact download failed with status ${response.status}.`);
+      }
+
+      if (
+        typeof Blob === "undefined" ||
+        typeof URL === "undefined" ||
+        typeof URL.createObjectURL !== "function"
+      ) {
+        throw new Error("Browser artifact blob URLs are unavailable.");
+      }
+
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      artifactCache.set(webCacheKey, objectUrl);
+      return objectUrl;
+    }
+
     const cacheUri = buildArtifactCachePath(
       fs.cacheDirectory,
       cacheKey || artifactId,
