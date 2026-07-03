@@ -1,8 +1,10 @@
-import { forwardRef } from "react";
+import { forwardRef, useState } from "react";
+import { useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
 import {
   FlatList,
   Image,
   Keyboard,
+  Modal,
   Pressable,
   StyleSheet,
   Text,
@@ -21,7 +23,83 @@ type MessageListProps = {
   showStartScreen?: boolean;
 };
 
-function MessageCard({ message }: { message: ChatMessage }) {
+const AUDIO_WAVEFORM_BARS = [
+  7, 8, 7, 9, 8, 7, 10, 15, 21, 24, 19, 13, 9, 13, 18, 22, 20, 14, 10, 16,
+  25, 19, 9, 7, 8, 7, 7, 8, 7, 7,
+];
+
+function formatAudioDuration(durationSeconds: number): string {
+  const normalizedDuration = Math.max(
+    0,
+    Math.floor(Number.isFinite(durationSeconds) ? durationSeconds : 0),
+  );
+  const minutes = Math.floor(normalizedDuration / 60);
+  const seconds = normalizedDuration % 60;
+
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function AudioArtifactPreview({ uri }: { uri: string }) {
+  const player = useAudioPlayer({ uri }, { updateInterval: 250 });
+  const status = useAudioPlayerStatus(player);
+  const isPlaying = status.playing;
+
+  function togglePlayback(): void {
+    if (isPlaying) {
+      player.pause();
+      return;
+    }
+
+    player.play();
+  }
+
+  return (
+    <Pressable
+      accessibilityLabel="Play audio message"
+      onPress={togglePlayback}
+      style={styles.audioMessage}
+      testID="chat-audio-play-button"
+    >
+      <View style={styles.audioPlayButton}>
+        {isPlaying ? (
+          <View style={styles.audioPauseIcon} testID="chat-audio-pause-icon">
+            <View style={styles.audioPauseBar} />
+            <View style={styles.audioPauseBar} />
+          </View>
+        ) : (
+          <View style={styles.audioPlayIcon} testID="chat-audio-play-icon" />
+        )}
+      </View>
+      <View style={styles.audioContent}>
+        <View style={styles.audioWaveform} testID="chat-audio-waveform">
+          {AUDIO_WAVEFORM_BARS.map((height, index) => (
+            <View
+              key={`${height}-${index}`}
+              style={[
+                styles.audioWaveformBar,
+                {
+                  height,
+                  opacity: height > 14 ? 0.82 : 0.5,
+                },
+              ]}
+            />
+          ))}
+        </View>
+        <Text style={styles.audioDuration}>
+          {formatAudioDuration(status.duration)}
+        </Text>
+      </View>
+    </Pressable>
+  );
+}
+
+function MessageCard({
+  message,
+  onOpenImage,
+}: {
+  message: ChatMessage;
+  onOpenImage: (uri: string) => void;
+}) {
   const { t } = useI18n();
   const isUser = message.role === "user";
 
@@ -35,38 +113,28 @@ function MessageCard({ message }: { message: ChatMessage }) {
           </Text>
         ) : null}
         {message.artifact?.kind === "image" ? (
-          <Image source={{ uri: message.artifact.localUri }} style={styles.imagePreview} />
+          <Pressable
+            accessibilityLabel="Open image fullscreen"
+            onPress={() => onOpenImage(message.artifact!.localUri)}
+            testID="chat-image-preview-button"
+          >
+            <Image
+              source={{ uri: message.artifact.localUri }}
+              style={styles.imagePreview}
+              testID="chat-image-preview"
+            />
+          </Pressable>
         ) : null}
         {message.artifact ? (
           <View style={styles.artifactActions}>
-            <Text style={[styles.artifact, isUser && styles.userArtifact]}>
-              {message.artifact.kind === "image"
-                ? t("chat.imageCached")
-                : t("chat.audioCached")}
-            </Text>
-            <View style={styles.actionRow}>
-              {message.artifact.kind === "audio" && message.artifact.play ? (
-                <Pressable
-                  onPress={() => void message.artifact?.play?.()}
-                  style={styles.actionButton}
-                  testID="chat-audio-play-button"
-                >
-                  <Text style={styles.actionText}>{t("chat.play")}</Text>
-                </Pressable>
-              ) : null}
-              <Pressable
-                onPress={() => void message.artifact?.openInSystem()}
-                style={styles.actionButton}
-              >
-                <Text style={styles.actionText}>{t("chat.open")}</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => void message.artifact?.share()}
-                style={styles.actionButton}
-              >
-                <Text style={styles.actionText}>{t("chat.share")}</Text>
-              </Pressable>
-            </View>
+            {message.artifact.kind === "image" ? (
+              <Text style={[styles.artifact, isUser && styles.userArtifact]}>
+                {t("chat.imageCached")}
+              </Text>
+            ) : null}
+            {message.artifact.kind === "audio" && message.artifact.play ? (
+              <AudioArtifactPreview uri={message.artifact.localUri} />
+            ) : null}
           </View>
         ) : null}
         {message.artifactError ? (
@@ -74,6 +142,36 @@ function MessageCard({ message }: { message: ChatMessage }) {
         ) : null}
       </View>
     </View>
+  );
+}
+
+function ImagePreviewModal({
+  imageUri,
+  onClose,
+}: {
+  imageUri: string | null;
+  onClose: () => void;
+}) {
+  return (
+    <Modal animationType="fade" transparent visible={Boolean(imageUri)}>
+      <View style={styles.fullscreenOverlay}>
+        <Pressable
+          accessibilityLabel="Close image preview"
+          onPress={onClose}
+          style={styles.fullscreenClose}
+        >
+          <Text style={styles.fullscreenCloseText}>X</Text>
+        </Pressable>
+        {imageUri ? (
+          <Image
+            resizeMode="contain"
+            source={{ uri: imageUri }}
+            style={styles.fullscreenImage}
+            testID="chat-fullscreen-image"
+          />
+        ) : null}
+      </View>
+    </Modal>
   );
 }
 
@@ -149,26 +247,36 @@ export const MessageList = forwardRef<FlatList, MessageListFullProps>(
     },
     ref,
   ) {
+    const [fullscreenImageUri, setFullscreenImageUri] = useState<string | null>(null);
+
     return (
-      <FlatList
-        ListEmptyComponent={
-          showStartScreen ? (
-            <EmptyState onSelectPrompt={onSelectPrompt} />
-          ) : (
-            <View style={styles.blankState} />
-          )
-        }
-        ListFooterComponent={isSending ? <TypingIndicator /> : null}
-        contentContainerStyle={styles.listContent}
-        data={messages}
-        keyboardDismissMode="interactive"
-        keyboardShouldPersistTaps="handled"
-        keyExtractor={(item) => item.id}
-        onContentSizeChange={onContentSizeChange}
-        onScrollBeginDrag={Keyboard.dismiss}
-        ref={ref}
-        renderItem={({ item }) => <MessageCard message={item} />}
-      />
+      <>
+        <FlatList
+          ListEmptyComponent={
+            showStartScreen ? (
+              <EmptyState onSelectPrompt={onSelectPrompt} />
+            ) : (
+              <View style={styles.blankState} />
+            )
+          }
+          ListFooterComponent={isSending ? <TypingIndicator /> : null}
+          contentContainerStyle={styles.listContent}
+          data={messages}
+          keyboardDismissMode="interactive"
+          keyboardShouldPersistTaps="handled"
+          keyExtractor={(item) => item.id}
+          onContentSizeChange={onContentSizeChange}
+          onScrollBeginDrag={Keyboard.dismiss}
+          ref={ref}
+          renderItem={({ item }) => (
+            <MessageCard message={item} onOpenImage={setFullscreenImageUri} />
+          )}
+        />
+        <ImagePreviewModal
+          imageUri={fullscreenImageUri}
+          onClose={() => setFullscreenImageUri(null)}
+        />
+      </>
     );
   },
 );
@@ -232,23 +340,73 @@ const styles = StyleSheet.create({
     gap: 8,
     marginTop: 8,
   },
-  actionRow: {
+  audioMessage: {
+    width: 304,
+    minHeight: 64,
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  actionButton: {
-    borderRadius: webTheme.radii.md,
-    backgroundColor: webTheme.colors.surfaceStrong,
+    alignItems: "center",
+    gap: 12,
+    borderRadius: webTheme.radii.xl,
+    backgroundColor: webTheme.colors.userMsgBg,
     borderWidth: 1,
-    borderColor: webTheme.colors.border,
+    borderColor: webTheme.colors.borderStrong,
     paddingHorizontal: 12,
     paddingVertical: 8,
   },
-  actionText: {
-    color: webTheme.colors.text,
-    fontSize: 12,
-    fontWeight: "800",
+  audioPlayButton: {
+    width: 48,
+    height: 48,
+    flexShrink: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 24,
+    backgroundColor: webTheme.colors.surface,
+  },
+  audioPlayIcon: {
+    width: 0,
+    height: 0,
+    marginLeft: 4,
+    borderTopWidth: 9,
+    borderBottomWidth: 9,
+    borderLeftWidth: 14,
+    borderTopColor: "transparent",
+    borderBottomColor: "transparent",
+    borderLeftColor: webTheme.colors.primary,
+  },
+  audioPauseIcon: {
+    width: 16,
+    height: 18,
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  audioPauseBar: {
+    width: 5,
+    height: 18,
+    borderRadius: 2,
+    backgroundColor: webTheme.colors.primary,
+  },
+  audioContent: {
+    flex: 1,
+    minWidth: 0,
+    gap: 6,
+  },
+  audioWaveform: {
+    height: 26,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+    overflow: "hidden",
+  },
+  audioWaveformBar: {
+    width: 2,
+    borderRadius: 1,
+    backgroundColor: webTheme.colors.surface,
+  },
+  audioDuration: {
+    color: webTheme.colors.surface,
+    fontSize: 14,
+    fontWeight: "700",
+    lineHeight: 18,
   },
   imagePreview: {
     width: 180,
@@ -256,6 +414,34 @@ const styles = StyleSheet.create({
     marginTop: 10,
     borderRadius: webTheme.radii.lg,
     backgroundColor: webTheme.colors.surfaceMuted,
+  },
+  fullscreenOverlay: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(14, 9, 9, 0.92)",
+  },
+  fullscreenImage: {
+    width: "100%",
+    height: "100%",
+  },
+  fullscreenClose: {
+    position: "absolute",
+    top: 44,
+    right: 16,
+    zIndex: 1,
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 22,
+    backgroundColor: "rgba(255, 253, 253, 0.14)",
+  },
+  fullscreenCloseText: {
+    color: webTheme.colors.surface,
+    fontSize: 30,
+    fontWeight: "300",
+    lineHeight: 32,
   },
   artifactError: {
     marginTop: 8,
@@ -282,7 +468,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "flex-start",
-    paddingTop: 116,
+    paddingTop: 64,
   },
   emptyTitle: {
     color: webTheme.colors.text,
@@ -305,7 +491,8 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   promptGrid: {
-    width: 311,
+    width: "100%",
+    maxWidth: 311,
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "center",

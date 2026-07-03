@@ -8,6 +8,18 @@ type ChatAudioSound = {
   ) => { remove: () => void };
 };
 
+type ChatAudioModule = {
+  AudioPlayer?: new (
+    source: { uri: string },
+    updateInterval: number,
+    keepAudioSessionActive: boolean,
+  ) => ChatAudioSound;
+  AudioPlayerWeb?: new (
+    source: { uri: string },
+    options: { updateInterval: number },
+  ) => ChatAudioSound;
+};
+
 let currentSound: ChatAudioSound | null = null;
 let currentSubscription: { remove: () => void } | null = null;
 
@@ -27,19 +39,23 @@ function cleanupCurrentSound(): void {
 export async function playChatAudioArtifact(uri: string): Promise<void> {
   cleanupCurrentSound();
 
-  const audioModule = require("expo-audio/build/AudioModule").default as {
-    AudioPlayer?: new (
-      source: { uri: string },
-      updateInterval: number,
-      keepAudioSessionActive: boolean,
-    ) => ChatAudioSound;
+  const audioModuleExports = require("expo-audio/build/AudioModule") as {
+    default?: unknown;
+    AudioPlayerWeb?: unknown;
   };
+  const audioModule = (audioModuleExports.default ??
+    audioModuleExports) as ChatAudioModule;
 
-  if (!audioModule.AudioPlayer) {
+  const player = audioModule.AudioPlayer
+    ? new audioModule.AudioPlayer({ uri }, 500, false)
+    : audioModule.AudioPlayerWeb
+      ? new audioModule.AudioPlayerWeb({ uri }, { updateInterval: 500 })
+      : null;
+
+  if (!player) {
     throw new Error("Expo audio playback is unavailable.");
   }
 
-  const player = new audioModule.AudioPlayer({ uri }, 500, false);
   currentSound = player;
   currentSubscription =
     player.addListener?.("playbackStatusUpdate", (status) => {
