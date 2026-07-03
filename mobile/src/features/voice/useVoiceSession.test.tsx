@@ -133,8 +133,14 @@ describe("useVoiceSession", () => {
   it("formats voice diagnostics for microphone and VAD events", () => {
     let diagnostics = createInitialVoiceDiagnostics();
 
-    diagnostics = updateVoiceDiagnostics(diagnostics, { type: "meter", db: -62 });
-    diagnostics = updateVoiceDiagnostics(diagnostics, { type: "meter", db: -41.24 });
+    diagnostics = updateVoiceDiagnostics(diagnostics, {
+      type: "meter",
+      db: -62,
+    });
+    diagnostics = updateVoiceDiagnostics(diagnostics, {
+      type: "meter",
+      db: -41.24,
+    });
     diagnostics = updateVoiceDiagnostics(diagnostics, { type: "speech_start" });
     diagnostics = updateVoiceDiagnostics(diagnostics, { type: "speech_end" });
     diagnostics = updateVoiceDiagnostics(diagnostics, {
@@ -145,11 +151,23 @@ describe("useVoiceSession", () => {
       type: "receive_audio",
       bytes: 4096,
     });
-    diagnostics = updateVoiceDiagnostics(diagnostics, { type: "playback_start" });
-    diagnostics = updateVoiceDiagnostics(diagnostics, { type: "playback_error" });
+    diagnostics = updateVoiceDiagnostics(diagnostics, {
+      type: "playback_start",
+    });
+    diagnostics = updateVoiceDiagnostics(diagnostics, {
+      type: "playback_error",
+    });
+    diagnostics = updateVoiceDiagnostics(diagnostics, {
+      type: "vad_config",
+      summary: "pos=-55.0,neg=-60.0,min=2,red=5,drop=25.0,tenThr=0.5,hop=256,floor=-65.0",
+    });
+    diagnostics = updateVoiceDiagnostics(diagnostics, {
+      type: "vad_runtime",
+      runtime: "ten-web",
+    });
 
     expect(formatVoiceDiagnostics(diagnostics)).toBe(
-      "diag frames=2 db=-41.2 peak=-41.2 speechStart=1 speechEnd=1 sendAudio=1 sentBytes=2048 audioRecv=1 recvBytes=4096 playStart=1 playError=1 last=playError",
+      "diag frames=2 db=-41.2 peak=-41.2 speechStart=1 speechEnd=1 sendAudio=1 sentBytes=2048 audioRecv=1 recvBytes=4096 playStart=1 playError=1 last=vad vad=ten-web vadCfg=pos=-55.0,neg=-60.0,min=2,red=5,drop=25.0,tenThr=0.5,hop=256,floor=-65.0",
     );
   });
 
@@ -773,10 +791,12 @@ describe("useVoiceSession", () => {
     const socket = createSocketClient();
     const recorder = createRecorder();
     const playback = createPlayback();
-    let playbackDebug: ((event: {
-      type: "web_html_start" | "web_html_end";
-      bytes?: number;
-    }) => void) | null = null;
+    let playbackDebug:
+      | ((event: {
+          type: "web_html_start" | "web_html_end";
+          bytes?: number;
+        }) => void)
+      | null = null;
     playback.playBytes.mockImplementation(async (_bytes, options) => {
       playbackDebug = options?.onDebug ?? null;
       playbackDebug?.({ type: "web_html_start", bytes: 4008 });
@@ -1454,6 +1474,50 @@ describe("useVoiceSession", () => {
     expect(session.isRecording).toBe(false);
   });
 
+  it("updates the live input level from microphone metering", async () => {
+    const socket = createSocketClient();
+    const recorder = createRecorder();
+    let latestSession: ReturnType<typeof useVoiceSession> | null = null;
+
+    function Probe() {
+      latestSession = useVoiceSession({
+        backendUrl: "https://api.yuzik.example",
+        getAccessToken: async () => "token-123",
+        teacherMode: mockTeacherMode as never,
+        socketClientFactory: () => socket,
+        recording: recorder as never,
+      });
+
+      return <Text>{latestSession.inputLevel.toFixed(2)}</Text>;
+    }
+
+    let renderer!: TestRenderer.ReactTestRenderer;
+
+    await act(async () => {
+      renderer = TestRenderer.create(<Probe />);
+    });
+
+    await act(async () => {
+      await latestSession?.connect();
+      await latestSession?.startListening();
+    });
+
+    const onMetering = recorder.start.mock.calls[0][0] as (db: number) => void;
+
+    await act(async () => {
+      onMetering(-65);
+    });
+    const quietLevel = Number(readRenderedText(renderer));
+
+    await act(async () => {
+      onMetering(-25);
+    });
+    const loudLevel = Number(readRenderedText(renderer));
+
+    expect(quietLevel).toBeLessThan(0.1);
+    expect(loudLevel).toBeGreaterThan(0.9);
+  });
+
   it("sends the VAD recording after speech falls back to the Android live-stream noise floor", async () => {
     const socket = createSocketClient();
     const recorder = createRecorder();
@@ -1743,6 +1807,70 @@ describe("useVoiceSession", () => {
       expect(recorder.stop).toHaveBeenCalledTimes(1);
       expect(socket.sendAudio).toHaveBeenCalledWith({
         wavBytes: new Uint8Array([1, 2, 3]),
+      });
+    } finally {
+      Object.defineProperty(Platform, "OS", {
+        configurable: true,
+        value: originalPlatform,
+      });
+    }
+  });
+
+  it("drops short browser background spikes before sending audio", async () => {
+    const originalPlatform = Platform.OS;
+    Object.defineProperty(Platform, "OS", {
+      configurable: true,
+      value: "web",
+    });
+
+    const socket = createSocketClient();
+    const recorder = createRecorder();
+    let latestSession: ReturnType<typeof useVoiceSession> | null = null;
+
+    function Probe() {
+      latestSession = useVoiceSession({
+        backendUrl: "https://api.yuzik.example",
+        getAccessToken: async () => "token-123",
+        teacherMode: mockTeacherMode as never,
+        socketClientFactory: () => socket,
+        recording: recorder as never,
+      });
+
+      return <Text>{latestSession.status}</Text>;
+    }
+
+    try {
+      await act(async () => {
+        TestRenderer.create(<Probe />);
+      });
+
+      await act(async () => {
+        await latestSession?.connect();
+        await latestSession?.startListening();
+      });
+
+      const onMetering = recorder.start.mock.calls[0][0] as (
+        db: number,
+        pcm16?: Uint8Array,
+      ) => void;
+
+      await act(async () => {
+        [-58, -57, -57].forEach((db) => onMetering(db, new Uint8Array(320)));
+        [-19.5, -19.5].forEach((db) =>
+          onMetering(db, new Uint8Array(320)),
+        );
+        [-57.3, -57.3, -57.3, -57.3, -57.3].forEach((db) =>
+          onMetering(db, new Uint8Array(320)),
+        );
+        await Promise.resolve();
+      });
+
+      expect(recorder.stop).toHaveBeenCalledTimes(1);
+      expect(socket.sendAudio).not.toHaveBeenCalled();
+
+      await act(async () => {
+        latestSession?.stopListening();
+        await Promise.resolve();
       });
     } finally {
       Object.defineProperty(Platform, "OS", {

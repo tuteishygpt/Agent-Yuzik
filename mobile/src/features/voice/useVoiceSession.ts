@@ -18,7 +18,7 @@ import {
   getLocalPcmSampleCount,
   isLocalPcmFrame,
 } from "@/lib/audio-pcm-format";
-import { DEFAULT_VAD_CONFIG, type VadConfig } from "@/lib/vad";
+import { DEFAULT_VAD_CONFIG, type VadConfig, type VadRuntime } from "@/lib/vad";
 import { toErrorMessage } from "@/lib/errors";
 
 import { useVoiceSocket, type VoiceSocketControls } from "./useVoiceSocket";
@@ -49,6 +49,7 @@ export type VoiceSessionState = {
   isRecording: boolean;
   isListening: boolean;
   isPlaying: boolean;
+  inputLevel: number;
 };
 
 export type VoiceSessionOptions = {
@@ -100,7 +101,12 @@ const WEB_VAD_CONFIG: Partial<VadConfig> = {
   negativeSpeechThreshold: -60,
   minSpeechFrames: 2,
   redemptionFrames: 5,
+  speechEndPeakDropDb: 25,
 };
+const WEB_SUBMIT_MIN_HOT_FRAMES = 3;
+const WEB_SUBMIT_HOT_PROMINENCE_DB = 10;
+const INPUT_LEVEL_MIN_DB = -65;
+const INPUT_LEVEL_MAX_DB = -25;
 
 export type VoiceDiagnostics = {
   frames: number;
@@ -115,6 +121,8 @@ export type VoiceDiagnostics = {
   playbackStartCount: number;
   playbackErrorCount: number;
   lastPlaybackDebug: string | null;
+  vadRuntime: VadRuntime | null;
+  vadConfigSummary: string | null;
   lastEvent: string;
 };
 
@@ -127,6 +135,8 @@ export type VoiceDiagnosticEvent =
   | { type: "playback_start" }
   | { type: "playback_error" }
   | { type: "playback_debug"; message: string }
+  | { type: "vad_runtime"; runtime: VadRuntime }
+  | { type: "vad_config"; summary: string }
   | { type: "no_microphone_frames" }
   | { type: "start_listening" }
   | { type: "stop_listening" };
@@ -145,6 +155,8 @@ export function createInitialVoiceDiagnostics(): VoiceDiagnostics {
     playbackStartCount: 0,
     playbackErrorCount: 0,
     lastPlaybackDebug: null,
+    vadRuntime: null,
+    vadConfigSummary: null,
     lastEvent: "idle",
   };
 }
@@ -243,6 +255,18 @@ export function updateVoiceDiagnostics(
         lastPlaybackDebug: event.message,
         lastEvent: "playDbg",
       };
+    case "vad_runtime":
+      return {
+        ...current,
+        vadRuntime: event.runtime,
+        lastEvent: "vad",
+      };
+    case "vad_config":
+      return {
+        ...current,
+        vadConfigSummary: event.summary,
+        lastEvent: "vadCfg",
+      };
     case "no_microphone_frames":
       return {
         ...current,
@@ -281,6 +305,14 @@ export function formatVoiceDiagnostics(diagnostics: VoiceDiagnostics): string {
     parts.push(`pb=${diagnostics.lastPlaybackDebug}`);
   }
 
+  if (diagnostics.vadRuntime) {
+    parts.push(`vad=${diagnostics.vadRuntime}`);
+  }
+
+  if (diagnostics.vadConfigSummary) {
+    parts.push(`vadCfg=${diagnostics.vadConfigSummary}`);
+  }
+
   return parts.join(" ");
 }
 
@@ -294,6 +326,7 @@ const initialState: VoiceSessionState = {
   isRecording: false,
   isListening: false,
   isPlaying: false,
+  inputLevel: 0,
 };
 
 const disabledTeacherMode: TeacherModeController = {
@@ -336,6 +369,38 @@ function resolveVadConfig(config?: Partial<VadConfig>): VadConfig {
   };
 }
 
+function formatVadConfigSummary(config: VadConfig): string {
+  const parts = [
+    `pos=${formatDiagnosticDb(config.positiveSpeechThreshold)}`,
+    `neg=${formatDiagnosticDb(config.negativeSpeechThreshold)}`,
+    `min=${config.minSpeechFrames}`,
+    `red=${config.redemptionFrames}`,
+    `drop=${formatDiagnosticDb(config.speechEndPeakDropDb)}`,
+    `tenThr=${config.tenVadThreshold}`,
+    `hop=${config.tenVadHopSize}`,
+    `floor=${formatDiagnosticDb(config.nativeTenVadEnergyFloorDb)}`,
+  ];
+
+  if (Platform.OS === "web") {
+    parts.push(
+      `subHot=${WEB_SUBMIT_MIN_HOT_FRAMES}`,
+      `subProm=${formatDiagnosticDb(WEB_SUBMIT_HOT_PROMINENCE_DB)}`,
+    );
+  }
+
+  return parts.join(",");
+}
+
+function normalizeInputLevel(db: number): number {
+  if (!Number.isFinite(db)) {
+    return 0;
+  }
+
+  const level =
+    (db - INPUT_LEVEL_MIN_DB) / (INPUT_LEVEL_MAX_DB - INPUT_LEVEL_MIN_DB);
+  return Math.max(0, Math.min(1, level));
+}
+
 function createTranscriptEntry(
   role: VoiceTranscriptEntry["role"],
   text: string,
@@ -351,6 +416,8 @@ type VadSegmentStats = {
   active: boolean;
   frames: number;
   peakDb: number;
+  hotFrames: number;
+  hotDbSum: number;
 };
 
 type BackgroundLevelStats = {
@@ -376,6 +443,8 @@ export function useVoiceSession(
     active: false,
     frames: 0,
     peakDb: -160,
+    hotFrames: 0,
+    hotDbSum: 0,
   });
   const vadRecordingActiveRef = useRef(false);
   const vadRecordingStartInFlightRef = useRef<Promise<void> | null>(null);
@@ -443,10 +512,14 @@ export function useVoiceSession(
   }
 
   function resetVoiceDiagnostics(event: VoiceDiagnosticEvent) {
-    voiceDiagnosticsRef.current = updateVoiceDiagnostics(
-      createInitialVoiceDiagnostics(),
-      event,
+    const next = updateVoiceDiagnostics(
+      updateVoiceDiagnostics(createInitialVoiceDiagnostics(), event),
+      {
+        type: "vad_config",
+        summary: formatVadConfigSummary(vadConfig),
+      },
     );
+    voiceDiagnosticsRef.current = next;
     const diagnostics = formatVoiceDiagnostics(voiceDiagnosticsRef.current);
     console.log(`[VoiceDiag] ${diagnostics}`);
     update((s) => ({ ...s, diagnostics }));
@@ -513,10 +586,16 @@ export function useVoiceSession(
   }
 
   function resetSpeechSegment(active = false) {
+    const latestDb = latestVadDbRef.current;
+    const isHot = latestDb >= vadConfig.positiveSpeechThreshold;
+    const seededHotFrames = active && isHot ? vadConfig.minSpeechFrames : 0;
+
     speechSegmentRef.current = {
       active,
       frames: 0,
-      peakDb: latestVadDbRef.current,
+      peakDb: latestDb,
+      hotFrames: seededHotFrames,
+      hotDbSum: latestDb * seededHotFrames,
     };
   }
 
@@ -542,16 +621,27 @@ export function useVoiceSession(
     return background.samples > 0 ? background.meanDb : null;
   }
 
+  function updateSpeechSegmentHotFrame(segment: VadSegmentStats, db: number) {
+    if (db < vadConfig.positiveSpeechThreshold) {
+      return;
+    }
+
+    segment.hotFrames += 1;
+    segment.hotDbSum += db;
+  }
+
   function feedVadMeteringFrame(db: number, pcm16?: Uint8Array) {
     microphoneFrameCountRef.current += 1;
     clearMicrophoneFrameWatchdog();
     latestVadDbRef.current = db;
     publishVoiceDiagnostic({ type: "meter", db });
+    update((s) => ({ ...s, inputLevel: normalizeInputLevel(db) }));
 
     const segment = speechSegmentRef.current;
     if (segment.active) {
       segment.frames += 1;
       segment.peakDb = Math.max(segment.peakDb, db);
+      updateSpeechSegmentHotFrame(segment, db);
     } else {
       updateBackgroundLevel(db);
     }
@@ -589,6 +679,7 @@ export function useVoiceSession(
         error: NO_MICROPHONE_AUDIO_ERROR,
         isListening: false,
         isRecording: false,
+        inputLevel: 0,
       }));
     }, MICROPHONE_FRAME_TIMEOUT_MS);
   }
@@ -596,6 +687,26 @@ export function useVoiceSession(
   function shouldSubmitSpeechSegment(segment: VadSegmentStats) {
     const prominenceDb = getSubmitProminenceDb();
     const backgroundDb = getBackgroundLevelDb();
+
+    if (Platform.OS === "web") {
+      if (segment.hotFrames < WEB_SUBMIT_MIN_HOT_FRAMES) {
+        return false;
+      }
+
+      const hotMeanDb = segment.hotDbSum / segment.hotFrames;
+
+      if (backgroundDb === null) {
+        return (
+          segment.peakDb >= vadConfig.positiveSpeechThreshold + prominenceDb &&
+          hotMeanDb >= vadConfig.positiveSpeechThreshold
+        );
+      }
+
+      return (
+        segment.peakDb >= backgroundDb + prominenceDb &&
+        hotMeanDb >= backgroundDb + WEB_SUBMIT_HOT_PROMINENCE_DB
+      );
+    }
 
     if (backgroundDb === null) {
       return segment.peakDb >= vadConfig.positiveSpeechThreshold + prominenceDb;
@@ -616,7 +727,7 @@ export function useVoiceSession(
     const completedSegment = { ...speechSegmentRef.current };
     resetSpeechSegment(false);
     publishVoiceDiagnostic({ type: "speech_end" });
-    update((s) => ({ ...s, isRecording: false }));
+    update((s) => ({ ...s, inputLevel: 0, isRecording: false }));
 
     if (stateRef.current.isPlaying) {
       return;
@@ -670,7 +781,9 @@ export function useVoiceSession(
 
   function startVadSession() {
     resetSpeechSegment(false);
-    vad.start(handleSpeechStart, handleSpeechEnd);
+    vad.start(handleSpeechStart, handleSpeechEnd, (runtime) => {
+      publishVoiceDiagnostic({ type: "vad_runtime", runtime });
+    });
   }
 
   function stopVadSession() {
@@ -726,7 +839,7 @@ export function useVoiceSession(
   function suspendVadRecording() {
     stopVadSession();
     clearMicrophoneFrameWatchdog();
-    update((s) => ({ ...s, isRecording: false }));
+    update((s) => ({ ...s, inputLevel: 0, isRecording: false }));
     return stopVadRecording();
   }
 
@@ -1009,6 +1122,7 @@ export function useVoiceSession(
       ...(shouldStopLocalVoice
         ? { isRecording: false, isListening: false, isPlaying: false }
         : null),
+      ...(shouldStopLocalVoice ? { inputLevel: 0 } : null),
       retryNotice:
         status === "connected" && s.connectionStatus === "reconnecting"
           ? "reconnected"
@@ -1142,7 +1256,12 @@ export function useVoiceSession(
     stopVadSession();
     void stopVadRecording();
     publishVoiceDiagnostic({ type: "stop_listening" });
-    update((s) => ({ ...s, isListening: false, isRecording: false }));
+    update((s) => ({
+      ...s,
+      inputLevel: 0,
+      isListening: false,
+      isRecording: false,
+    }));
   }
 
   async function interrupt() {
@@ -1164,6 +1283,7 @@ export function useVoiceSession(
         isPlaying: false,
         isListening: false,
         isRecording: false,
+        inputLevel: 0,
         retryNotice: null,
       }));
       return;
@@ -1229,6 +1349,7 @@ export function useVoiceSession(
       isRecording: false,
       isListening: false,
       isPlaying: false,
+      inputLevel: 0,
     }));
   }
 

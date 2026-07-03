@@ -29,9 +29,9 @@ jest.mock("@/lib/i18n", () => ({
         "settings.subtitle": "Environment and build diagnostics.",
         "settings.language": "Language",
         "settings.voice": "Voice detection",
-        "settings.nativeTenVad": "Native TEN VAD",
+        "settings.nativeTenVad": "TEN VAD",
         "settings.nativeTenVadDescription":
-          "Use the Android native TEN VAD detector. Turn this off on emulators if voice input or playback gets unstable.",
+          "Use TEN VAD: WebAssembly on web and the native model on Android.",
       };
       return map[key] ?? key;
     },
@@ -65,10 +65,10 @@ describe("SettingsScreen", () => {
     const text = screen.getTextContent();
 
     expect(text).toContain("Voice detection");
-    expect(text).toContain("Native TEN VAD");
+    expect(text).toContain("TEN VAD");
 
     const vadSwitch = screen.renderer.root.findByProps({
-      accessibilityLabel: "Native TEN VAD",
+      accessibilityLabel: "TEN VAD",
     });
 
     vadSwitch.props.onValueChange(false);

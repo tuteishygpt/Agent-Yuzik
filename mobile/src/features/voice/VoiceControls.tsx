@@ -1,13 +1,18 @@
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useI18n } from "@/lib/i18n";
 import { BottomMenuButton } from "@/navigation/BottomMenuButton";
 import { webTheme } from "@/theme/webTheme";
 
+import type { VoiceUiState } from "./voice-ui-state";
+
 type VoiceControlsProps = {
   status: string;
   isListening: boolean;
+  inputLevel?: number;
+  uiState?: VoiceUiState;
+  visualizerPulse?: Animated.Value;
   onOpenMenu?: () => void;
   onStartListening: () => Promise<void> | void;
   onStopListening: () => void;
@@ -15,13 +20,16 @@ type VoiceControlsProps = {
 };
 
 const waveformBars = [
-  5, 9, 13, 18, 24, 16, 10, 7, 13, 21, 27, 19, 11, 6, 10, 17, 23, 15, 8,
-  5, 9, 14, 20, 13, 7,
+  5, 9, 13, 18, 24, 16, 10, 7, 13, 21, 27, 19, 11, 6, 10, 17, 23, 15, 8, 5, 9,
+  14, 20, 13, 7,
 ];
 
 export function VoiceControls({
   status,
   isListening,
+  inputLevel,
+  uiState,
+  visualizerPulse,
   onOpenMenu,
   onStartListening,
   onStopListening,
@@ -49,6 +57,17 @@ export function VoiceControls({
     void onInterrupt();
   }
 
+  const waveformColor = uiState?.accentColor ?? webTheme.colors.surfaceMuted;
+  const clampedInputLevel =
+    typeof inputLevel === "number" && Number.isFinite(inputLevel)
+      ? Math.max(0, Math.min(1, inputLevel))
+      : null;
+  const shouldAnimateWaveform = Boolean(
+    clampedInputLevel == null &&
+    uiState?.shouldAnimateVisualizer &&
+    visualizerPulse,
+  );
+
   if (isListening) {
     return (
       <View
@@ -59,12 +78,48 @@ export function VoiceControls({
         ]}
       >
         <View style={styles.inputBar} testID="voice-listening-input">
-          {waveformBars.map((height, index) => (
-            <View
-              key={`${height}-${index}`}
-              style={[styles.waveformBar, { height }]}
-            />
-          ))}
+          {waveformBars.map((height, index) => {
+            const pulseOffset = (index % 6) / 6;
+            const animatedHeight =
+              clampedInputLevel != null
+                ? Math.max(
+                    5,
+                    Math.min(
+                      38,
+                      height *
+                        (0.55 +
+                          clampedInputLevel * (0.95 + pulseOffset * 0.35)),
+                    ),
+                  )
+                : shouldAnimateWaveform && visualizerPulse
+                  ? visualizerPulse.interpolate({
+                      inputRange: [0, 0.5, 1],
+                      outputRange: [
+                        height,
+                        height + 10 + pulseOffset * 12,
+                        height,
+                      ],
+                    })
+                  : height;
+
+            return (
+              <Animated.View
+                key={`${height}-${index}`}
+                testID="voice-listening-waveform-bar"
+                style={[
+                  styles.waveformBar,
+                  {
+                    backgroundColor: waveformColor,
+                    height: animatedHeight,
+                    opacity:
+                      clampedInputLevel != null || shouldAnimateWaveform
+                        ? 0.84
+                        : 0.36,
+                  },
+                ]}
+              />
+            );
+          })}
         </View>
         <Pressable
           accessibilityLabel="Confirm transcript"
@@ -148,8 +203,9 @@ const styles = StyleSheet.create({
     height: webTheme.sizes.inputHeight,
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
     gap: 2,
-    paddingHorizontal: 22,
+    paddingHorizontal: 12,
     borderRadius: webTheme.radii.textBar,
     backgroundColor: webTheme.colors.surface,
     borderColor: webTheme.colors.borderStrong,
@@ -157,8 +213,9 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   waveformBar: {
-    width: 4,
-    borderRadius: 1,
+    flex: 1,
+    minWidth: 2,
+    borderRadius: 2,
     backgroundColor: webTheme.colors.surfaceMuted,
   },
   roundButton: {

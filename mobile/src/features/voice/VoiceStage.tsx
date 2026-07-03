@@ -1,13 +1,16 @@
 import type { ReactNode } from "react";
 import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
 
-import { MobileStatusPill, YuzikAvatar, type YuzikAvatarState } from "@/components/mobile";
+import {
+  MobileStatusPill,
+  YuzikAvatar,
+  type YuzikAvatarState,
+} from "@/components/mobile";
 import { webTheme } from "@/theme/webTheme";
 
 import { TranscriptPanel } from "./TranscriptPanel";
 import type { VoiceTranscriptEntry } from "./useVoiceSession";
 import type { VoiceUiState } from "./voice-ui-state";
-import { VoiceVisualizer } from "./VoiceVisualizer";
 
 type VoiceStageProps = {
   title?: string;
@@ -15,7 +18,6 @@ type VoiceStageProps = {
   connectionLabel?: string;
   compact?: boolean;
   uiState: VoiceUiState;
-  visualizerPulse: Animated.Value;
   animatedStyles: {
     dot?: object;
     halo?: object;
@@ -85,7 +87,6 @@ export function VoiceStage({
   connectionLabel,
   compact = false,
   uiState,
-  visualizerPulse,
   animatedStyles,
   transcript,
   notice,
@@ -144,7 +145,6 @@ export function VoiceStage({
         {uiState.statusLabel}
       </Text>
 
-      <VoiceVisualizer pulse={visualizerPulse} uiState={uiState} />
       <TranscriptPanel
         compact={compact}
         emptyText={emptyTranscriptTextForPhase(uiState.phase)}

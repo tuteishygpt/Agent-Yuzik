@@ -9,7 +9,7 @@ import {
 } from "react";
 
 const PREFER_NATIVE_TEN_VAD_STORAGE_KEY = "yuzik.voice.prefer_native_ten_vad";
-const DEFAULT_PREFER_NATIVE_TEN_VAD = false;
+const DEFAULT_PREFER_NATIVE_TEN_VAD = true;
 
 type VoiceSettingsContextValue = {
   preferNativeTenVad: boolean;

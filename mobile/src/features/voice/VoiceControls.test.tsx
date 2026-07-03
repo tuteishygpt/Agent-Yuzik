@@ -1,11 +1,25 @@
 import React from "react";
-import { StyleSheet } from "react-native";
+import { Animated, StyleSheet } from "react-native";
 import { act } from "react-test-renderer";
 
 import { render } from "@/test/render";
 import { webTheme } from "@/theme/webTheme";
 
 import { VoiceControls } from "./VoiceControls";
+import type { VoiceUiState } from "./voice-ui-state";
+
+const listeningUiState: VoiceUiState = {
+  phase: "listening",
+  connectionLabel: "Listening",
+  statusLabel: "Listening",
+  accentColor: "#d85a5c",
+  haloColor: "rgba(216, 90, 92, 0.18)",
+  icon: "mic",
+  shouldAnimateMic: true,
+  shouldAnimateHalo: true,
+  shouldAnimateVisualizer: true,
+  shouldPulseConnection: false,
+};
 
 jest.mock("react-native-safe-area-context", () => ({
   useSafeAreaInsets: () => ({ bottom: 24, left: 0, right: 0, top: 0 }),
@@ -28,7 +42,9 @@ describe("VoiceControls", () => {
       screen.renderer.root.findByProps({ accessibilityLabel: "Open menu" }),
     ).toBeTruthy();
     expect(
-      screen.renderer.root.findByProps({ accessibilityLabel: "Start listening" }),
+      screen.renderer.root.findByProps({
+        accessibilityLabel: "Start listening",
+      }),
     ).toBeTruthy();
   });
 
@@ -72,11 +88,96 @@ describe("VoiceControls", () => {
       screen.renderer.root.findByProps({ testID: "voice-listening-input" }),
     ).toBeTruthy();
     expect(
-      screen.renderer.root.findByProps({ accessibilityLabel: "Confirm transcript" }),
+      screen.renderer.root.findByProps({
+        accessibilityLabel: "Confirm transcript",
+      }),
     ).toBeTruthy();
     expect(
-      screen.renderer.root.findByProps({ accessibilityLabel: "Discard transcript" }),
+      screen.renderer.root.findByProps({
+        accessibilityLabel: "Discard transcript",
+      }),
     ).toBeTruthy();
+  });
+
+  it("animates waveform bars inside the listening input", () => {
+    const pulse = new Animated.Value(0);
+    const screen = render(
+      <VoiceControls
+        isListening
+        onInterrupt={jest.fn()}
+        onStartListening={jest.fn()}
+        onStopListening={jest.fn()}
+        status="connected"
+        uiState={listeningUiState}
+        visualizerPulse={pulse}
+      />,
+    );
+
+    const bars = screen.renderer.root.findAllByProps({
+      testID: "voice-listening-waveform-bar",
+    });
+
+    expect(bars.length).toBeGreaterThan(12);
+    expect(StyleSheet.flatten(bars[0].props.style).backgroundColor).toBe(
+      listeningUiState.accentColor,
+    );
+  });
+
+  it("scales waveform bars with the live microphone input level", () => {
+    const renderWithLevel = (inputLevel: number) =>
+      render(
+        <VoiceControls
+          inputLevel={inputLevel}
+          isListening
+          onInterrupt={jest.fn()}
+          onStartListening={jest.fn()}
+          onStopListening={jest.fn()}
+          status="connected"
+          uiState={listeningUiState}
+        />,
+      );
+
+    const quietBars = renderWithLevel(0.1).renderer.root.findAllByProps({
+      testID: "voice-listening-waveform-bar",
+    });
+    const loudBars = renderWithLevel(0.9).renderer.root.findAllByProps({
+      testID: "voice-listening-waveform-bar",
+    });
+
+    const quietHeight = StyleSheet.flatten(quietBars[5].props.style).height;
+    const loudHeight = StyleSheet.flatten(loudBars[5].props.style).height;
+
+    expect(typeof quietHeight).toBe("number");
+    expect(typeof loudHeight).toBe("number");
+    expect(loudHeight).toBeGreaterThan(quietHeight);
+  });
+
+  it("stretches waveform bars across the listening input width", () => {
+    const screen = render(
+      <VoiceControls
+        inputLevel={0.5}
+        isListening
+        onInterrupt={jest.fn()}
+        onStartListening={jest.fn()}
+        onStopListening={jest.fn()}
+        status="connected"
+        uiState={listeningUiState}
+      />,
+    );
+
+    const inputStyle = StyleSheet.flatten(
+      screen.renderer.root.findByProps({ testID: "voice-listening-input" })
+        .props.style,
+    );
+    const firstBarStyle = StyleSheet.flatten(
+      screen.renderer.root.findAllByProps({
+        testID: "voice-listening-waveform-bar",
+      })[0].props.style,
+    );
+
+    expect(inputStyle.justifyContent).toBe("space-between");
+    expect(firstBarStyle.flex).toBe(1);
+    expect(firstBarStyle.width).toBeUndefined();
   });
 
   it("discards the active transcript by stopping before interrupting", () => {

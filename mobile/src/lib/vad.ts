@@ -1,6 +1,8 @@
 import { Buffer } from "buffer";
 import { NativeModules, Platform } from "react-native";
 
+import { createWebTenVad } from "./ten-vad-web";
+
 export type VadConfig = {
   /** dB threshold to trigger speech start (e.g. -30). Higher = less sensitive. */
   positiveSpeechThreshold: number;
@@ -8,6 +10,8 @@ export type VadConfig = {
   negativeSpeechThreshold: number;
   /** Consecutive silent frames before speech is considered ended. */
   redemptionFrames: number;
+  /** End speech after the input drops this many dB below the segment peak. */
+  speechEndPeakDropDb: number;
   /** Minimum speech frames before a segment is considered valid. */
   minSpeechFrames: number;
   /** Prefer TEN VAD native inference when the platform module is available. */
@@ -34,7 +38,10 @@ export type VadCallbacks = {
   onSpeechStart: () => void;
   onSpeechEnd: () => void;
   onFrameProcessed?: (db: number, isSpeech: boolean) => void;
+  onRuntimeChange?: (runtime: VadRuntime) => void;
 };
+
+export type VadRuntime = "energy" | "ten-android" | "ten-web" | "ten-fallback";
 
 export type VadInstance = {
   processFrame: (db: number, pcm16?: Uint8Array) => void;
@@ -50,6 +57,7 @@ export const DEFAULT_VAD_CONFIG: VadConfig = {
   positiveSpeechThreshold: -40,
   negativeSpeechThreshold: -42,
   redemptionFrames: 8,
+  speechEndPeakDropDb: 0,
   minSpeechFrames: 3,
   preferNativeTenVad: false,
   tenVadThreshold: 0.5,
@@ -85,13 +93,32 @@ function median(values: number[]): number {
   return sorted[Math.floor(sorted.length / 2)] ?? -160;
 }
 
-function shouldUseNativeTenVad(cfg: VadConfig): boolean {
-  return Boolean(
-    cfg.preferNativeTenVad &&
-      Platform.OS === "android" &&
-      nativeTenVad?.create &&
-      nativeTenVad.processPcm16,
-  );
+function createPreferredTenVadRuntime(
+  cfg: VadConfig,
+): { runtime: TenVadNativeModule; label: VadRuntime } | null {
+  if (!cfg.preferNativeTenVad) {
+    return null;
+  }
+
+  if (
+    Platform.OS === "android" &&
+    typeof nativeTenVad?.create === "function" &&
+    typeof nativeTenVad.processPcm16 === "function"
+  ) {
+    return { runtime: nativeTenVad, label: "ten-android" };
+  }
+
+  if (Platform.OS === "web") {
+    return {
+      runtime: createWebTenVad({
+        hopSize: cfg.tenVadHopSize,
+        threshold: cfg.tenVadThreshold,
+      }),
+      label: "ten-web",
+    };
+  }
+
+  return null;
 }
 
 export function createVad(
@@ -101,23 +128,29 @@ export function createVad(
   const cfg = { ...DEFAULT_VAD_CONFIG, ...config };
   let speechFrames = 0;
   let silenceFrames = 0;
+  let speechPeakDb = -160;
   let speaking = false;
   let paused = false;
-  const useNativeTenVad = shouldUseNativeTenVad(cfg);
+  const tenVadRuntime = createPreferredTenVadRuntime(cfg);
+  const useTenVad = Boolean(tenVadRuntime);
   let nativeReady = false;
   let nativeQueue = Promise.resolve();
   let adaptiveNativeEnergyFloorDb = cfg.nativeTenVadEnergyFloorDb;
   let nativeNoiseFloorDb: number | null = null;
   let nativeCalibrationDbs: number[] = [];
 
-  if (useNativeTenVad) {
-    nativeQueue = nativeTenVad!
+  callbacks.onRuntimeChange?.(tenVadRuntime?.label ?? "energy");
+
+  if (useTenVad) {
+    nativeQueue = tenVadRuntime!.runtime
       .create(cfg.tenVadHopSize, cfg.tenVadThreshold)
       .then(() => {
         nativeReady = true;
+        callbacks.onRuntimeChange?.(tenVadRuntime!.label);
       })
       .catch((error) => {
         nativeReady = false;
+        callbacks.onRuntimeChange?.("ten-fallback");
         console.warn("[VAD] TEN VAD unavailable, falling back to energy VAD", error);
       });
   }
@@ -128,27 +161,39 @@ export function createVad(
     callbacks.onFrameProcessed?.(db, isSpeech);
 
     if (speaking) {
-      if (isSilence) {
+      const droppedFromPeak =
+        cfg.speechEndPeakDropDb > 0 &&
+        db <= speechPeakDb - cfg.speechEndPeakDropDb;
+      const shouldCountSilence = isSilence || droppedFromPeak;
+
+      if (shouldCountSilence) {
         silenceFrames++;
         if (silenceFrames >= cfg.redemptionFrames) {
           speaking = false;
           speechFrames = 0;
           silenceFrames = 0;
+          speechPeakDb = -160;
           callbacks.onSpeechEnd();
         }
       } else {
         silenceFrames = 0;
+        speechPeakDb = Math.max(speechPeakDb, db);
       }
     } else {
       if (isSpeech) {
         speechFrames++;
         silenceFrames = 0;
+        speechPeakDb =
+          speechFrames === 1 ? db : Math.max(speechPeakDb, db);
         if (speechFrames >= cfg.minSpeechFrames) {
           speaking = true;
           callbacks.onSpeechStart();
         }
       } else {
         speechFrames = Math.max(0, speechFrames - 1);
+        if (speechFrames === 0) {
+          speechPeakDb = -160;
+        }
         silenceFrames++;
       }
     }
@@ -157,7 +202,7 @@ export function createVad(
   function processFrame(db: number, pcm16?: Uint8Array) {
     if (paused) return;
 
-    if (!useNativeTenVad || !pcm16) {
+    if (!useTenVad || !pcm16) {
       processDecision(
         db,
         db >= cfg.positiveSpeechThreshold,
@@ -178,7 +223,7 @@ export function createVad(
           );
           return undefined;
         }
-        return nativeTenVad!.processPcm16(payload);
+        return tenVadRuntime!.runtime.processPcm16(payload);
       })
       .then((results) => {
         if (!results || paused) return;
@@ -224,6 +269,7 @@ export function createVad(
       })
       .catch((error) => {
         console.warn("[VAD] TEN VAD frame failed, using energy VAD", error);
+        callbacks.onRuntimeChange?.("ten-fallback");
         processDecision(
           db,
           db >= cfg.positiveSpeechThreshold,
@@ -235,13 +281,14 @@ export function createVad(
   function reset() {
     speechFrames = 0;
     silenceFrames = 0;
+    speechPeakDb = -160;
     speaking = false;
     adaptiveNativeEnergyFloorDb = cfg.nativeTenVadEnergyFloorDb;
     nativeNoiseFloorDb = null;
     nativeCalibrationDbs = [];
-    if (useNativeTenVad) {
+    if (useTenVad) {
       nativeQueue = nativeQueue
-        .then(() => nativeTenVad!.reset())
+        .then(() => tenVadRuntime!.runtime.reset())
         .catch((error) => {
           console.warn("[VAD] TEN VAD reset failed", error);
         });
@@ -251,13 +298,14 @@ export function createVad(
   function destroy() {
     speechFrames = 0;
     silenceFrames = 0;
+    speechPeakDb = -160;
     speaking = false;
     adaptiveNativeEnergyFloorDb = cfg.nativeTenVadEnergyFloorDb;
     nativeNoiseFloorDb = null;
     nativeCalibrationDbs = [];
-    if (useNativeTenVad) {
+    if (useTenVad) {
       nativeQueue = nativeQueue
-        .then(() => nativeTenVad!.destroy())
+        .then(() => tenVadRuntime!.runtime.destroy())
         .catch((error) => {
           console.warn("[VAD] TEN VAD destroy failed", error);
         })

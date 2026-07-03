@@ -1,9 +1,18 @@
 import { useRef, useCallback } from "react";
 
-import { createVad, type VadConfig, type VadInstance } from "@/lib/vad";
+import {
+  createVad,
+  type VadConfig,
+  type VadInstance,
+  type VadRuntime,
+} from "@/lib/vad";
 
 export type VoiceVadControls = {
-  start: (onSpeechStart: () => void, onSpeechEnd: () => void) => void;
+  start: (
+    onSpeechStart: () => void,
+    onSpeechEnd: () => void,
+    onRuntimeChange?: (runtime: VadRuntime) => void,
+  ) => void;
   stop: () => void;
   pause: () => void;
   resume: () => void;
@@ -14,9 +23,13 @@ export function useVoiceVad(config?: Partial<VadConfig>): VoiceVadControls {
   const vadRef = useRef<VadInstance | null>(null);
 
   const start = useCallback(
-    (onSpeechStart: () => void, onSpeechEnd: () => void) => {
+    (
+      onSpeechStart: () => void,
+      onSpeechEnd: () => void,
+      onRuntimeChange?: (runtime: VadRuntime) => void,
+    ) => {
       vadRef.current = createVad(
-        { onSpeechStart, onSpeechEnd },
+        { onSpeechStart, onSpeechEnd, onRuntimeChange },
         config,
       );
     },

@@ -31,7 +31,7 @@ describe("VoiceSettingsProvider", () => {
     mockSetItemAsync.mockReset();
   });
 
-  it("defaults to energy VAD when no setting is stored", async () => {
+  it("defaults to TEN VAD when no setting is stored", async () => {
     mockGetItemAsync.mockResolvedValue(null);
 
     let renderer!: TestRenderer.ReactTestRenderer;
@@ -44,7 +44,7 @@ describe("VoiceSettingsProvider", () => {
       await Promise.resolve();
     });
 
-    expect(renderer.root.findByType(Text).props.children).toBe("energy");
+    expect(renderer.root.findByType(Text).props.children).toBe("native");
   });
 
   it("loads the stored energy VAD setting and persists changes", async () => {

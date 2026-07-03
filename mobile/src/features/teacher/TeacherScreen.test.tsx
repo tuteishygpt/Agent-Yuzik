@@ -16,6 +16,7 @@ const mockStopListening = jest.fn();
 const mockInterrupt = jest.fn();
 const mockStopTeacherLesson = jest.fn();
 const mockDisconnect = jest.fn();
+let mockPreferNativeTenVad = true;
 
 const lesson = {
   id: "intro-greetings",
@@ -141,6 +142,13 @@ jest.mock("@/providers/AuthProvider", () => ({
   }),
 }));
 
+jest.mock("@/providers/VoiceSettingsProvider", () => ({
+  useVoiceSettings: () => ({
+    preferNativeTenVad: mockPreferNativeTenVad,
+    setPreferNativeTenVad: jest.fn(),
+  }),
+}));
+
 jest.mock("@/lib/supabase", () => ({
   getSupabaseSession: jest
     .fn()
@@ -219,6 +227,7 @@ describe("TeacherScreen", () => {
     mockVoiceSession.connectionStatus = "connected";
     mockVoiceSession.isListening = false;
     mockVoiceSession.teacherSelection.active = false;
+    mockPreferNativeTenVad = true;
     mockLoadLessons.mockClear();
     mockSelectLesson.mockClear();
     mockStartTeacherLesson.mockClear();
@@ -252,6 +261,9 @@ describe("TeacherScreen", () => {
     expect(mockUseVoiceSession).toHaveBeenCalledWith({
       teacherMode: mockTeacherMode,
       sessionKind: "teacher",
+      vadConfig: {
+        preferNativeTenVad: true,
+      },
     });
 
     const controls = renderer.root.findByType(VoiceControls);

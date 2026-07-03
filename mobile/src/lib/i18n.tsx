@@ -51,9 +51,9 @@ const translations = {
     "settings.subtitle": "Асяроддзе і дыягностыка зборкі.",
     "settings.language": "Мова",
     "settings.voice": "Голас",
-    "settings.nativeTenVad": "Native TEN VAD",
+    "settings.nativeTenVad": "TEN VAD",
     "settings.nativeTenVadDescription":
-      "Уключае Android native TEN VAD. Адключыце на эмулятары, калі ўвод голасу ці прайграванне становяцца нестабільнымі.",
+      "Уключае TEN VAD: WebAssembly для web і native мадэль для Android.",
     "settings.authLoading": "Загрузка аўтэнтыфікацыі",
     "settings.signedOut": "Выйшлі",
     "settings.guest": "Гасцявая сесія",
@@ -102,9 +102,9 @@ const translations = {
     "settings.subtitle": "Environment and build diagnostics.",
     "settings.language": "Language",
     "settings.voice": "Voice detection",
-    "settings.nativeTenVad": "Native TEN VAD",
+    "settings.nativeTenVad": "TEN VAD",
     "settings.nativeTenVadDescription":
-      "Use the Android native TEN VAD detector. Turn this off on emulators if voice input or playback gets unstable.",
+      "Use TEN VAD: WebAssembly on web and the native model on Android.",
     "settings.authLoading": "Loading auth",
     "settings.signedOut": "Signed out",
     "settings.guest": "Guest session",

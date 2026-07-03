@@ -90,7 +90,8 @@ export default function VoiceScreen() {
     }
 
     const attempt = retryCountRef.current;
-    const delayMs = attempt === 0 ? 0 : Math.min(1000 * 2 ** (attempt - 1), 10000);
+    const delayMs =
+      attempt === 0 ? 0 : Math.min(1000 * 2 ** (attempt - 1), 10000);
 
     retryTimerRef.current = setTimeout(() => {
       retryTimerRef.current = null;
@@ -117,11 +118,14 @@ export default function VoiceScreen() {
       title={t("voice.title")}
       bottomControls={
         <VoiceControls
+          inputLevel={voiceSession.inputLevel}
           isListening={voiceSession.isListening}
           onInterrupt={voiceSession.interrupt}
           onStartListening={voiceSession.startListening}
           onStopListening={voiceSession.stopListening}
           status={voiceSession.status}
+          uiState={uiState}
+          visualizerPulse={visualizerPulse}
         />
       }
     >
@@ -141,7 +145,6 @@ export default function VoiceScreen() {
         showStatusPill={false}
         transcript={voiceSession.transcript}
         uiState={uiState}
-        visualizerPulse={visualizerPulse}
       />
     </VoiceScreenFrame>
   );

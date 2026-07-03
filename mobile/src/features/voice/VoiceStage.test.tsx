@@ -1,10 +1,10 @@
 import React from "react";
-import { Animated } from "react-native";
 import { act } from "react-test-renderer";
 
 import { render } from "@/test/render";
 
 import { VoiceStage } from "./VoiceStage";
+import { VoiceVisualizer } from "./VoiceVisualizer";
 import type { VoiceUiState } from "./voice-ui-state";
 
 const connectedUiState: VoiceUiState = {
@@ -36,7 +36,6 @@ describe("VoiceStage", () => {
         title="Voice"
         transcript={[]}
         uiState={connectedUiState}
-        visualizerPulse={new Animated.Value(0)}
         onPrimaryPress={onStart}
       />,
     );
@@ -57,7 +56,6 @@ describe("VoiceStage", () => {
         title="Voice"
         transcript={[{ id: "user-1", role: "user", text: "Hello" }]}
         uiState={connectedUiState}
-        visualizerPulse={new Animated.Value(0)}
         onPrimaryPress={jest.fn()}
       />,
     );
@@ -68,6 +66,20 @@ describe("VoiceStage", () => {
     expect(screen.getTextContent()).toContain("Hello");
   });
 
+  it("does not render a central waveform under the avatar", () => {
+    const screen = render(
+      <VoiceStage
+        animatedStyles={{}}
+        title="Voice"
+        transcript={[]}
+        uiState={listeningUiState}
+        onPrimaryPress={jest.fn()}
+      />,
+    );
+
+    expect(screen.renderer.root.findAllByType(VoiceVisualizer)).toHaveLength(0);
+  });
+
   it("can render the compact Figma stage without a duplicate body title", () => {
     const screen = render(
       <VoiceStage
@@ -75,7 +87,6 @@ describe("VoiceStage", () => {
         compact
         transcript={[]}
         uiState={connectedUiState}
-        visualizerPulse={new Animated.Value(0)}
         onPrimaryPress={jest.fn()}
       />,
     );
@@ -101,7 +112,6 @@ describe("VoiceStage", () => {
         compact
         transcript={[]}
         uiState={listeningUiState}
-        visualizerPulse={new Animated.Value(0)}
         onPrimaryPress={jest.fn()}
       />,
     );

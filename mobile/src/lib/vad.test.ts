@@ -4,14 +4,26 @@ const mockNativeTenVad = {
   reset: jest.fn(),
   destroy: jest.fn(),
 };
+const mockPlatform = {
+  OS: "android",
+};
+const mockWebTenVad = {
+  create: jest.fn(),
+  processPcm16: jest.fn(),
+  reset: jest.fn(),
+  destroy: jest.fn(),
+};
+const mockCreateWebTenVad = jest.fn(() => mockWebTenVad);
 
 jest.mock("react-native", () => ({
   NativeModules: {
     TenVad: mockNativeTenVad,
   },
-  Platform: {
-    OS: "android",
-  },
+  Platform: mockPlatform,
+}));
+
+jest.mock("./ten-vad-web", () => ({
+  createWebTenVad: mockCreateWebTenVad,
 }));
 
 const { createVad } = require("./vad") as typeof import("./vad");
@@ -23,10 +35,15 @@ function flushPromises() {
 describe("createVad", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockPlatform.OS = "android";
     mockNativeTenVad.create.mockResolvedValue(null);
     mockNativeTenVad.processPcm16.mockResolvedValue([]);
     mockNativeTenVad.reset.mockResolvedValue(null);
     mockNativeTenVad.destroy.mockResolvedValue(null);
+    mockWebTenVad.create.mockResolvedValue(null);
+    mockWebTenVad.processPcm16.mockResolvedValue([]);
+    mockWebTenVad.reset.mockResolvedValue(null);
+    mockWebTenVad.destroy.mockResolvedValue(null);
   });
 
   it("fires onSpeechStart after minSpeechFrames above threshold", () => {
@@ -72,6 +89,32 @@ describe("createVad", () => {
     expect(onSpeechEnd).not.toHaveBeenCalled();
 
     vad.processFrame(-60); // 3rd silence frame
+    expect(onSpeechEnd).toHaveBeenCalledTimes(1);
+    expect(vad.isSpeaking).toBe(false);
+  });
+
+  it("ends speech after the level drops far below the speech peak", () => {
+    const onSpeechStart = jest.fn();
+    const onSpeechEnd = jest.fn();
+    const vad = createVad(
+      { onSpeechStart, onSpeechEnd },
+      {
+        positiveSpeechThreshold: -55,
+        negativeSpeechThreshold: -60,
+        minSpeechFrames: 1,
+        redemptionFrames: 3,
+        speechEndPeakDropDb: 25,
+      },
+    );
+
+    vad.processFrame(-21);
+    expect(onSpeechStart).toHaveBeenCalledTimes(1);
+
+    vad.processFrame(-50.5);
+    vad.processFrame(-50.5);
+    expect(onSpeechEnd).not.toHaveBeenCalled();
+
+    vad.processFrame(-50.5);
     expect(onSpeechEnd).toHaveBeenCalledTimes(1);
     expect(vad.isSpeaking).toBe(false);
   });
@@ -289,6 +332,38 @@ describe("createVad", () => {
     vad.processFrame(-20, new Uint8Array(512));
 
     expect(mockNativeTenVad.processPcm16).not.toHaveBeenCalled();
+    expect(onSpeechStart).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses TEN VAD WebAssembly for web PCM frames when TEN VAD is enabled", async () => {
+    mockPlatform.OS = "web";
+    mockWebTenVad.processPcm16.mockResolvedValue([
+      { probability: 0.91, isSpeech: true },
+    ]);
+    const onSpeechStart = jest.fn();
+    const vad = createVad(
+      { onSpeechStart, onSpeechEnd: jest.fn() },
+      {
+        preferNativeTenVad: true,
+        minSpeechFrames: 1,
+        tenVadThreshold: 0.6,
+        tenVadHopSize: 256,
+        nativeTenVadCalibrationFrames: 0,
+      },
+    );
+    const pcm = new Uint8Array(512);
+
+    vad.processFrame(-52, pcm);
+    await flushPromises();
+
+    expect(mockCreateWebTenVad).toHaveBeenCalledWith({
+      hopSize: 256,
+      threshold: 0.6,
+    });
+    expect(mockWebTenVad.create).toHaveBeenCalledTimes(1);
+    expect(mockWebTenVad.processPcm16).toHaveBeenCalledWith(
+      Buffer.from(pcm).toString("base64"),
+    );
     expect(onSpeechStart).toHaveBeenCalledTimes(1);
   });
 });

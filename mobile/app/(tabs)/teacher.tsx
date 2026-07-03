@@ -14,6 +14,7 @@ import { useI18n } from "@/lib/i18n";
 import { getSupabaseSession } from "@/lib/supabase";
 import { useMenu } from "@/navigation/MenuContext";
 import { useAuth } from "@/providers/AuthProvider";
+import { useVoiceSettings } from "@/providers/VoiceSettingsProvider";
 
 export default function TeacherScreen() {
   const auth = useAuth();
@@ -21,7 +22,14 @@ export default function TeacherScreen() {
   const { openMenu } = useMenu();
   const env = getRuntimeEnv();
   const teacherMode = useTeacherMode();
-  const voiceSession = useVoiceSession({ teacherMode, sessionKind: "teacher" });
+  const { preferNativeTenVad } = useVoiceSettings();
+  const voiceSession = useVoiceSession({
+    teacherMode,
+    sessionKind: "teacher",
+    vadConfig: {
+      preferNativeTenVad,
+    },
+  });
   const startedLessonRef = useRef<string | null>(null);
   const manualStopRef = useRef(false);
   const teacherModeRef = useRef(teacherMode);
@@ -169,11 +177,14 @@ export default function TeacherScreen() {
       title={t("voice.teacher")}
       bottomControls={
         <VoiceControls
+          inputLevel={voiceSession.inputLevel}
           isListening={voiceSession.isListening}
           onInterrupt={() => undefined}
           onStartListening={startTeacherSession}
           onStopListening={stopTeacherSession}
           status={voiceSession.status}
+          uiState={uiState}
+          visualizerPulse={visualizerPulse}
         />
       }
     >
@@ -207,7 +218,6 @@ export default function TeacherScreen() {
         title={t("voice.teacher")}
         transcript={voiceSession.transcript}
         uiState={uiState}
-        visualizerPulse={visualizerPulse}
       />
     </VoiceScreenFrame>
   );
