@@ -61,6 +61,52 @@ describe("chat voice attachment", () => {
     });
   });
 
+  it("keeps browser WAV bytes as a blob for upload even when cache exists on web", async () => {
+    const { Platform } = require("react-native") as typeof import("react-native");
+    const originalPlatform = Platform.OS;
+    const createObjectURL = jest.fn(() => "blob:yuzik-cached-voice-message");
+    const writeAsStringAsync = jest.fn().mockResolvedValue(undefined);
+
+    Object.defineProperty(Platform, "OS", {
+      configurable: true,
+      value: "web",
+    });
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: createObjectURL,
+    });
+
+    try {
+      const attachment = await createVoiceAttachmentFromWavBytes({
+        wavBytes: new Uint8Array([0x52, 0x49, 0x46, 0x46]),
+        fileSystem: {
+          cacheDirectory: "file:///cache/",
+          EncodingType: { Base64: "base64" },
+          writeAsStringAsync,
+        },
+        now: () => 1234567890,
+      });
+
+      expect(writeAsStringAsync).toHaveBeenCalledWith(
+        "file:///cache/voice-message-1234567890.wav",
+        "UklGRg==",
+        { encoding: "base64" },
+      );
+      expect(createObjectURL).toHaveBeenCalledWith(expect.any(Blob));
+      expect(attachment).toEqual({
+        uri: "blob:yuzik-cached-voice-message",
+        name: "voice-message-1234567890.wav",
+        mimeType: "audio/wav",
+        blob: expect.any(Blob),
+      });
+    } finally {
+      Object.defineProperty(Platform, "OS", {
+        configurable: true,
+        value: originalPlatform,
+      });
+    }
+  });
+
   it("rejects missing recorded audio bytes", async () => {
     await expect(
       createVoiceAttachmentFromWavBytes({

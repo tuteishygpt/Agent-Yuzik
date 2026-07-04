@@ -1,4 +1,5 @@
 import * as DefaultFileSystem from "expo-file-system/legacy";
+import { Platform } from "react-native";
 
 import { bytesToBase64 } from "@/lib/audio-pcm-format";
 import type { ChatAttachment } from "@/lib/file-picker";
@@ -19,6 +20,13 @@ type CreateVoiceAttachmentOptions = {
   now?: () => number;
 };
 
+function createWavBlob(wavBytes: Uint8Array): Blob {
+  const wavBuffer = new ArrayBuffer(wavBytes.byteLength);
+  new Uint8Array(wavBuffer).set(wavBytes);
+
+  return new Blob([wavBuffer], { type: "audio/wav" });
+}
+
 export async function createVoiceAttachmentFromWavBytes({
   wavBytes,
   fileSystem,
@@ -32,9 +40,7 @@ export async function createVoiceAttachmentFromWavBytes({
   const cacheDirectory = fileSystem?.cacheDirectory ?? DefaultFileSystem.cacheDirectory;
   if (!cacheDirectory) {
     if (typeof Blob !== "undefined" && typeof URL.createObjectURL === "function") {
-      const wavBuffer = new ArrayBuffer(wavBytes.byteLength);
-      new Uint8Array(wavBuffer).set(wavBytes);
-      const blob = new Blob([wavBuffer], { type: "audio/wav" });
+      const blob = createWavBlob(wavBytes);
 
       return {
         uri: URL.createObjectURL(blob),
@@ -56,6 +62,21 @@ export async function createVoiceAttachmentFromWavBytes({
     await DefaultFileSystem.writeAsStringAsync(uri, bytesToBase64(wavBytes), {
       encoding: DefaultFileSystem.EncodingType.Base64,
     });
+  }
+
+  if (
+    Platform.OS === "web" &&
+    typeof Blob !== "undefined" &&
+    typeof URL.createObjectURL === "function"
+  ) {
+    const blob = createWavBlob(wavBytes);
+
+    return {
+      uri: URL.createObjectURL(blob),
+      name,
+      mimeType: "audio/wav",
+      blob,
+    };
   }
 
   return {

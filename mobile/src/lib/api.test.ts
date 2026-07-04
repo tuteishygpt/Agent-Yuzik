@@ -209,6 +209,71 @@ describe("chat api", () => {
     }
   });
 
+  it("resolves web attachment uris to blobs before appending multipart files", async () => {
+    const { Platform } = require("react-native") as typeof import("react-native");
+    const originalPlatform = Platform.OS;
+    const uploadedBlob = new Blob(["pdf"], { type: "application/pdf" });
+    const fetchImpl = jest
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        blob: jest.fn().mockResolvedValue(uploadedBlob),
+      })
+      .mockResolvedValueOnce(
+        createResponse({ text: "ok", audio: null, image: null }),
+      );
+    const appendSpy = jest.spyOn(FormData.prototype, "append");
+
+    Object.defineProperty(Platform, "OS", {
+      configurable: true,
+      value: "web",
+    });
+
+    try {
+      const { createChatApi } = require("./api") as typeof import("./api");
+      const api = createChatApi({
+        backendUrl: "https://api.yuzik.example",
+        getAccessToken: async () => "token-123",
+        fetchImpl,
+      });
+
+      await api.sendMessage({
+        text: "",
+        files: [
+          {
+            uri: "blob:yuzik-picked-pdf",
+            name: "Receipt-2125-5131-2223.pdf",
+            type: "application/pdf",
+          },
+        ],
+      });
+
+      expect(fetchImpl).toHaveBeenNthCalledWith(1, "blob:yuzik-picked-pdf");
+      expect(appendSpy).toHaveBeenCalledWith(
+        "files",
+        uploadedBlob,
+        "Receipt-2125-5131-2223.pdf",
+      );
+      expect(appendSpy).not.toHaveBeenCalledWith(
+        "files",
+        expect.objectContaining({
+          uri: "blob:yuzik-picked-pdf",
+        }),
+      );
+      expect(fetchImpl).toHaveBeenNthCalledWith(
+        2,
+        "https://api.yuzik.example/api/chat",
+        expect.objectContaining({ method: "POST" }),
+      );
+    } finally {
+      appendSpy.mockRestore();
+      Object.defineProperty(Platform, "OS", {
+        configurable: true,
+        value: originalPlatform,
+      });
+    }
+  });
+
   it("rejects multi-file uploads at the client boundary", async () => {
     const fetchImpl = jest.fn();
 

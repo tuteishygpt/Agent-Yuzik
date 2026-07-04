@@ -1,3 +1,5 @@
+import { Platform } from "react-native";
+
 import { getRuntimeEnv } from "./env";
 
 export type ChatHistoryMessage = {
@@ -214,11 +216,48 @@ async function requestJson<T>(
   return body as T;
 }
 
-function createMultipartBody(
+async function appendUploadFile(
+  body: FormData,
+  file: ChatUploadFile,
+  fetchImpl: typeof fetch,
+): Promise<void> {
+  if (file.blob) {
+    body.append("files", file.blob, file.name);
+    return;
+  }
+
+  if (Platform.OS === "web") {
+    const response = await fetchImpl(file.uri);
+
+    if (!response.ok) {
+      throw new ApiError(`Attachment could not be loaded from ${file.uri}.`, response.status, null);
+    }
+
+    const blob = await response.blob();
+    const uploadBlob =
+      file.type && blob.type !== file.type
+        ? new Blob([blob], { type: file.type })
+        : blob;
+    body.append("files", uploadBlob, file.name);
+    return;
+  }
+
+  body.append(
+    "files",
+    {
+      uri: file.uri,
+      name: file.name,
+      type: file.type ?? "application/octet-stream",
+    } as never,
+  );
+}
+
+async function createMultipartBody(
   text: string,
   files: ChatUploadFile[] | undefined,
+  fetchImpl: typeof fetch,
   legacyUserId?: string | null,
-): FormData {
+): Promise<FormData> {
   if ((files?.length ?? 0) > 1) {
     throw new ApiError("Only one attachment is supported.", 400, null);
   }
@@ -232,19 +271,7 @@ function createMultipartBody(
   }
 
   for (const file of files ?? []) {
-    if (file.blob) {
-      body.append("files", file.blob, file.name);
-      continue;
-    }
-
-    body.append(
-      "files",
-      {
-        uri: file.uri,
-        name: file.name,
-        type: file.type ?? "application/octet-stream",
-      } as never,
-    );
+    await appendUploadFile(body, file, fetchImpl);
   }
 
   return body;
@@ -296,6 +323,7 @@ export function createChatApiClient({
     },
     async sendMessage({ text, files }) {
       const legacyUserId = (await getLegacyUserId?.()) ?? null;
+      const body = await createMultipartBody(text, files, fetchImpl, legacyUserId);
       const payload = await requestJson<ChatResponse>(
         backendUrl,
         fetchImpl,
@@ -303,7 +331,7 @@ export function createChatApiClient({
         "/api/chat",
         {
           method: "POST",
-          body: createMultipartBody(text, files, legacyUserId),
+          body,
         },
       );
 
