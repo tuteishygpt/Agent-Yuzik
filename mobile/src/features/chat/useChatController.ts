@@ -170,12 +170,35 @@ async function buildAssistantMessage(
   };
 }
 
-function buildUserMessage(text: string, attachment: ChatAttachment | null): ChatMessage {
+function isAudioAttachment(attachment: ChatAttachment | null): boolean {
+  return attachment?.mimeType?.startsWith("audio/") ?? false;
+}
+
+function buildUserMessage(
+  text: string,
+  attachment: ChatAttachment | null,
+  playAudioArtifact: (uri: string) => Promise<void>,
+): ChatMessage {
+  const audioAttachment = attachment && isAudioAttachment(attachment) ? attachment : null;
+
   return {
     id: createMessageId("user"),
     role: "user",
-    content: text || attachment?.name || "Attachment",
-    artifact: null,
+    content: text || (audioAttachment ? "" : attachment?.name || "Attachment"),
+    artifact: audioAttachment
+      ? {
+          kind: "audio",
+          localUri: audioAttachment.uri,
+          presentation: "preview",
+          openInSystem: async () => {
+            await playAudioArtifact(audioAttachment.uri);
+          },
+          share: async () => {},
+          play: async () => {
+            await playAudioArtifact(audioAttachment.uri);
+          },
+        }
+      : null,
     artifactError: null,
   };
 }
@@ -185,6 +208,7 @@ function toUploadFile(attachment: ChatAttachment): ChatUploadFile {
     uri: attachment.uri,
     name: attachment.name,
     type: attachment.mimeType ?? undefined,
+    blob: attachment.blob,
   };
 }
 
@@ -274,7 +298,11 @@ export function useChatController({
     setIsSending(true);
     setError(null);
     const sentAttachment = attachment;
-    const userMessage = buildUserMessage(trimmedDraft, sentAttachment);
+    const userMessage = buildUserMessage(
+      trimmedDraft,
+      sentAttachment,
+      playAudioArtifactRef.current,
+    );
     setMessages((current) => [...current, userMessage]);
     setDraftText("");
     setAttachment(null);

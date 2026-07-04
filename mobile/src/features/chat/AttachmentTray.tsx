@@ -15,6 +15,39 @@ export function AttachmentTray({ attachment, onClear }: AttachmentTrayProps) {
 
   const isAudio = attachment.mimeType?.startsWith("audio/") ?? false;
 
+  if (isAudio) {
+    return (
+      <View style={styles.voiceContainer}>
+        <View style={styles.voicePlayButton} testID="attachment-voice-play-icon">
+          <View style={styles.voicePlayIcon} />
+        </View>
+        <View style={styles.voiceWaveform} testID="attachment-voice-waveform">
+          {VOICE_WAVEFORM_BARS.map((height, index) => (
+            <View
+              key={`${height}-${index}`}
+              style={[
+                styles.voiceWaveformBar,
+                {
+                  height,
+                  opacity: height > 14 ? 0.85 : 0.5,
+                },
+              ]}
+            />
+          ))}
+        </View>
+        <Pressable
+          accessibilityLabel="Remove attachment"
+          accessibilityRole="button"
+          onPress={onClear}
+          style={styles.voiceClearButton}
+        >
+          <View style={styles.voiceClearIcon} />
+          <View style={[styles.voiceClearIcon, styles.voiceClearIconReverse]} />
+        </Pressable>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <View style={styles.meta}>
@@ -37,6 +70,11 @@ export function AttachmentTray({ attachment, onClear }: AttachmentTrayProps) {
     </View>
   );
 }
+
+const VOICE_WAVEFORM_BARS = [
+  8, 10, 7, 12, 16, 11, 8, 14, 20, 24, 18, 12, 9, 13, 19, 22, 17, 10, 8, 12,
+  15, 11, 8, 9,
+];
 
 const styles = StyleSheet.create({
   container: {
@@ -88,5 +126,71 @@ const styles = StyleSheet.create({
     color: webTheme.colors.text,
     fontSize: 12,
     fontWeight: "700",
+  },
+  voiceContainer: {
+    minHeight: 54,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 27,
+    backgroundColor: webTheme.colors.surface,
+    borderWidth: 1,
+    borderColor: webTheme.colors.borderStrong,
+  },
+  voicePlayButton: {
+    width: 38,
+    height: 38,
+    flexShrink: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 19,
+    backgroundColor: webTheme.colors.primary,
+  },
+  voicePlayIcon: {
+    width: 0,
+    height: 0,
+    marginLeft: 3,
+    borderTopWidth: 7,
+    borderBottomWidth: 7,
+    borderLeftWidth: 11,
+    borderTopColor: "transparent",
+    borderBottomColor: "transparent",
+    borderLeftColor: webTheme.colors.surface,
+  },
+  voiceWaveform: {
+    height: 28,
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    overflow: "hidden",
+  },
+  voiceWaveformBar: {
+    width: 3,
+    borderRadius: 2,
+    backgroundColor: webTheme.colors.primary,
+  },
+  voiceClearButton: {
+    width: 44,
+    height: 44,
+    flexShrink: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 22,
+  },
+  voiceClearIcon: {
+    position: "absolute",
+    width: 18,
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: webTheme.colors.textMuted,
+    transform: [{ rotate: "45deg" }],
+  },
+  voiceClearIconReverse: {
+    transform: [{ rotate: "-45deg" }],
   },
 });

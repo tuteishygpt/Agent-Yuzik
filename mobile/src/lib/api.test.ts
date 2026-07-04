@@ -160,6 +160,55 @@ describe("chat api", () => {
     }
   });
 
+  it("serializes browser blob attachments as real multipart files on web", async () => {
+    const { Platform } = require("react-native") as typeof import("react-native");
+    const originalPlatform = Platform.OS;
+    const fetchImpl = jest.fn().mockResolvedValue(
+      createResponse({ text: "ok", audio: null, image: null }),
+    );
+    const appendSpy = jest.spyOn(FormData.prototype, "append");
+    const voiceBlob = new Blob(["RIFF"], { type: "audio/wav" });
+
+    Object.defineProperty(Platform, "OS", {
+      configurable: true,
+      value: "web",
+    });
+
+    try {
+      const { createChatApi } = require("./api") as typeof import("./api");
+      const api = createChatApi({
+        backendUrl: "https://api.yuzik.example",
+        getAccessToken: async () => "token-123",
+        fetchImpl,
+      });
+
+      await api.sendMessage({
+        text: "",
+        files: [
+          {
+            uri: "blob:yuzik-voice-message",
+            name: "voice-message.wav",
+            type: "audio/wav",
+            blob: voiceBlob,
+          },
+        ],
+      });
+
+      expect(appendSpy).toHaveBeenCalledWith("text", "");
+      expect(appendSpy).toHaveBeenCalledWith(
+        "files",
+        voiceBlob,
+        "voice-message.wav",
+      );
+    } finally {
+      appendSpy.mockRestore();
+      Object.defineProperty(Platform, "OS", {
+        configurable: true,
+        value: originalPlatform,
+      });
+    }
+  });
+
   it("rejects multi-file uploads at the client boundary", async () => {
     const fetchImpl = jest.fn();
 

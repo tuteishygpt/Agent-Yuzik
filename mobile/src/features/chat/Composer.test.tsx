@@ -105,7 +105,7 @@ describe("Composer", () => {
     expect(screen.getTextContent()).not.toContain("Yuzik can make mistakes.");
   });
 
-  it("starts voice recording from the trailing Figma action when the draft is empty", () => {
+  it("records voice while the trailing microphone action is held", () => {
     const onSend = jest.fn();
     const onStartVoiceRecording = jest.fn();
     const onStopVoiceRecording = jest.fn();
@@ -129,11 +129,12 @@ describe("Composer", () => {
     });
 
     act(() => {
-      voiceButton.props.onPress();
+      voiceButton.props.onPressIn();
+      voiceButton.props.onPressOut();
     });
 
     expect(onStartVoiceRecording).toHaveBeenCalledTimes(1);
-    expect(onStopVoiceRecording).not.toHaveBeenCalled();
+    expect(onStopVoiceRecording).toHaveBeenCalledTimes(1);
     expect(onSend).not.toHaveBeenCalled();
     expect(
       screen.renderer.root.findAllByProps({ accessibilityLabel: "Open menu" }),
@@ -166,9 +167,8 @@ describe("Composer", () => {
     expect(screen.getTextContent()).not.toContain("🎙");
   });
 
-  it("shows the Figma recording controls and confirms or cancels the voice draft", () => {
-    const onConfirmVoiceRecording = jest.fn();
-    const onCancelVoiceRecording = jest.fn();
+  it("shows the recording wave without replacing the held microphone action", () => {
+    const onStopVoiceRecording = jest.fn();
     const screen = render(
       <Composer
         attachment={null}
@@ -176,14 +176,12 @@ describe("Composer", () => {
         isRecordingVoice
         isSending={false}
         onAttach={jest.fn()}
-        onCancelVoiceRecording={onCancelVoiceRecording}
         onChangeDraftText={jest.fn()}
         onClearAttachment={jest.fn()}
-        onConfirmVoiceRecording={onConfirmVoiceRecording}
         onOpenMenu={jest.fn()}
         onSend={jest.fn()}
         onStartVoiceRecording={jest.fn()}
-        onStopVoiceRecording={jest.fn()}
+        onStopVoiceRecording={onStopVoiceRecording}
       />,
     );
 
@@ -193,15 +191,11 @@ describe("Composer", () => {
 
     act(() => {
       screen.renderer.root
-        .findByProps({ accessibilityLabel: "Send voice message" })
-        .props.onPress();
-      screen.renderer.root
-        .findByProps({ accessibilityLabel: "Cancel voice message" })
-        .props.onPress();
+        .findByProps({ accessibilityLabel: "Start voice message" })
+        .props.onPressOut();
     });
 
-    expect(onConfirmVoiceRecording).toHaveBeenCalledTimes(1);
-    expect(onCancelVoiceRecording).toHaveBeenCalledTimes(1);
+    expect(onStopVoiceRecording).toHaveBeenCalledTimes(1);
   });
 
   it("uses the trailing Figma action for sending when text is present", () => {

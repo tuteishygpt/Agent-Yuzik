@@ -82,11 +82,8 @@ export function Composer({
   onClearAttachment,
   attachment,
   isSending,
-  onOpenMenu,
   onStartVoiceRecording,
   onStopVoiceRecording,
-  onConfirmVoiceRecording,
-  onCancelVoiceRecording,
   isRecordingVoice = false,
 }: ComposerProps) {
   const { t } = useI18n();
@@ -115,7 +112,6 @@ export function Composer({
   const canSend = Boolean(draftText.trim() || attachment);
   const sendDisabled = isSending || !canSend;
   const showVoiceAction = !canSend && Boolean(onStartVoiceRecording && onStopVoiceRecording);
-  const confirmVoiceRecording = onConfirmVoiceRecording ?? onStopVoiceRecording;
 
   return (
     <View
@@ -127,79 +123,67 @@ export function Composer({
       <AttachmentTray attachment={attachment} onClear={onClearAttachment} />
       <View style={styles.bottomRow}>
         <View style={styles.inputContainer} testID="chat-composer-input-shell">
+          <Pressable
+            accessibilityLabel="Attach file"
+            disabled={isSending || isRecordingVoice}
+            onPress={() => {
+              void onAttach();
+            }}
+            style={styles.inlineAttachButton}
+          >
+            <Text style={styles.attachIcon}>+</Text>
+          </Pressable>
           {isRecordingVoice ? (
-            <>
-              <RecordingWave />
-              <Pressable
-                accessibilityLabel="Send voice message"
-                disabled={isSending}
-                onPress={() => {
-                  void confirmVoiceRecording?.();
-                }}
-                style={[styles.recordingAction, styles.recordingConfirm]}
-              >
-                <Text style={styles.recordingConfirmIcon}>✓</Text>
-              </Pressable>
-              <Pressable
-                accessibilityLabel="Cancel voice message"
-                disabled={isSending}
-                onPress={() => {
-                  void onCancelVoiceRecording?.();
-                }}
-                style={styles.recordingAction}
-              >
-                <Text style={styles.recordingCancelIcon}>×</Text>
-              </Pressable>
-            </>
+            <RecordingWave />
           ) : (
-            <>
-              <Pressable
-                accessibilityLabel="Attach file"
-                disabled={isSending}
-                onPress={() => {
-                  void onAttach();
-                }}
-                style={styles.inlineAttachButton}
-              >
-                <Text style={styles.attachIcon}>+</Text>
-              </Pressable>
-              <TextInput
-                blurOnSubmit={false}
-                enablesReturnKeyAutomatically
-                multiline
-                onChangeText={onChangeDraftText}
-                onKeyPress={handleKeyPress}
-                onSubmitEditing={handleSubmitEditing}
-                placeholder={t("chat.placeholder")}
-                placeholderTextColor={webTheme.colors.textDim}
-                ref={inputRef}
-                returnKeyType="send"
-                style={styles.input}
-                value={draftText}
-              />
-              <Pressable
-                accessibilityLabel={showVoiceAction ? "Start voice message" : "Send message"}
-                disabled={showVoiceAction ? isSending : sendDisabled}
-                onPress={
-                  showVoiceAction
-                    ? () => {
-                        void onStartVoiceRecording?.();
-                      }
-                    : () => {
-                        void onSend();
-                        inputRef.current?.focus();
-                      }
-                }
-                style={[
-                  styles.sendButton,
-                  showVoiceAction ? styles.voiceButton : null,
-                  !showVoiceAction && sendDisabled ? styles.sendButtonDisabled : null,
-                ]}
-              >
-                {showVoiceAction ? <VoiceIcon /> : <SendIcon />}
-              </Pressable>
-            </>
+            <TextInput
+              blurOnSubmit={false}
+              enablesReturnKeyAutomatically
+              multiline
+              onChangeText={onChangeDraftText}
+              onKeyPress={handleKeyPress}
+              onSubmitEditing={handleSubmitEditing}
+              placeholder={t("chat.placeholder")}
+              placeholderTextColor={webTheme.colors.textDim}
+              ref={inputRef}
+              returnKeyType="send"
+              style={styles.input}
+              value={draftText}
+            />
           )}
+          <Pressable
+            accessibilityLabel={showVoiceAction ? "Start voice message" : "Send message"}
+            disabled={showVoiceAction ? isSending : sendDisabled}
+            onPressIn={
+              showVoiceAction
+                ? () => {
+                    void onStartVoiceRecording?.();
+                  }
+                : undefined
+            }
+            onPressOut={
+              showVoiceAction
+                ? () => {
+                    void onStopVoiceRecording?.();
+                  }
+                : undefined
+            }
+            onPress={
+              showVoiceAction
+                ? undefined
+                : () => {
+                    void onSend();
+                    inputRef.current?.focus();
+                  }
+            }
+            style={[
+              styles.sendButton,
+              showVoiceAction ? styles.voiceButton : null,
+              !showVoiceAction && sendDisabled ? styles.sendButtonDisabled : null,
+            ]}
+          >
+            {showVoiceAction ? <VoiceIcon /> : <SendIcon />}
+          </Pressable>
         </View>
       </View>
     </View>
@@ -381,29 +365,5 @@ const styles = StyleSheet.create({
   },
   recordingDotShort: {
     height: 3,
-  },
-  recordingAction: {
-    width: webTheme.sizes.inputControl,
-    height: webTheme.sizes.inputControl,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: webTheme.sizes.inputControl / 2,
-    borderWidth: 1,
-    borderColor: webTheme.colors.border,
-    backgroundColor: webTheme.colors.surface,
-  },
-  recordingConfirm: {
-    borderColor: webTheme.colors.border,
-  },
-  recordingConfirmIcon: {
-    color: webTheme.colors.text,
-    fontSize: 20,
-    lineHeight: 22,
-  },
-  recordingCancelIcon: {
-    color: webTheme.colors.text,
-    fontSize: 28,
-    fontWeight: "300",
-    lineHeight: 30,
   },
 });

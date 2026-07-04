@@ -2,6 +2,7 @@ export type ChatAttachment = {
   uri: string;
   name: string;
   mimeType: string | null;
+  blob?: Blob;
 };
 
 function normalizeAttachment(

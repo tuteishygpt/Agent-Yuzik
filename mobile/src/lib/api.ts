@@ -9,6 +9,7 @@ export type ChatUploadFile = {
   uri: string;
   name: string;
   type?: string | null;
+  blob?: Blob;
 };
 
 export type ChatResponse = {
@@ -231,6 +232,11 @@ function createMultipartBody(
   }
 
   for (const file of files ?? []) {
+    if (file.blob) {
+      body.append("files", file.blob, file.name);
+      continue;
+    }
+
     body.append(
       "files",
       {

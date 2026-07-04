@@ -28,12 +28,25 @@ export async function createVoiceAttachmentFromWavBytes({
     throw new Error("Voice recording did not produce audio.");
   }
 
+  const name = `voice-message-${now()}.wav`;
   const cacheDirectory = fileSystem?.cacheDirectory ?? DefaultFileSystem.cacheDirectory;
   if (!cacheDirectory) {
+    if (typeof Blob !== "undefined" && typeof URL.createObjectURL === "function") {
+      const wavBuffer = new ArrayBuffer(wavBytes.byteLength);
+      new Uint8Array(wavBuffer).set(wavBytes);
+      const blob = new Blob([wavBuffer], { type: "audio/wav" });
+
+      return {
+        uri: URL.createObjectURL(blob),
+        name,
+        mimeType: "audio/wav",
+        blob,
+      };
+    }
+
     throw new Error("File system cache directory is unavailable.");
   }
 
-  const name = `voice-message-${now()}.wav`;
   const uri = `${cacheDirectory.replace(/\/+$/, "")}/${name}`;
   if (fileSystem) {
     await fileSystem.writeAsStringAsync(uri, bytesToBase64(wavBytes), {

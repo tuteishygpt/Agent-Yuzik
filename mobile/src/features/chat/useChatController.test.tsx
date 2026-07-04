@@ -478,4 +478,123 @@ describe("useChatController", () => {
     expect(sendMessage).toHaveBeenCalledTimes(1);
     expect(getTextContent(renderer)).toBe("hello | answer 1");
   });
+
+  it("passes browser blob voice attachments through to the chat api", async () => {
+    const sendMessage = jest.fn().mockResolvedValue({
+      text: "voice received",
+      audio: null,
+      image: null,
+    });
+    const voiceBlob = new Blob(["RIFF"], { type: "audio/wav" });
+
+    const observed: { current: ReturnType<typeof useChatController> | null } = {
+      current: null,
+    };
+
+    function Probe() {
+      observed.current = useChatController({
+        api: {
+          getHistory: jest.fn().mockResolvedValue([]),
+          clearHistory: jest.fn(),
+          sendMessage,
+        } as never,
+      });
+
+      return (
+        <Text>
+          {observed.current.messages.map((message) => message.content).join(" | ")}
+        </Text>
+      );
+    }
+
+    await act(async () => {
+      TestRenderer.create(<Probe />);
+    });
+
+    await act(async () => {
+      observed.current?.setAttachment({
+        uri: "blob:yuzik-voice-message",
+        name: "voice-message.wav",
+        mimeType: "audio/wav",
+        blob: voiceBlob,
+      });
+    });
+
+    await act(async () => {
+      await observed.current?.sendMessage();
+    });
+
+    expect(sendMessage).toHaveBeenCalledWith({
+      text: "",
+      files: [
+        {
+          uri: "blob:yuzik-voice-message",
+          name: "voice-message.wav",
+          type: "audio/wav",
+          blob: voiceBlob,
+        },
+      ],
+    });
+  });
+
+  it("renders sent voice attachments as audio artifacts without the generated filename", async () => {
+    const sendMessage = jest.fn().mockResolvedValue({
+      text: "voice received",
+      audio: null,
+      image: null,
+    });
+    const voiceBlob = new Blob(["RIFF"], { type: "audio/wav" });
+
+    const observed: { current: ReturnType<typeof useChatController> | null } = {
+      current: null,
+    };
+
+    function Probe() {
+      observed.current = useChatController({
+        api: {
+          getHistory: jest.fn().mockResolvedValue([]),
+          clearHistory: jest.fn(),
+          sendMessage,
+        } as never,
+      });
+
+      return (
+        <Text>
+          {observed.current.messages
+            .map((message) =>
+              [
+                `content:${message.content}`,
+                `artifact:${message.artifact?.kind ?? "none"}`,
+                `uri:${message.artifact?.localUri ?? "none"}`,
+              ].join("/"),
+            )
+            .join(" | ")}
+        </Text>
+      );
+    }
+
+    let renderer!: TestRenderer.ReactTestRenderer;
+
+    await act(async () => {
+      renderer = TestRenderer.create(<Probe />);
+    });
+
+    await act(async () => {
+      observed.current?.setAttachment({
+        uri: "blob:yuzik-voice-message",
+        name: "voice-message-1783178911839.wav",
+        mimeType: "audio/wav",
+        blob: voiceBlob,
+      });
+    });
+
+    await act(async () => {
+      await observed.current?.sendMessage();
+    });
+
+    expect(getTextContent(renderer)).toContain(
+      "content:/artifact:audio/uri:blob:yuzik-voice-message",
+    );
+    expect(getTextContent(renderer)).not.toContain("voice-message-1783178911839.wav");
+  });
 });

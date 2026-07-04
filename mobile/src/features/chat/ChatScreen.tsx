@@ -141,6 +141,7 @@ export default function ChatScreen() {
   const listRef = useRef<FlatList>(null);
   const recorderRef = useRef<VoiceRecorderAdapter | null>(null);
   const recordingRef = useRef(false);
+  const startRecordingPromiseRef = useRef<Promise<void> | null>(null);
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
 
@@ -160,25 +161,38 @@ export default function ChatScreen() {
   }, [controller.messages.length]);
 
   const startVoiceRecording = async () => {
-    if (recordingRef.current || controller.isSending) {
+    if (recordingRef.current || startRecordingPromiseRef.current || controller.isSending) {
       return;
     }
 
     const recorder = recorderRef.current ?? createVoiceRecorderAdapter();
     recorderRef.current = recorder;
     recordingRef.current = true;
-
-    try {
+    const startPromise = (async () => {
       await recorder.prepare();
       await recorder.start();
       setIsRecordingVoice(true);
+    })();
+    startRecordingPromiseRef.current = startPromise;
+
+    try {
+      await startPromise;
     } catch {
       recordingRef.current = false;
       setIsRecordingVoice(false);
+    } finally {
+      if (startRecordingPromiseRef.current === startPromise) {
+        startRecordingPromiseRef.current = null;
+      }
     }
   };
 
   const confirmVoiceRecording = async () => {
+    const pendingStart = startRecordingPromiseRef.current;
+    if (pendingStart) {
+      await pendingStart.catch(() => undefined);
+    }
+
     if (!recordingRef.current) {
       return;
     }
@@ -203,6 +217,11 @@ export default function ChatScreen() {
   };
 
   const cancelVoiceRecording = async () => {
+    const pendingStart = startRecordingPromiseRef.current;
+    if (pendingStart) {
+      await pendingStart.catch(() => undefined);
+    }
+
     if (!recordingRef.current) {
       return;
     }

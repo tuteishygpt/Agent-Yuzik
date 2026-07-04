@@ -1,13 +1,17 @@
 import { KeyboardAvoidingView, StyleSheet, Text, View } from "react-native";
 import { act } from "react-test-renderer";
 
+import { createVoiceRecorderAdapter } from "@/lib/audio-recording";
 import { render } from "@/test/render";
 import { webTheme } from "@/theme/webTheme";
 
+import { createVoiceAttachmentFromWavBytes } from "./chat-voice-attachment";
 import ChatScreen, { ChatHeader } from "./ChatScreen";
 
 const mockOpenMenu = jest.fn();
 const mockClearHistory = jest.fn().mockResolvedValue(undefined);
+const mockSetAttachment = jest.fn();
+const mockSendMessage = jest.fn();
 
 jest.mock("@/lib/api", () => ({
   createChatApiClient: jest.fn(() => ({
@@ -35,6 +39,10 @@ jest.mock("@/lib/supabase", () => ({
 
 jest.mock("@/lib/audio-recording", () => ({
   createVoiceRecorderAdapter: jest.fn(),
+}));
+
+jest.mock("./chat-voice-attachment", () => ({
+  createVoiceAttachmentFromWavBytes: jest.fn(),
 }));
 
 jest.mock("expo-audio", () => ({
@@ -70,13 +78,32 @@ jest.mock("./useChatController", () => ({
     isSending: false,
     messages: [],
     pickAttachment: jest.fn(),
-    sendMessage: jest.fn(),
-    setAttachment: jest.fn(),
+    sendMessage: mockSendMessage,
+    setAttachment: mockSetAttachment,
     setDraftText: jest.fn(),
   }),
 }));
 
 describe("ChatHeader", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockClearHistory.mockResolvedValue(undefined);
+    mockSendMessage.mockResolvedValue(undefined);
+    jest.mocked(createVoiceRecorderAdapter).mockReturnValue({
+      prepare: jest.fn().mockResolvedValue(undefined),
+      start: jest.fn().mockResolvedValue(undefined),
+      stop: jest.fn().mockResolvedValue({
+        uri: null,
+        wavBytes: new Uint8Array([0x52, 0x49, 0x46, 0x46]),
+      }),
+    });
+    jest.mocked(createVoiceAttachmentFromWavBytes).mockResolvedValue({
+      uri: "file:///cache/voice-message.wav",
+      name: "voice-message.wav",
+      mimeType: "audio/wav",
+    });
+  });
+
   it("matches the Figma header menu label and trash affordances", () => {
     const onOpenMenu = jest.fn();
     const onClearHistory = jest.fn();
@@ -188,6 +215,43 @@ describe("ChatHeader", () => {
     expect(frameStyle.width).toBe("100%");
     expect(frameStyle.maxWidth).toBeLessThanOrEqual(430);
     expect(frameStyle.alignSelf).toBe("center");
+
+    act(() => {
+      screen.renderer.unmount();
+    });
+  });
+
+  it("creates a voice attachment on microphone release without sending it", async () => {
+    const screen = render(<ChatScreen />);
+    const voiceButton = screen.renderer.root.findByProps({
+      accessibilityLabel: "Start voice message",
+    });
+
+    await act(async () => {
+      voiceButton.props.onPressIn();
+    });
+
+    expect(
+      screen.renderer.root.findByProps({ testID: "voice-recording-wave" }),
+    ).toBeTruthy();
+
+    const releaseButton = screen.renderer.root.findByProps({
+      accessibilityLabel: "Start voice message",
+    });
+
+    await act(async () => {
+      releaseButton.props.onPressOut();
+    });
+
+    expect(createVoiceAttachmentFromWavBytes).toHaveBeenCalledWith({
+      wavBytes: new Uint8Array([0x52, 0x49, 0x46, 0x46]),
+    });
+    expect(mockSetAttachment).toHaveBeenCalledWith({
+      uri: "file:///cache/voice-message.wav",
+      name: "voice-message.wav",
+      mimeType: "audio/wav",
+    });
+    expect(mockSendMessage).not.toHaveBeenCalled();
 
     act(() => {
       screen.renderer.unmount();
