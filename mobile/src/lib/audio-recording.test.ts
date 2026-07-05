@@ -271,6 +271,74 @@ describe("audio recording adapter (native PCM stream)", () => {
     expect(audioContext.close).toHaveBeenCalledTimes(1);
   });
 
+  it("uses play-and-record before opening and playback after closing web microphone capture", async () => {
+    Object.defineProperty(Platform, "OS", {
+      configurable: true,
+      value: "web",
+    });
+
+    const audioSessionTypes: string[] = [];
+    const audioSession = {
+      get type() {
+        return audioSessionTypes[audioSessionTypes.length - 1] ?? "auto";
+      },
+      set type(value: string) {
+        audioSessionTypes.push(value);
+      },
+    };
+    const processor = {
+      connect: jest.fn(),
+      disconnect: jest.fn(),
+      onaudioprocess: null as null | ((event: {
+        inputBuffer: { getChannelData: (channel: number) => Float32Array };
+      }) => void),
+    };
+    const audioContext = {
+      sampleRate: 16000,
+      destination: {},
+      close: jest.fn().mockResolvedValue(undefined),
+      resume: jest.fn().mockResolvedValue(undefined),
+      createMediaStreamSource: jest.fn(() => ({
+        connect: jest.fn(),
+        disconnect: jest.fn(),
+      })),
+      createScriptProcessor: jest.fn(() => processor),
+    };
+
+    Object.defineProperty(global, "navigator", {
+      configurable: true,
+      value: {
+        audioSession,
+        mediaDevices: {
+          getUserMedia: jest.fn().mockResolvedValue({
+            getTracks: jest.fn(() => [{ stop: jest.fn() }]),
+          }),
+        },
+      },
+    });
+    Object.defineProperty(global, "AudioContext", {
+      configurable: true,
+      value: jest.fn(() => audioContext),
+    });
+
+    const adapter = createVoiceRecorderAdapter();
+    await adapter.start();
+
+    processor.onaudioprocess?.({
+      inputBuffer: {
+        getChannelData: () => new Float32Array([0, 0.5, -0.5, 1]),
+      },
+    });
+
+    await adapter.stop();
+
+    expect(audioSessionTypes).toEqual([
+      "play-and-record",
+      "play-and-record",
+      "playback",
+    ]);
+  });
+
   it("waits for the browser audio context to close before stop resolves", async () => {
     Object.defineProperty(Platform, "OS", {
       configurable: true,

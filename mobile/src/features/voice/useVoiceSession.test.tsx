@@ -703,6 +703,173 @@ describe("useVoiceSession", () => {
     }
   });
 
+  it("waits for an in-flight browser recording start to stop before playback", async () => {
+    const originalPlatform = Platform.OS;
+    Object.defineProperty(Platform, "OS", {
+      configurable: true,
+      value: "web",
+    });
+
+    const socket = createSocketClient();
+    const recorder = createRecorder();
+    const startResult = createDeferred<void>();
+    const stopResult = createDeferred<{
+      uri: string | null;
+      wavBytes: Uint8Array | null;
+    }>();
+    recorder.start.mockReturnValue(startResult.promise);
+    recorder.stop.mockReturnValue(stopResult.promise);
+    const playback = createPlayback();
+    let latestSession: ReturnType<typeof useVoiceSession> | null = null;
+    let renderer: TestRenderer.ReactTestRenderer | undefined;
+
+    function Probe() {
+      latestSession = useVoiceSession({
+        backendUrl: "https://api.yuzik.example",
+        getAccessToken: async () => "token-123",
+        teacherMode: mockTeacherMode as never,
+        socketClientFactory: () => socket,
+        recording: recorder as never,
+        playback: playback as never,
+      });
+
+      return <Text>{latestSession.status}</Text>;
+    }
+
+    try {
+      await act(async () => {
+        renderer = TestRenderer.create(<Probe />);
+      });
+
+      await act(async () => {
+        await latestSession?.connect();
+      });
+
+      let listeningStart: Promise<void> | undefined;
+      await act(async () => {
+        listeningStart = latestSession?.startListening();
+        await Promise.resolve();
+      });
+
+      expect(recorder.start).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        socket.emit({ type: "audio", bytes: createLocalPcmFrame(1000) });
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(recorder.stop).not.toHaveBeenCalled();
+      expect(playback.playBytes).not.toHaveBeenCalled();
+
+      await act(async () => {
+        startResult.resolve();
+        await listeningStart;
+        await Promise.resolve();
+      });
+
+      expect(recorder.stop).toHaveBeenCalledTimes(1);
+      expect(playback.playBytes).not.toHaveBeenCalled();
+
+      await act(async () => {
+        stopResult.resolve({ uri: null, wavBytes: null });
+        await stopResult.promise;
+        await Promise.resolve();
+      });
+
+      expect(playback.playBytes).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        renderer?.unmount();
+      });
+    } finally {
+      Object.defineProperty(Platform, "OS", {
+        configurable: true,
+        value: originalPlatform,
+      });
+    }
+  });
+
+  it("does not restart browser recording before response playback can start", async () => {
+    jest.useFakeTimers();
+    const originalPlatform = Platform.OS;
+    Object.defineProperty(Platform, "OS", {
+      configurable: true,
+      value: "web",
+    });
+
+    const socket = createSocketClient();
+    const recorder = createRecorder();
+    const stopResult = createDeferred<{
+      uri: string | null;
+      wavBytes: Uint8Array | null;
+    }>();
+    recorder.stop.mockReturnValue(stopResult.promise);
+    const playback = createPlayback();
+    let latestSession: ReturnType<typeof useVoiceSession> | null = null;
+    let renderer: TestRenderer.ReactTestRenderer | undefined;
+
+    function Probe() {
+      latestSession = useVoiceSession({
+        backendUrl: "https://api.yuzik.example",
+        getAccessToken: async () => "token-123",
+        teacherMode: mockTeacherMode as never,
+        socketClientFactory: () => socket,
+        recording: recorder as never,
+        playback: playback as never,
+      });
+
+      return <Text>{latestSession.status}</Text>;
+    }
+
+    try {
+      await act(async () => {
+        renderer = TestRenderer.create(<Probe />);
+      });
+
+      await act(async () => {
+        await latestSession?.connect();
+        await latestSession?.startListening();
+        socket.emit({
+          type: "voice_config",
+          sample_rate: 1000,
+          playback_min_buffer_ms: 0,
+          playback_empty_grace_ms: 120,
+        });
+        socket.emit({ type: "audio", bytes: createLocalPcmFrame(1000) });
+        await Promise.resolve();
+      });
+
+      expect(recorder.stop).toHaveBeenCalledTimes(1);
+      expect(playback.playBytes).not.toHaveBeenCalled();
+
+      await act(async () => {
+        jest.advanceTimersByTime(1500);
+        await Promise.resolve();
+      });
+
+      expect(recorder.start).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        stopResult.resolve({ uri: null, wavBytes: null });
+        await stopResult.promise;
+        await Promise.resolve();
+      });
+
+      expect(playback.playBytes).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        renderer?.unmount();
+      });
+    } finally {
+      Object.defineProperty(Platform, "OS", {
+        configurable: true,
+        value: originalPlatform,
+      });
+      jest.useRealTimers();
+    }
+  });
+
   it("does not restart VAD until the streamed PCM queue drains", async () => {
     jest.useFakeTimers();
 
@@ -780,6 +947,128 @@ describe("useVoiceSession", () => {
     jest.useRealTimers();
   });
 
+  it("restarts browser recording from WebAudio playback end instead of the estimated chunk timer", async () => {
+    jest.useFakeTimers();
+    const originalPlatform = Platform.OS;
+    Object.defineProperty(Platform, "OS", {
+      configurable: true,
+      value: "web",
+    });
+
+    const socket = createSocketClient();
+    const recorder = createRecorder();
+    const playback = createPlayback();
+    let playbackDebug:
+      | ((event: {
+          type: "web_pcm_schedule" | "web_pcm_end";
+          contextStateBefore?: string;
+          contextStateAfter?: string;
+          contextSampleRate?: number;
+          frameSampleRate?: number;
+          samples?: number;
+          rmsDb?: number;
+          peak?: number;
+          currentTime: number;
+          startAt?: number;
+          queueEndAt?: number;
+          minBufferMs?: number;
+          contextState?: string;
+          remainingSources?: number;
+        }) => void)
+      | null = null;
+    playback.playBytes.mockImplementation(async (_bytes, options) => {
+      playbackDebug = options?.onDebug ?? null;
+      playbackDebug?.({
+        type: "web_pcm_schedule",
+        contextStateBefore: "running",
+        contextStateAfter: "running",
+        contextSampleRate: 1000,
+        frameSampleRate: 1000,
+        samples: 1000,
+        rmsDb: -18,
+        peak: 0.8,
+        currentTime: 0,
+        startAt: 0,
+        queueEndAt: 1,
+        minBufferMs: 0,
+      });
+    });
+    let latestSession: ReturnType<typeof useVoiceSession> | null = null;
+    let renderer!: TestRenderer.ReactTestRenderer;
+
+    function Probe() {
+      latestSession = useVoiceSession({
+        backendUrl: "https://api.yuzik.example",
+        getAccessToken: async () => "token-123",
+        teacherMode: mockTeacherMode as never,
+        socketClientFactory: () => socket,
+        recording: recorder as never,
+        playback: playback as never,
+      });
+
+      return <Text>{latestSession.status}</Text>;
+    }
+
+    try {
+      await act(async () => {
+        renderer = TestRenderer.create(<Probe />);
+      });
+
+      await act(async () => {
+        await latestSession?.connect();
+        await latestSession?.startListening();
+        socket.emit({
+          type: "voice_config",
+          sample_rate: 1000,
+          playback_min_buffer_ms: 0,
+          playback_empty_grace_ms: 120,
+        });
+        socket.emit({ type: "audio", bytes: createLocalPcmFrame(1000) });
+        await Promise.resolve();
+      });
+
+      expect(recorder.start).toHaveBeenCalledTimes(1);
+      expect(recorder.stop).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        jest.advanceTimersByTime(2000);
+        await Promise.resolve();
+      });
+
+      expect(recorder.start).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        playbackDebug?.({
+          type: "web_pcm_end",
+          contextState: "running",
+          currentTime: 1,
+          remainingSources: 0,
+        });
+        jest.advanceTimersByTime(119);
+        await Promise.resolve();
+      });
+
+      expect(recorder.start).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        jest.advanceTimersByTime(1);
+        await Promise.resolve();
+      });
+
+      expect(recorder.start).toHaveBeenCalledTimes(2);
+
+      await act(async () => {
+        renderer.unmount();
+      });
+    } finally {
+      Object.defineProperty(Platform, "OS", {
+        configurable: true,
+        value: originalPlatform,
+      });
+      jest.useRealTimers();
+    }
+  });
+
   it("does not restart browser recording while iOS HTML audio is still playing", async () => {
     jest.useFakeTimers();
     const originalPlatform = Platform.OS;
@@ -847,14 +1136,110 @@ describe("useVoiceSession", () => {
 
       await act(async () => {
         playbackDebug?.({ type: "web_html_end" });
-        jest.advanceTimersByTime(2500);
+        jest.advanceTimersByTime(1799);
         await Promise.resolve();
       });
 
       expect(recorder.start).toHaveBeenCalledTimes(1);
 
       await act(async () => {
-        jest.advanceTimersByTime(4500);
+        jest.advanceTimersByTime(1);
+        await Promise.resolve();
+      });
+
+      expect(recorder.start).toHaveBeenCalledTimes(2);
+
+      await act(async () => {
+        renderer.unmount();
+      });
+    } finally {
+      Object.defineProperty(Platform, "OS", {
+        configurable: true,
+        value: originalPlatform,
+      });
+      jest.useRealTimers();
+    }
+  });
+
+  it("keeps browser recording stopped between iOS HTML audio chunks", async () => {
+    jest.useFakeTimers();
+    const originalPlatform = Platform.OS;
+    Object.defineProperty(Platform, "OS", {
+      configurable: true,
+      value: "web",
+    });
+
+    const socket = createSocketClient();
+    const recorder = createRecorder();
+    const playback = createPlayback();
+    let playbackDebug:
+      | ((event: {
+          type: "web_html_start" | "web_html_end";
+          bytes?: number;
+        }) => void)
+      | null = null;
+    playback.playBytes.mockImplementation(async (_bytes, options) => {
+      playbackDebug = options?.onDebug ?? null;
+      playbackDebug?.({ type: "web_html_start", bytes: 4008 });
+    });
+    let latestSession: ReturnType<typeof useVoiceSession> | null = null;
+    let renderer!: TestRenderer.ReactTestRenderer;
+
+    function Probe() {
+      latestSession = useVoiceSession({
+        backendUrl: "https://api.yuzik.example",
+        getAccessToken: async () => "token-123",
+        teacherMode: mockTeacherMode as never,
+        socketClientFactory: () => socket,
+        recording: recorder as never,
+        playback: playback as never,
+      });
+
+      return <Text>{latestSession.status}</Text>;
+    }
+
+    try {
+      await act(async () => {
+        renderer = TestRenderer.create(<Probe />);
+      });
+
+      await act(async () => {
+        await latestSession?.connect();
+        await latestSession?.startListening();
+        socket.emit({
+          type: "voice_config",
+          sample_rate: 1000,
+          playback_min_buffer_ms: 0,
+          playback_empty_grace_ms: 120,
+        });
+        socket.emit({ type: "audio", bytes: createLocalPcmFrame(1000) });
+        await Promise.resolve();
+      });
+
+      expect(recorder.start).toHaveBeenCalledTimes(1);
+      expect(recorder.stop).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        playbackDebug?.({ type: "web_html_end" });
+        jest.advanceTimersByTime(900);
+        await Promise.resolve();
+        socket.emit({ type: "audio", bytes: createLocalPcmFrame(1000) });
+        await Promise.resolve();
+      });
+
+      expect(recorder.start).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        jest.advanceTimersByTime(1800);
+        await Promise.resolve();
+      });
+
+      expect(recorder.start).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        playbackDebug?.({ type: "web_html_start", bytes: 4008 });
+        playbackDebug?.({ type: "web_html_end" });
+        jest.advanceTimersByTime(1800);
         await Promise.resolve();
       });
 

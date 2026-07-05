@@ -1,6 +1,12 @@
 import { Buffer } from "buffer";
 import { PermissionsAndroid, Platform } from "react-native";
 
+import {
+  markBrowserAudioSessionRecording,
+  prepareBrowserAudioSessionForRecording,
+  resetBrowserAudioSessionAfterRecording,
+} from "./browser-audio-session";
+
 export type VoiceRecordingResult = {
   uri: string | null;
   wavBytes: Uint8Array | null;
@@ -245,6 +251,7 @@ function createWebVoiceRecorderAdapter(): VoiceRecorderAdapter {
     }
 
     try {
+      prepareBrowserAudioSessionForRecording();
       stream = await mediaDevices.getUserMedia({
         audio: {
           autoGainControl: true,
@@ -254,6 +261,7 @@ function createWebVoiceRecorderAdapter(): VoiceRecorderAdapter {
           sampleRate: SAMPLE_RATE,
         },
       });
+      markBrowserAudioSessionRecording();
     } catch (error) {
       console.warn("[VoiceRecorder] getUserMedia failed", {
         ...getErrorDiagnostics(error),
@@ -280,6 +288,7 @@ function createWebVoiceRecorderAdapter(): VoiceRecorderAdapter {
     const closingContext = context;
     context = null;
     await closingContext?.close?.().catch(() => undefined);
+    resetBrowserAudioSessionAfterRecording();
   }
 
   function appendPcmChunk(chunk: Uint8Array) {

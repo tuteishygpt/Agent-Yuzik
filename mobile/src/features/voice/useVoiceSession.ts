@@ -89,7 +89,7 @@ export type VoiceSession = VoiceSessionState & {
 };
 
 const RESUME_AFTER_RESPONSE_MS = 900;
-const IOS_WEB_HTML_RESUME_AFTER_RESPONSE_MS = 7000;
+const IOS_WEB_HTML_STREAM_IDLE_MS = 1800;
 const NON_STREAMING_AUDIO_IDLE_FALLBACK_MS = 900;
 const CLIENT_PLAYBACK_MIN_BUFFER_MS = 1200;
 const MICROPHONE_FRAME_TIMEOUT_MS = 2000;
@@ -451,7 +451,10 @@ export function useVoiceSession(
   const listeningStartInFlightRef = useRef<Promise<void> | null>(null);
   const voiceActivityGenerationRef = useRef(0);
   const vadRestartingRef = useRef(false);
-  const htmlPlaybackActiveRef = useRef(false);
+  const playbackLifecycleActiveRef = useRef(false);
+  const playbackStartPendingCountRef = useRef(0);
+  const htmlPlaybackModeRef = useRef(false);
+  const playbackResumeBlockedUntilRef = useRef(0);
   const playbackSequenceRef = useRef(0);
   const playbackQueueEndAtRef = useRef(0);
   const playbackInputReadyRef = useRef<Promise<unknown>>(Promise.resolve());
@@ -491,6 +494,39 @@ export function useVoiceSession(
     update((s) => ({ ...s, diagnostics }));
   }
 
+  function hasPlaybackStartPending() {
+    return playbackStartPendingCountRef.current > 0;
+  }
+
+  function beginPlaybackStartPending() {
+    playbackStartPendingCountRef.current += 1;
+  }
+
+  function endPlaybackStartPending() {
+    playbackStartPendingCountRef.current = Math.max(
+      0,
+      playbackStartPendingCountRef.current - 1,
+    );
+  }
+
+  function blockHtmlPlaybackResume() {
+    playbackResumeBlockedUntilRef.current = Math.max(
+      playbackResumeBlockedUntilRef.current,
+      Date.now() + IOS_WEB_HTML_STREAM_IDLE_MS,
+    );
+  }
+
+  function getPlaybackResumeBlockedMs() {
+    return Math.max(0, playbackResumeBlockedUntilRef.current - Date.now());
+  }
+
+  function clearPlaybackResumeGuards() {
+    playbackLifecycleActiveRef.current = false;
+    playbackStartPendingCountRef.current = 0;
+    htmlPlaybackModeRef.current = false;
+    playbackResumeBlockedUntilRef.current = 0;
+  }
+
   function handlePlaybackDebug(event: VoicePlaybackDebugEvent) {
     publishVoiceDiagnostic({
       type: "playback_debug",
@@ -498,15 +534,34 @@ export function useVoiceSession(
     });
 
     if (event.type === "web_html_start") {
-      htmlPlaybackActiveRef.current = true;
+      htmlPlaybackModeRef.current = true;
+      blockHtmlPlaybackResume();
+      playbackLifecycleActiveRef.current = true;
       clearResumeListeningTimer();
       return;
     }
 
-    if (event.type === "web_html_end") {
-      htmlPlaybackActiveRef.current = false;
+    if (event.type === "web_pcm_schedule") {
+      playbackLifecycleActiveRef.current = true;
+      clearResumeListeningTimer();
+      return;
+    }
+
+    if (
+      event.type === "web_html_end" ||
+      (event.type === "web_pcm_end" && event.remainingSources === 0)
+    ) {
+      playbackLifecycleActiveRef.current = false;
+      if (event.type === "web_html_end") {
+        blockHtmlPlaybackResume();
+      }
       if (stateRef.current.isListening) {
-        scheduleResumeListening(IOS_WEB_HTML_RESUME_AFTER_RESPONSE_MS);
+        scheduleResumeListening(
+          getPlaybackEndGraceMs(
+            stateRef.current.voiceConfig?.playback_empty_grace_ms,
+          ),
+          playbackSequenceRef.current,
+        );
       }
     }
   }
@@ -816,19 +871,27 @@ export function useVoiceSession(
     wavBytes: Uint8Array | null;
   }> | null>(null);
 
-  function stopVadRecording() {
+  function stopActiveVadRecording() {
     if (!vadRecordingActiveRef.current) {
       return Promise.resolve({ wavBytes: null });
     }
 
+    vadRecordingActiveRef.current = false;
+    return recording
+      .stop()
+      .catch(() => ({ wavBytes: null }) as { wavBytes: Uint8Array | null });
+  }
+
+  function stopVadRecording() {
     if (stopVadRecordingInFlight.current) {
       return stopVadRecordingInFlight.current;
     }
 
-    vadRecordingActiveRef.current = false;
-    const promise = recording
-      .stop()
-      .catch(() => ({ wavBytes: null }) as { wavBytes: Uint8Array | null })
+    const startInFlight = vadRecordingStartInFlightRef.current;
+    const promise = (startInFlight
+      ? startInFlight.catch(() => undefined).then(() => stopActiveVadRecording())
+      : stopActiveVadRecording()
+    )
       .finally(() => {
         stopVadRecordingInFlight.current = null;
       });
@@ -851,12 +914,13 @@ export function useVoiceSession(
   }
 
   function scheduleResumeListening(delayMs: number, sequence?: number) {
-    if (htmlPlaybackActiveRef.current) {
+    if (playbackLifecycleActiveRef.current) {
       return;
     }
 
     clearResumeListeningTimer();
     resumeListeningTimerRef.current = setTimeout(() => {
+      resumeListeningTimerRef.current = null;
       if (
         typeof sequence === "number" &&
         sequence !== playbackSequenceRef.current
@@ -864,7 +928,19 @@ export function useVoiceSession(
         return;
       }
 
-      resumeListeningTimerRef.current = null;
+      const resumeBlockedMs = getPlaybackResumeBlockedMs();
+      if (resumeBlockedMs > 0) {
+        scheduleResumeListening(resumeBlockedMs, sequence);
+        return;
+      }
+
+      if (hasPlaybackStartPending() || playbackLifecycleActiveRef.current) {
+        scheduleResumeListening(RESUME_AFTER_RESPONSE_MS, sequence);
+        return;
+      }
+
+      htmlPlaybackModeRef.current = false;
+      playbackResumeBlockedUntilRef.current = 0;
       update((s) => ({
         ...s,
         isPlaying: false,
@@ -962,11 +1038,16 @@ export function useVoiceSession(
       });
       if (vadRestartingRef.current) return;
       clearResumeListeningTimer();
+      if (htmlPlaybackModeRef.current) {
+        blockHtmlPlaybackResume();
+      }
       if (!stateRef.current.isPlaying) {
+        playbackLifecycleActiveRef.current = false;
         playbackInputReadyRef.current = suspendVadRecording();
         update((s) => ({ ...s, isPlaying: true }));
       }
       scheduleResumeAfterAudioChunk(message.bytes);
+      beginPlaybackStartPending();
       void playback
         .play(
           message.bytes,
@@ -980,9 +1061,11 @@ export function useVoiceSession(
           playbackInputReadyRef.current,
         )
         .then(() => {
+          endPlaybackStartPending();
           publishVoiceDiagnostic({ type: "playback_start" });
         })
         .catch((error: unknown) => {
+          endPlaybackStartPending();
           const msg = toErrorMessage(error);
           publishVoiceDiagnostic({ type: "playback_error" });
           update((s) => ({
@@ -1103,7 +1186,7 @@ export function useVoiceSession(
   ) {
     const shouldStopLocalVoice = status === "error";
     if (shouldStopLocalVoice) {
-      htmlPlaybackActiveRef.current = false;
+      clearPlaybackResumeGuards();
       voiceActivityGenerationRef.current += 1;
       clearResumeListeningTimer();
       clearMicrophoneFrameWatchdog();
@@ -1249,7 +1332,7 @@ export function useVoiceSession(
   }
 
   function stopListening() {
-    htmlPlaybackActiveRef.current = false;
+    clearPlaybackResumeGuards();
     voiceActivityGenerationRef.current += 1;
     clearResumeListeningTimer();
     clearMicrophoneFrameWatchdog();
@@ -1265,7 +1348,7 @@ export function useVoiceSession(
   }
 
   async function interrupt() {
-    htmlPlaybackActiveRef.current = false;
+    clearPlaybackResumeGuards();
     voiceActivityGenerationRef.current += 1;
     clearResumeListeningTimer();
     clearMicrophoneFrameWatchdog();
@@ -1333,7 +1416,7 @@ export function useVoiceSession(
   }
 
   function disconnect() {
-    htmlPlaybackActiveRef.current = false;
+    clearPlaybackResumeGuards();
     voiceActivityGenerationRef.current += 1;
     clearResumeListeningTimer();
     clearMicrophoneFrameWatchdog();

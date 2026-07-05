@@ -21,9 +21,10 @@ export type PcmBuffer = {
 
 type PcmBufferOptions = {
   emptyGraceMs?: number;
+  maxBufferBytes?: number;
 };
 
-const MAX_BUFFER_BYTES = 512 * 1024; // 512KB auto-flush threshold
+const DEFAULT_MAX_BUFFER_BYTES = 512 * 1024;
 
 export function createPcmBuffer(
   onFlush: (wavBytes: Uint8Array) => Promise<void>,
@@ -83,7 +84,10 @@ export function createPcmBuffer(
       chunks.push(pcmBytes.slice(0));
       totalBytes += pcmBytes.byteLength;
 
-      if (totalBytes >= MAX_BUFFER_BYTES) {
+      const maxBufferBytes =
+        options.maxBufferBytes ?? DEFAULT_MAX_BUFFER_BYTES;
+
+      if (maxBufferBytes > 0 && totalBytes >= maxBufferBytes) {
         flush();
       } else {
         clearTimer();

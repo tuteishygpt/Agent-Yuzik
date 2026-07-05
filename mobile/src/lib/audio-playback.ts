@@ -13,6 +13,7 @@ import {
   normalizePlaybackBytes,
 } from "./audio-pcm-format";
 import { createPcmBuffer } from "./audio-pcm-buffer";
+import { prepareBrowserAudioSessionForPlayback } from "./browser-audio-session";
 
 export type VoicePlaybackAdapter = {
   prepare: () => void;
@@ -294,6 +295,8 @@ async function createExpoPlaybackSound(
 function createWebPlaybackBackend(onPlayingChange: (playing: boolean) => void) {
   let webAudioContext: AudioContext | null = null;
   let webHtmlAudioElement: HTMLAudioElement | null = null;
+  let webHtmlPrimeToken: object | null = null;
+  let webHtmlPlaybackToken: object | null = null;
   let webPcmQueueEndAt = 0;
   const webPcmSources = new Set<AudioBufferSourceNode>();
 
@@ -329,19 +332,36 @@ function createWebPlaybackBackend(onPlayingChange: (playing: boolean) => void) {
 
   function prepareWebHtmlPlayback(): void {
     try {
+      if (webHtmlPlaybackToken) {
+        return;
+      }
+
       const audio = getWebHtmlAudioElement();
-      audio.src =
+      prepareBrowserAudioSessionForPlayback();
+      const primeToken = {};
+      const primeSrc =
         "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAgD4AAAB9AAACABAAZGF0YQAAAAA=";
+      webHtmlPrimeToken = primeToken;
+      audio.src = primeSrc;
       audio.load?.();
       void audio
         .play()
         .then(() => {
+          if (webHtmlPrimeToken !== primeToken || audio.src !== primeSrc) {
+            return;
+          }
+
           audio.pause();
           try {
             audio.currentTime = 0;
           } catch {}
         })
-        .catch(() => undefined);
+        .catch(() => undefined)
+        .finally(() => {
+          if (webHtmlPrimeToken === primeToken) {
+            webHtmlPrimeToken = null;
+          }
+        });
     } catch {
       // The real playback call will surface a user-visible error if needed.
     }
@@ -386,20 +406,38 @@ function createWebPlaybackBackend(onPlayingChange: (playing: boolean) => void) {
       bytes: Uint8Array,
     ): Promise<VoicePlaybackSound> {
       if (isIosWebBrowser()) {
+        let playbackToken: object | null = null;
         return {
           play: async () => {
             const audio = getWebHtmlAudioElement();
-            audio.onended = () => onFinished();
-            audio.onerror = () => onFinished();
+            const nextPlaybackToken = {};
+            webHtmlPrimeToken = null;
+            webHtmlPlaybackToken = nextPlaybackToken;
+            playbackToken = nextPlaybackToken;
+            prepareBrowserAudioSessionForPlayback();
+            const finishPlayback = () => {
+              if (webHtmlPlaybackToken === nextPlaybackToken) {
+                webHtmlPlaybackToken = null;
+              }
+              onFinished();
+            };
+            audio.onended = finishPlayback;
+            audio.onerror = finishPlayback;
             audio.src = uri;
             audio.load?.();
             await audio.play();
           },
           pause: () => {
+            if (webHtmlPlaybackToken === playbackToken) {
+              webHtmlPlaybackToken = null;
+            }
             getWebHtmlAudioElement().pause();
           },
           remove: () => {
             const audio = getWebHtmlAudioElement();
+            if (webHtmlPlaybackToken === playbackToken) {
+              webHtmlPlaybackToken = null;
+            }
             audio.onended = null;
             audio.onerror = null;
             audio.pause();
@@ -506,6 +544,8 @@ function createWebPlaybackBackend(onPlayingChange: (playing: boolean) => void) {
       source.start(startAt);
     },
     reset(): void {
+      webHtmlPrimeToken = null;
+      webHtmlPlaybackToken = null;
       webPcmQueueEndAt = 0;
       for (const source of webPcmSources) {
         try {
@@ -550,7 +590,8 @@ export function createVoicePlaybackAdapter(
   let nativePcmEnabled = nativePcm?.isAvailable() ?? false;
   let nativePcmFailCount = 0;
   const NATIVE_PCM_MAX_FAILURES = 3;
-  const IOS_WEB_PCM_EMPTY_GRACE_MS = 900;
+  const IOS_WEB_PCM_EMPTY_GRACE_MS = 400;
+  const IOS_WEB_PCM_MAX_BUFFER_BYTES = 8 * 1024 * 1024;
 
   const enqueuePlayback = (
     bytes: Uint8Array,
@@ -632,9 +673,17 @@ export function createVoicePlaybackAdapter(
   const pcmBuffer = createPcmBuffer((wavBytes) =>
     enqueuePlayback(wavBytes, {}),
   );
+  let iosWebPcmPlaybackOptions: VoicePlaybackBytesOptions | null = null;
   const iosWebPcmBuffer = createPcmBuffer(
-    (wavBytes) => enqueuePlayback(wavBytes, {}),
-    { emptyGraceMs: IOS_WEB_PCM_EMPTY_GRACE_MS },
+    (wavBytes) => {
+      const playbackOptions = iosWebPcmPlaybackOptions ?? {};
+      iosWebPcmPlaybackOptions = null;
+      return enqueuePlayback(wavBytes, playbackOptions);
+    },
+    {
+      emptyGraceMs: IOS_WEB_PCM_EMPTY_GRACE_MS,
+      maxBufferBytes: IOS_WEB_PCM_MAX_BUFFER_BYTES,
+    },
   );
 
   let stopped = false;
@@ -650,6 +699,7 @@ export function createVoicePlaybackAdapter(
 
     if (Platform.OS === "web") {
       if (webPlayback.isIosBrowser()) {
+        iosWebPcmPlaybackOptions = playbackOptions;
         await iosWebPcmBuffer.push(bytes, sampleRate);
         return;
       }
@@ -690,6 +740,7 @@ export function createVoicePlaybackAdapter(
     webPlayback.reset();
     pcmBuffer.clear();
     iosWebPcmBuffer.clear();
+    iosWebPcmPlaybackOptions = null;
     ignorePlaybackCleanup(nativePcm?.stop());
     ignorePlaybackCleanup(nativePcm?.reset());
     completeCurrentSound?.();
