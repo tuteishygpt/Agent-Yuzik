@@ -488,6 +488,7 @@ function createWebPlaybackBackend(onPlayingChange: (playing: boolean) => void) {
       sampleRate: number,
       playbackOptions: VoicePlaybackBytesOptions,
     ): Promise<void> {
+      prepareBrowserAudioSessionForPlayback();
       const context = getWebAudioContext();
       const contextStateBefore = String(context.state);
       await resumeWebAudioContextIfNeeded(context);
@@ -590,8 +591,6 @@ export function createVoicePlaybackAdapter(
   let nativePcmEnabled = nativePcm?.isAvailable() ?? false;
   let nativePcmFailCount = 0;
   const NATIVE_PCM_MAX_FAILURES = 3;
-  const IOS_WEB_PCM_EMPTY_GRACE_MS = 400;
-  const IOS_WEB_PCM_MAX_BUFFER_BYTES = 8 * 1024 * 1024;
 
   const enqueuePlayback = (
     bytes: Uint8Array,
@@ -673,18 +672,6 @@ export function createVoicePlaybackAdapter(
   const pcmBuffer = createPcmBuffer((wavBytes) =>
     enqueuePlayback(wavBytes, {}),
   );
-  let iosWebPcmPlaybackOptions: VoicePlaybackBytesOptions | null = null;
-  const iosWebPcmBuffer = createPcmBuffer(
-    (wavBytes) => {
-      const playbackOptions = iosWebPcmPlaybackOptions ?? {};
-      iosWebPcmPlaybackOptions = null;
-      return enqueuePlayback(wavBytes, playbackOptions);
-    },
-    {
-      emptyGraceMs: IOS_WEB_PCM_EMPTY_GRACE_MS,
-      maxBufferBytes: IOS_WEB_PCM_MAX_BUFFER_BYTES,
-    },
-  );
 
   let stopped = false;
 
@@ -698,12 +685,6 @@ export function createVoicePlaybackAdapter(
       playbackOptions.sampleRate ?? DEFAULT_LOCAL_PCM_SAMPLE_RATE;
 
     if (Platform.OS === "web") {
-      if (webPlayback.isIosBrowser()) {
-        iosWebPcmPlaybackOptions = playbackOptions;
-        await iosWebPcmBuffer.push(bytes, sampleRate);
-        return;
-      }
-
       await webPlayback.playPcmFrame(bytes, sampleRate, playbackOptions);
       return;
     }
@@ -739,8 +720,6 @@ export function createVoicePlaybackAdapter(
     playing = false;
     webPlayback.reset();
     pcmBuffer.clear();
-    iosWebPcmBuffer.clear();
-    iosWebPcmPlaybackOptions = null;
     ignorePlaybackCleanup(nativePcm?.stop());
     ignorePlaybackCleanup(nativePcm?.reset());
     completeCurrentSound?.();
@@ -763,7 +742,6 @@ export function createVoicePlaybackAdapter(
       }
 
       pcmBuffer.flush();
-      iosWebPcmBuffer.flush();
       await enqueuePlayback(bytes, playbackOptions);
     },
     stop() {

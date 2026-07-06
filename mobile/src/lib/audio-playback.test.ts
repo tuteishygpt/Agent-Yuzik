@@ -464,8 +464,7 @@ describe("audio playback adapter", () => {
     }
   });
 
-  it("uses HTML audio WAV playback for local PCM on iOS Safari web", async () => {
-    jest.useFakeTimers();
+  it("streams local PCM frames through Web Audio on iOS Safari after HTML audio priming", async () => {
     const originalPlatform = Platform.OS;
     const originalAudioContext = global.AudioContext;
     const audioSessionTypes: string[] = [];
@@ -490,9 +489,31 @@ describe("audio playback adapter", () => {
       removeAttribute: jest.fn(),
     };
     const AudioCtor = jest.fn(() => audio);
-    const writeBytesToCache = jest
-      .fn()
-      .mockResolvedValue("blob:yuzik-ios-response");
+    const channelData = { set: jest.fn() };
+    const source = {
+      buffer: null as unknown,
+      connect: jest.fn(),
+      start: jest.fn(),
+      stop: jest.fn(),
+      disconnect: jest.fn(),
+      onended: null as null | (() => void),
+    };
+    const audioContext = {
+      state: "running",
+      destination: {},
+      currentTime: 1,
+      sampleRate: 48000,
+      resume: jest.fn().mockResolvedValue(undefined),
+      decodeAudioData: jest.fn(),
+      createBuffer: jest.fn(() => ({
+        duration: 2 / 24000,
+        getChannelData: jest.fn(() => channelData),
+      })),
+      createBufferSource: jest.fn(() => source),
+    };
+    const AudioContextCtor = jest.fn(() => audioContext);
+    const writeBytesToCache = jest.fn();
+    const onDebug = jest.fn();
 
     Object.defineProperty(Platform, "OS", {
       configurable: true,
@@ -514,7 +535,7 @@ describe("audio playback adapter", () => {
     });
     Object.defineProperty(global, "AudioContext", {
       configurable: true,
-      value: jest.fn(),
+      value: AudioContextCtor,
     });
 
     try {
@@ -526,29 +547,40 @@ describe("audio playback adapter", () => {
       playback.prepare();
       const started = playback.playBytes(createLocalPcmFrame([0.25, -0.5]), {
         sampleRate: 24000,
+        playbackMinBufferMs: 1200,
+        onDebug,
       });
 
       await Promise.resolve();
-      expect(writeBytesToCache).not.toHaveBeenCalled();
-
-      jest.advanceTimersByTime(399);
       await Promise.resolve();
-      await Promise.resolve();
-      expect(writeBytesToCache).not.toHaveBeenCalled();
-
-      jest.advanceTimersByTime(1);
-      await Promise.resolve();
-      await Promise.resolve();
-      await started;
 
       expect(AudioCtor).toHaveBeenCalledTimes(1);
-      expect(global.AudioContext).not.toHaveBeenCalled();
-      expect(writeBytesToCache).toHaveBeenCalledTimes(1);
-      const cachedBytes = writeBytesToCache.mock.calls[0][0] as Uint8Array;
-      expect(String.fromCharCode(...cachedBytes.slice(0, 4))).toBe("RIFF");
-      expect(audio.src).toBe("blob:yuzik-ios-response");
-      expect(audio.play).toHaveBeenCalledTimes(2);
+      expect(AudioContextCtor).toHaveBeenCalledTimes(1);
+      expect(writeBytesToCache).not.toHaveBeenCalled();
+      expect(audio.play).toHaveBeenCalledTimes(1);
       expect(audioSessionTypes).toEqual(["playback", "playback"]);
+      expect(audioContext.decodeAudioData).not.toHaveBeenCalled();
+      expect(audioContext.createBuffer).toHaveBeenCalledWith(1, 2, 24000);
+      expect(channelData.set).toHaveBeenCalledWith(
+        new Float32Array([0.25, -0.5]),
+      );
+      expect(source.connect).toHaveBeenCalledWith(audioContext.destination);
+      expect(source.start).toHaveBeenCalledWith(2.2);
+      expect(onDebug).toHaveBeenCalledWith({
+        type: "web_pcm_schedule",
+        contextStateBefore: "running",
+        contextStateAfter: "running",
+        contextSampleRate: 48000,
+        frameSampleRate: 24000,
+        samples: 2,
+        rmsDb: expect.any(Number),
+        peak: 0.5,
+        currentTime: 1,
+        startAt: 2.2,
+        queueEndAt: 2.2 + 2 / 24000,
+        minBufferMs: 1200,
+      });
+      await started;
     } finally {
       Object.defineProperty(Platform, "OS", {
         configurable: true,
@@ -558,7 +590,6 @@ describe("audio playback adapter", () => {
         configurable: true,
         value: originalAudioContext,
       });
-      jest.useRealTimers();
     }
   });
 
@@ -636,8 +667,7 @@ describe("audio playback adapter", () => {
     }
   });
 
-  it("keeps a large iOS Safari PCM response in one HTML audio blob until stream idle", async () => {
-    jest.useFakeTimers();
+  it("schedules consecutive iOS Safari PCM frames without a WAV blob flush", async () => {
     const originalPlatform = Platform.OS;
     const originalAudioContext = global.AudioContext;
     const audio = {
@@ -653,9 +683,42 @@ describe("audio playback adapter", () => {
       removeAttribute: jest.fn(),
     };
     const AudioCtor = jest.fn(() => audio);
-    const writeBytesToCache = jest
-      .fn()
-      .mockResolvedValue("blob:yuzik-ios-response");
+    const sources: Array<{
+      buffer: unknown;
+      connect: jest.Mock;
+      start: jest.Mock;
+      stop: jest.Mock;
+      disconnect: jest.Mock;
+      onended: null | (() => void);
+    }> = [];
+    const audioContext = {
+      state: "running",
+      destination: {},
+      currentTime: 1,
+      sampleRate: 48000,
+      resume: jest.fn().mockResolvedValue(undefined),
+      decodeAudioData: jest.fn(),
+      createBuffer: jest.fn(
+        (_channels: number, samples: number, sampleRate: number) => ({
+          duration: samples / sampleRate,
+          getChannelData: jest.fn(() => ({ set: jest.fn() })),
+        }),
+      ),
+      createBufferSource: jest.fn(() => {
+        const source = {
+          buffer: null as unknown,
+          connect: jest.fn(),
+          start: jest.fn(),
+          stop: jest.fn(),
+          disconnect: jest.fn(),
+          onended: null as null | (() => void),
+        };
+        sources.push(source);
+        return source;
+      }),
+    };
+    const AudioContextCtor = jest.fn(() => audioContext);
+    const writeBytesToCache = jest.fn();
     const onDebug = jest.fn();
 
     Object.defineProperty(Platform, "OS", {
@@ -677,7 +740,7 @@ describe("audio playback adapter", () => {
     });
     Object.defineProperty(global, "AudioContext", {
       configurable: true,
-      value: jest.fn(),
+      value: AudioContextCtor,
     });
 
     try {
@@ -687,11 +750,11 @@ describe("audio playback adapter", () => {
       });
 
       const firstStarted = playback.playBytes(
-        createLocalPcmFrameOfLength(70_000, 0.1),
-        { sampleRate: 24000, onDebug },
+        createLocalPcmFrameOfLength(4, 0.1),
+        { sampleRate: 24000, playbackMinBufferMs: 1200, onDebug },
       );
       const secondStarted = playback.playBytes(
-        createLocalPcmFrameOfLength(70_000, 0.2),
+        createLocalPcmFrameOfLength(6, 0.2),
         { sampleRate: 24000, onDebug },
       );
 
@@ -700,40 +763,34 @@ describe("audio playback adapter", () => {
       await Promise.resolve();
 
       expect(writeBytesToCache).not.toHaveBeenCalled();
-
-      jest.advanceTimersByTime(399);
-      await Promise.resolve();
-      await Promise.resolve();
-
-      expect(writeBytesToCache).not.toHaveBeenCalled();
-
-      jest.advanceTimersByTime(1);
-      await Promise.resolve();
-      await Promise.resolve();
       await firstStarted;
       await secondStarted;
 
-      expect(writeBytesToCache).toHaveBeenCalledTimes(1);
-      expect(onDebug).toHaveBeenCalledTimes(1);
-      expect(onDebug).toHaveBeenCalledWith({
-        type: "web_html_start",
-        bytes: expect.any(Number),
-      });
-      const cachedBytes = writeBytesToCache.mock.calls[0][0] as Uint8Array;
-      const view = new DataView(
-        cachedBytes.buffer,
-        cachedBytes.byteOffset,
-        cachedBytes.byteLength,
+      expect(AudioCtor).not.toHaveBeenCalled();
+      expect(AudioContextCtor).toHaveBeenCalledTimes(1);
+      expect(writeBytesToCache).not.toHaveBeenCalled();
+      expect(audioContext.decodeAudioData).not.toHaveBeenCalled();
+      expect(audioContext.createBuffer).toHaveBeenNthCalledWith(1, 1, 4, 24000);
+      expect(audioContext.createBuffer).toHaveBeenNthCalledWith(2, 1, 6, 24000);
+      expect(sources).toHaveLength(2);
+      expect(sources[0].start).toHaveBeenCalledWith(2.2);
+      expect(sources[1].start).toHaveBeenCalledWith(2.2 + 4 / 24000);
+      expect(onDebug).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "web_pcm_schedule",
+          samples: 4,
+          startAt: 2.2,
+          queueEndAt: 2.2 + 4 / 24000,
+        }),
       );
-
-      expect(String.fromCharCode(...cachedBytes.slice(0, 4))).toBe("RIFF");
-      expect(view.getUint32(40, true)).toBe(560_000);
-      expect(view.getFloat32(44, true)).toBeCloseTo(0.1);
-      expect(view.getFloat32(44 + 70_000 * 4, true)).toBeCloseTo(0.2);
-
-      audio.onended?.();
-      await Promise.resolve();
-      expect(onDebug).toHaveBeenLastCalledWith({ type: "web_html_end" });
+      expect(onDebug).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "web_pcm_schedule",
+          samples: 6,
+          startAt: 2.2 + 4 / 24000,
+          queueEndAt: 2.2 + 10 / 24000,
+        }),
+      );
     } finally {
       Object.defineProperty(Platform, "OS", {
         configurable: true,
@@ -743,7 +800,6 @@ describe("audio playback adapter", () => {
         configurable: true,
         value: originalAudioContext,
       });
-      jest.useRealTimers();
     }
   });
 
